@@ -119,7 +119,8 @@ class ContabilitaController {
         $stmt2 = $this->pdo->prepare("SELECT 
             MONTH(data_emissione) as mese,
             COALESCE(SUM(importo_totale), 0) as fatturato,
-            COALESCE(SUM(CASE WHEN stato = 'pagata' THEN importo_totale ELSE 0 END), 0) as pagato
+            COALESCE(SUM(CASE WHEN stato = 'pagata' THEN importo_totale ELSE 0 END), 0) as pagato,
+            COUNT(id) as num_fatture
             FROM {$p}fatture WHERE YEAR(data_emissione) = ?
             GROUP BY MONTH(data_emissione) ORDER BY mese ASC");
         $stmt2->execute([$year]);
@@ -381,35 +382,59 @@ class ContabilitaController {
 
             // Tentiamo di validare in DB tra i sottoclienti del cliente individuato
             $sottoclienteId = null;
-            if ($sotto_nome_trovato && $clienteId) {
-                // Search existing
-                $searchSotto = strtolower(str_replace([' ', '.', ','], '', $sotto_nome_trovato));
-                foreach ($allSottoclienti as $sc) {
-                    if ($sc['cliente_id'] == $clienteId) {
-                        $dbSotto = strtolower(str_replace([' ', '.', ','], '', $sc['nome']));
-                        if (strpos($dbSotto, $searchSotto) !== false || strpos($searchSotto, $dbSotto) !== false) {
-                            $sottoclienteId = $sc['id'];
-                            break;
+            if ($clienteId) {
+                if ($sotto_nome_trovato) {
+                    // Search existing with the exact string found in regex
+                    $searchSotto = strtolower(str_replace([' ', '.', ','], '', $sotto_nome_trovato));
+                    foreach ($allSottoclienti as $sc) {
+                        if ($sc['cliente_id'] == $clienteId) {
+                            $dbSotto = strtolower(str_replace([' ', '.', ','], '', $sc['nome']));
+                            if (strpos($dbSotto, $searchSotto) !== false || strpos($searchSotto, $dbSotto) !== false) {
+                                $sottoclienteId = $sc['id'];
+                                break;
+                            }
                         }
                     }
-                }
-                
-                // Se non esiste, lo creo
-                if (!$sottoclienteId) {
-                    $stmtInsertS = $this->pdo->prepare("INSERT INTO {$this->prefix}sottoclienti 
-                        (cliente_id, nome, partita_iva, codice_fiscale, riferimento, indirizzo, citta, cap, provincia, pec, sdi, email) 
-                        VALUES (?, ?, '', '', '', '', '', '', '', '', '', '')");
-                    $resS = $stmtInsertS->execute([$clienteId, $sotto_nome_trovato]);
-                    if ($resS) {
-                        $sottoclienteId = $this->pdo->lastInsertId();
-                        // Aggiorno la cache array per non ricrearlo in righe successive della stessa fattura
-                        $allSottoclienti[] = ['id' => $sottoclienteId, 'cliente_id' => $clienteId, 'nome' => $sotto_nome_trovato];
-                        $errors[] = "Sottocliente '$sotto_nome_trovato' creato automaticamente.";
-                    } else {
-                        // Fallback se l'insert fallisce (es. strict mode o missing defaults)
-                        $errInfo = $stmtInsertS->errorInfo();
-                        $errors[] = "Impossibile creare il sottocliente '$sotto_nome_trovato': " . ($errInfo[2] ?? 'Errore MySQL');
-                        $sottoclienteId = null;
+                    
+                    // Se non esiste, lo creo
+                    if (!$sottoclienteId) {
+                        $stmtInsertS = $this->pdo->prepare("INSERT INTO {$this->prefix}sottoclienti 
+                            (cliente_id, nome, partita_iva, codice_fiscale, riferimento, indirizzo, citta, cap, provincia, pec, sdi, email) 
+                            VALUES (?, ?, '', '', '', '', '', '', '', '', '', '')");
+                        $resS = $stmtInsertS->execute([$clienteId, $sotto_nome_trovato]);
+                        if ($resS) {
+                            $sottoclienteId = $this->pdo->lastInsertId();
+                            // Aggiorno la cache array per non ricrearlo in righe successive della stessa fattura
+                            $allSottoclienti[] = ['id' => $sottoclienteId, 'cliente_id' => $clienteId, 'nome' => $sotto_nome_trovato];
+                            $errors[] = "Sottocliente '$sotto_nome_trovato' creato automaticamente.";
+                        } else {
+                            // Fallback se l'insert fallisce
+                            $errInfo = $stmtInsertS->errorInfo();
+                            $errors[] = "Impossibile creare il sottocliente '$sotto_nome_trovato': " . ($errInfo[2] ?? 'Errore MySQL');
+                            $sottoclienteId = null;
+                        }
+                    }
+                } else {
+                    // FALLBACK: Se la regex non ha catturato nulla (es. "viaggio a...", "trasferta per...") 
+                    // controlliamo se il nome di uno dei sottoclienti compare direttamente nella descrizione.
+                    $descClean = mb_strtolower($descrizione, 'UTF-8');
+                    foreach ($allSottoclienti as $sc) {
+                        if ($sc['cliente_id'] == $clienteId && !empty($sc['nome'])) {
+                            $dbSotto = mb_strtolower(trim($sc['nome']), 'UTF-8');
+                            if (mb_strlen($dbSotto, 'UTF-8') >= 4) {
+                                $escapedDbSotto = preg_quote($dbSotto, '/');
+                                // Check if name is found as a whole word
+                                if (preg_match('/\b' . $escapedDbSotto . '\b/iu', $descClean)) {
+                                    $sottoclienteId = $sc['id'];
+                                    break;
+                                }
+                                // Partial string matching for longer names
+                                if (mb_strlen($dbSotto, 'UTF-8') >= 7 && mb_strpos($descClean, $dbSotto) !== false) {
+                                    $sottoclienteId = $sc['id'];
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
             }
