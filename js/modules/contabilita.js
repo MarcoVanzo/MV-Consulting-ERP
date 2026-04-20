@@ -73,7 +73,8 @@ const ModContabilita = (() => {
             fullData.push({
                 mese: i,
                 fatturato: found ? parseFloat(found.fatturato) : 0,
-                pagato: found ? parseFloat(found.pagato) : 0
+                pagato: found ? parseFloat(found.pagato) : 0,
+                num_fatture: found ? parseInt(found.num_fatture) : 0
             });
         }
 
@@ -81,10 +82,11 @@ const ModContabilita = (() => {
             const hFatt = Math.max((m.fatturato / maxVal) * 100, 4);
             const hPag = Math.max((m.pagato / maxVal) * 100, 0);
             return `
-                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative;height:100%">
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative;height:100%"
+                     title="Mese: ${mesi[m.mese]}\nSomma Fatturato: ${UI.formatCurrency(m.fatturato)}\nSomma Pagato: ${UI.formatCurrency(m.pagato)}\nN. Fatture: ${m.num_fatture}">
                     <div style="flex:1;width:100%;display:flex;align-items:flex-end;gap:2px">
-                        <div class="chart-bar" style="height:${hFatt}%;opacity:0.4" title="Fatturato: ${UI.formatCurrency(m.fatturato)}"></div>
-                        <div class="chart-bar" style="height:${hPag > 0 ? hPag + '%' : '0%'};background:var(--accent-green)" title="Pagato: ${UI.formatCurrency(m.pagato)}"></div>
+                        <div class="chart-bar" style="height:${hFatt}%;opacity:0.4"></div>
+                        <div class="chart-bar" style="height:${hPag > 0 ? hPag + '%' : '0%'};background:var(--accent-green)"></div>
                     </div>
                     <span style="font-size:0.6rem;color:var(--text-muted)">${mesi[m.mese]}</span>
                 </div>
