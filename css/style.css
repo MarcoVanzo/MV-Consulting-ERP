@@ -180,6 +180,7 @@ body {
 }
 
 .sidebar-footer {
+  position: relative;
   padding: var(--sp-2) var(--sp-3);
   border-top: 1px solid var(--border-subtle);
 }
