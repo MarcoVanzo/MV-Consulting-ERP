@@ -21,10 +21,17 @@ class Auth {
             $dbPassword = !empty($user['password']) ? $user['password'] : (!empty($user['pwd_hash']) ? $user['pwd_hash'] : null);
 
             if ($user && $dbPassword && password_verify($password, $dbPassword)) {
-                // Generate a simple token (in production use real JWT)
-                $token = bin2hex(random_bytes(32));
+                // Generate a secure JWT Token
+                $secret = getenv('JWT_SECRET') ?: 'mv_fallback_secret_secure_2026';
                 
-                // Save it to user record if necessary or return it
+                $payload = [
+                    'id' => $user['id'],
+                    'email' => $user['email'],
+                    'role' => $user['role'] ?? 'admin',
+                    'exp' => time() + (86400 * 7) // expires in 7 days
+                ];
+                $token = JWT::encode($payload, $secret);
+                
                 return [
                     'id' => $user['id'],
                     'name' => $user['name'] ?? $user['full_name'] ?? 'User',

@@ -222,11 +222,29 @@ class GoogleAuthController {
                             $searchStrings[] = strtolower(trim($location));
                         }
 
+                        // Funzione di match sicura
+                        $isMatch = function($dbName, $str) {
+                            if ($dbName === $str && strlen($dbName) > 0) return true;
+                            
+                            // Prevent short generic matches
+                            $forbidden = ['spa', 'srl', 'snc', 'sas', 'per', 'con', 'del', 'dal', 'all', 'una'];
+                            if (in_array($dbName, $forbidden) || in_array($str, $forbidden)) return false;
+
+                            // Match full words only using regex to avoid partial overlaps inside other words
+                            $escapedDb = preg_quote($dbName, '/');
+                            if (strlen($dbName) >= 3 && preg_match('/\b' . $escapedDb . '\b/i', $str)) return true;
+                            
+                            $escapedStr = preg_quote($str, '/');
+                            if (strlen($str) >= 3 && preg_match('/\b' . $escapedStr . '\b/i', $dbName)) return true;
+                            
+                            return false;
+                        };
+
                         // Scorriamo le search string e testiamo contro sottoclienti prima (più specifici)
                         foreach ($sottoclienti as $sc) {
                             $nomeSc = strtolower(trim($sc['nome']));
                             foreach ($searchStrings as $s) {
-                                if (strpos($nomeSc, $s) !== false || strpos($s, $nomeSc) !== false) {
+                                if ($isMatch($nomeSc, $s)) {
                                     $matchedSottoclienteId = $sc['id'];
                                     $matchedClienteId = $sc['cliente_id'];
                                     break 2;
@@ -239,8 +257,7 @@ class GoogleAuthController {
                             foreach ($clienti as $c) {
                                 $ragSoc = strtolower(trim($c['ragione_sociale']));
                                 foreach ($searchStrings as $s) {
-                                    // Non matchare su stringhe troppo corte se non è un match esatto
-                                    if (strpos($ragSoc, $s) !== false || strpos($s, $ragSoc) !== false) {
+                                    if ($isMatch($ragSoc, $s)) {
                                         $matchedClienteId = $c['id'];
                                         break 2;
                                     }

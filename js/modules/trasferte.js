@@ -16,6 +16,13 @@ const ModTrasferte = (() => {
             const data = await Store.api('list', 'trasferte', params);
             _trasferte = data?.trasferte || [];
             _totali = data?.totali || {};
+            
+            // Sync costo km da localStorage prima del render
+            const storedCosto = localStorage.getItem('trasferte_costo_km');
+            if (storedCosto) {
+                document.getElementById('trasferte-costo-km').value = storedCosto;
+            }
+
             renderKpis();
             renderTable();
         } catch (err) {
@@ -32,6 +39,22 @@ const ModTrasferte = (() => {
     }
 
     function renderKpis() {
+        const costoKm = parseFloat(document.getElementById('trasferte-costo-km').value) || 0;
+        let totIndennita = 0;
+        
+        // Calcoliamo in modo grezzo le indennità totali
+        const grouped = {};
+        _trasferte.forEach(t => {
+            if (!grouped[t.data_trasferta]) grouped[t.data_trasferta] = false;
+            if (t.cliente_id || t.sottocliente_id) grouped[t.data_trasferta] = true;
+        });
+        Object.values(grouped).forEach(hasClient => {
+            if (hasClient) totIndennita += 46.48;
+        });
+
+        const costoKmTotale = (_totali.km_totali || 0) * costoKm;
+        const totaleComplessivo = (_totali.totale_spese || 0) + costoKmTotale + totIndennita;
+
         document.getElementById('trasferte-kpis').innerHTML = `
             <div class="kpi-card kpi-blue">
                 <div class="kpi-label">Trasferte</div>
@@ -42,11 +65,11 @@ const ModTrasferte = (() => {
                 <div class="kpi-value">${UI.formatNumber(_totali.km_totali)}</div>
             </div>
             <div class="kpi-card kpi-yellow">
-                <div class="kpi-label">Pedaggi</div>
-                <div class="kpi-value">${UI.formatCurrency(_totali.pedaggio)}</div>
+                <div class="kpi-label">Rimborso KM + Ind.</div>
+                <div class="kpi-value">${UI.formatCurrency(costoKmTotale + totIndennita)}</div>
             </div>
             <div class="kpi-card kpi-red">
-                <div class="kpi-label">Totale Spese</div>
+                <div class="kpi-label">Spese Extra</div>
                 <div class="kpi-value">${UI.formatCurrency(_totali.totale_spese)}</div>
             </div>
         `;
@@ -55,25 +78,73 @@ const ModTrasferte = (() => {
     function renderTable() {
         const tbody = document.getElementById('tbody-trasferte');
         if (!_trasferte.length) {
-            tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><i class="ph ph-car-profile"></i><h3>Nessuna trasferta</h3><p>Aggiungi la prima trasferta</p></div></td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><i class="ph ph-car-profile"></i><h3>Nessuna trasferta</h3><p>Aggiungi la prima trasferta</p></div></td></tr>`;
             return;
         }
-        tbody.innerHTML = _trasferte.map(t => {
-            const kmTot = parseFloat(t.km_andata || 0) + parseFloat(t.km_ritorno || 0);
+
+        const grouped = {};
+        _trasferte.forEach(t => {
+            if (!grouped[t.data_trasferta]) {
+                grouped[t.data_trasferta] = {
+                    data: t.data_trasferta,
+                    mattina: { nome: '', id: null },
+                    pomeriggio: { nome: '', id: null },
+                    km_totali: 0,
+                    has_client: false
+                };
+            }
+            const nome = t.sottocliente_nome ? UI.esc(t.sottocliente_nome) : (t.cliente_nome ? UI.esc(t.cliente_nome) : '');
+            if (nome) grouped[t.data_trasferta].has_client = true;
+            
+            const displayName = nome || '';
+            if (t.fascia_oraria === 'mattino') {
+                grouped[t.data_trasferta].mattina = { nome: displayName, id: t.id };
+            } else if (t.fascia_oraria === 'pomeriggio') {
+                grouped[t.data_trasferta].pomeriggio = { nome: displayName, id: t.id };
+            } else {
+                grouped[t.data_trasferta].mattina = { nome: displayName, id: t.id };
+                grouped[t.data_trasferta].pomeriggio = { nome: displayName, id: t.id };
+            }
+            
+            grouped[t.data_trasferta].km_totali += (parseFloat(t.km_andata || 0) + parseFloat(t.km_ritorno || 0));
+        });
+
+        const rows = Object.values(grouped).sort((a, b) => b.data.localeCompare(a.data));
+        const costoKm = parseFloat(document.getElementById('trasferte-costo-km').value) || 0;
+
+        tbody.innerHTML = rows.map(g => {
+            const indennita = g.has_client ? 46.48 : 0;
+            const rimborsoTotale = (g.km_totali * costoKm) + indennita;
+            
             return `
-            <tr data-id="${t.id}">
-                <td>${UI.formatDate(t.data_trasferta)}</td>
-                <td class="td-primary">${t.sottocliente_nome ? UI.esc(t.sottocliente_nome) : UI.esc(t.cliente_nome || '—')}</td>
-                <td>${UI.esc(t.luogo_arrivo || '—')}</td>
-                <td class="text-right">${UI.formatNumber(kmTot)}</td>
-                <td class="text-right">${UI.formatCurrency(t.pedaggio)}</td>
-                <td class="text-right">${UI.formatCurrency(t.vitto)}</td>
-                <td class="text-right">${UI.formatCurrency(parseFloat(t.alloggio || 0) + parseFloat(t.altre_spese || 0))}</td>
+            <tr>
+                <td>${UI.formatDate(g.data)}</td>
+                <td class="td-primary">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span>${g.mattina.nome}</span>
+                        ${g.mattina.id ? `
+                        <div class="flex gap-1">
+                            <button class="btn btn-sm btn-ghost" style="padding: 2px" onclick="ModTrasferte.edit(${g.mattina.id})"><i class="ph ph-pencil-simple"></i></button>
+                            <button class="btn btn-sm btn-danger" style="padding: 2px" onclick="ModTrasferte.remove(${g.mattina.id})"><i class="ph ph-trash"></i></button>
+                        </div>` : ''}
+                    </div>
+                </td>
+                <td class="td-primary">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span>${g.pomeriggio.nome}</span>
+                        ${g.pomeriggio.id && g.pomeriggio.id !== g.mattina.id ? `
+                        <div class="flex gap-1">
+                            <button class="btn btn-sm btn-ghost" style="padding: 2px" onclick="ModTrasferte.edit(${g.pomeriggio.id})"><i class="ph ph-pencil-simple"></i></button>
+                            <button class="btn btn-sm btn-danger" style="padding: 2px" onclick="ModTrasferte.remove(${g.pomeriggio.id})"><i class="ph ph-trash"></i></button>
+                        </div>` : ''}
+                    </div>
+                </td>
+                <td class="text-right">${UI.formatNumber(g.km_totali)}</td>
+                <td class="text-right">${UI.formatCurrency(indennita)}</td>
+                <td class="text-right fw-600">${UI.formatCurrency(rimborsoTotale)}</td>
                 <td>
-                    <div class="flex gap-2">
-                        <button class="btn btn-sm btn-ghost" title="Calcola KM per questa giornata" onclick="ModTrasferte.calcolaKm('${t.data_trasferta}')"><i class="ph ph-map-pin-line"></i></button>
-                        <button class="btn btn-sm btn-ghost" onclick="ModTrasferte.edit(${t.id})"><i class="ph ph-pencil-simple"></i></button>
-                        <button class="btn btn-sm btn-danger" onclick="ModTrasferte.remove(${t.id})"><i class="ph ph-trash"></i></button>
+                    <div class="flex gap-2 justify-end">
+                        <button class="btn btn-sm btn-ghost" title="Calcola KM per questa giornata" onclick="ModTrasferte.calcolaKm('${g.data}')"><i class="ph ph-map-pin-line"></i></button>
                     </div>
                 </td>
             </tr>`;
@@ -123,10 +194,7 @@ const ModTrasferte = (() => {
                     <label>KM Ritorno</label>
                     <input type="number" class="form-control" id="f-t-km-ritorno" value="${data.km_ritorno || 0}" step="0.1">
                 </div>
-                <div class="form-group">
-                    <label>Pedaggio</label>
-                    <input type="number" class="form-control" id="f-t-pedaggio" value="${data.pedaggio || 0}" step="0.01">
-                </div>
+
                 <div class="form-group">
                     <label>Vitto</label>
                     <input type="number" class="form-control" id="f-t-vitto" value="${data.vitto || 0}" step="0.01">
@@ -135,9 +203,13 @@ const ModTrasferte = (() => {
                     <label>Alloggio</label>
                     <input type="number" class="form-control" id="f-t-alloggio" value="${data.alloggio || 0}" step="0.01">
                 </div>
-                <div class="form-group">
-                    <label>Altre Spese</label>
-                    <input type="number" class="form-control" id="f-t-altre" value="${data.altre_spese || 0}" step="0.01">
+                <div class="form-group full-width" style="display: flex; gap: 20px; align-items: center; margin-top: 10px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="f-t-pernottamento" ${data.pernottamento == 1 ? 'checked' : ''}> Pernottamento (dormo fuori)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="f-t-km-bloccati" ${data.km_bloccati == 1 ? 'checked' : ''}> Blocca Ricalcolo KM (valori manuali)
+                    </label>
                 </div>
                 <div class="form-group full-width">
                     <label>Descrizione / Note</label>
@@ -150,7 +222,10 @@ const ModTrasferte = (() => {
 
     function openNew() {
         UI.openModal('Nuova Trasferta', getFormHtml(), saveFromForm);
-        setTimeout(initClienteWatch, 100);
+        setTimeout(() => {
+            initClienteWatch();
+            initKmWatch();
+        }, 100);
     }
 
     function edit(id) {
@@ -159,8 +234,20 @@ const ModTrasferte = (() => {
         UI.openModal('Modifica Trasferta', getFormHtml(t), saveFromForm);
         setTimeout(() => {
             initClienteWatch();
+            initKmWatch();
             if (t.cliente_id) loadSottoclienti(t.cliente_id, t.sottocliente_id);
         }, 100);
+    }
+
+    function initKmWatch() {
+        const andata = document.getElementById('f-t-km-andata');
+        const ritorno = document.getElementById('f-t-km-ritorno');
+        const bloccati = document.getElementById('f-t-km-bloccati');
+        if (!andata || !ritorno || !bloccati) return;
+
+        const setBloccato = () => { bloccati.checked = true; };
+        andata.addEventListener('input', setBloccato);
+        ritorno.addEventListener('input', setBloccato);
     }
 
     function initClienteWatch() {
@@ -201,11 +288,12 @@ const ModTrasferte = (() => {
             luogo_arrivo: document.getElementById('f-t-luogo').value,
             km_andata: document.getElementById('f-t-km-andata').value,
             km_ritorno: document.getElementById('f-t-km-ritorno').value,
-            pedaggio: document.getElementById('f-t-pedaggio').value,
+
             vitto: document.getElementById('f-t-vitto').value,
             alloggio: document.getElementById('f-t-alloggio').value,
-            altre_spese: document.getElementById('f-t-altre').value,
-            descrizione: document.getElementById('f-t-desc').value
+            descrizione: document.getElementById('f-t-desc').value,
+            pernottamento: document.getElementById('f-t-pernottamento').checked ? 1 : 0,
+            km_bloccati: document.getElementById('f-t-km-bloccati').checked ? 1 : 0
         };
         try {
             await Store.api('save', 'trasferte', payload);
@@ -230,12 +318,30 @@ const ModTrasferte = (() => {
 
     function initFilters() {
         UI.populateYearSelect('trasferte-year');
+        // Seleziona il mese corrente di default anziché "Tutti i mesi"
+        const currentMonth = new Date().getMonth() + 1;
+        document.getElementById('trasferte-month').value = currentMonth;
+
         document.getElementById('trasferte-year').addEventListener('change', load);
         document.getElementById('trasferte-month').addEventListener('change', load);
+        
+        const costoKmInput = document.getElementById('trasferte-costo-km');
+        if (costoKmInput) {
+            costoKmInput.addEventListener('input', () => {
+                localStorage.setItem('trasferte_costo_km', costoKmInput.value);
+                renderKpis();
+                renderTable();
+            });
+        }
 
         const btnSync = document.getElementById('btn-sync-google');
         if (btnSync) {
             btnSync.addEventListener('click', syncGoogle);
+        }
+
+        const btnCalcola = document.getElementById('btn-calcola-viaggi');
+        if (btnCalcola) {
+            btnCalcola.addEventListener('click', calcolaTuttiKm);
         }
     }
 
@@ -264,7 +370,6 @@ const ModTrasferte = (() => {
     }
 
     async function calcolaKm(date) {
-        if (!confirm('Vuoi calcolare automaticamente i KM per tutte le trasferte in data ' + UI.formatDate(date) + '? Verranno sovrascritti i valori esistenti.')) return;
         try {
             // Simuliamo stato di loading 
             const data = await Store.api('calcolaKmGiorno', 'trasferte', { data: date });
@@ -275,7 +380,29 @@ const ModTrasferte = (() => {
         }
     }
 
-    return { load, openNew, edit, remove, initFilters, syncGoogle, calcolaKm };
+    async function calcolaTuttiKm() {
+        const year = document.getElementById('trasferte-year').value;
+        const month = document.getElementById('trasferte-month').value;
+        const btn = document.getElementById('btn-calcola-viaggi');
+        
+        if (!confirm('Ricalcolare i chilometri per tutte le trasferte non bloccate del periodo selezionato?')) return;
+
+        try {
+            if (btn) btn.classList.add('loading');
+            const params = { year };
+            if (month) params.month = month;
+            
+            const data = await Store.api('calcolaTuttiKm', 'trasferte', params);
+            UI.toast(data.message || 'Calcolo di tutti i viaggi terminato', 'success');
+            load();
+        } catch (err) {
+            UI.toast(err.message || 'Errore nel calcolo viaggi', 'error');
+        } finally {
+            if (btn) btn.classList.remove('loading');
+        }
+    }
+
+    return { load, openNew, edit, remove, initFilters, syncGoogle, calcolaKm, calcolaTuttiKm };
 })();
 
 window.ModTrasferte = ModTrasferte;

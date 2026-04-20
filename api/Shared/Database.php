@@ -15,7 +15,7 @@ class Database {
                 self::$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
                 self::$pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
             } catch (PDOException $e) {
-                die(json_encode(['success' => false, 'error' => 'Database connection failed']));
+                throw new Exception('Database connection failed: ' . $e->getMessage());
             }
         }
         return self::$pdo;

@@ -84,10 +84,9 @@ $queries = [
         google_calendar_id VARCHAR(255) DEFAULT NULL,
         km_andata DECIMAL(8,1) DEFAULT 0,
         km_ritorno DECIMAL(8,1) DEFAULT 0,
-        pedaggio DECIMAL(8,2) DEFAULT 0,
+
         vitto DECIMAL(8,2) DEFAULT 0,
         alloggio DECIMAL(8,2) DEFAULT 0,
-        altre_spese DECIMAL(8,2) DEFAULT 0,
         note_spese TEXT DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -96,7 +95,9 @@ $queries = [
         UNIQUE KEY uk_google_event (google_event_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
-    "ALTER TABLE {$prefix}trasferte ADD COLUMN IF NOT EXISTS fascia_oraria ENUM('intera', 'mattino', 'pomeriggio') DEFAULT 'intera' AFTER data_trasferta",
+    "ALTER TABLE {$prefix}trasferte ADD COLUMN fascia_oraria ENUM('intera', 'mattino', 'pomeriggio') DEFAULT 'intera' AFTER data_trasferta",
+    "ALTER TABLE {$prefix}trasferte ADD COLUMN pernottamento TINYINT(1) DEFAULT 0 AFTER alloggio",
+    "ALTER TABLE {$prefix}trasferte ADD COLUMN km_bloccati TINYINT(1) DEFAULT 0 AFTER pernottamento",
 
     // ── Fatture / Contabilità ────────────────────────────
     "CREATE TABLE IF NOT EXISTS {$prefix}fatture (
