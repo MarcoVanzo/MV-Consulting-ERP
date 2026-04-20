@@ -265,6 +265,11 @@ class ContabilitaController {
             return;
         }
 
+        // Rimuove i namespace dall'XML per evitare problemi con SimpleXML
+        $xmlContent = preg_replace('/(<\/?)(?!xml)[a-zA-Z0-9_-]+:/i', '$1', $xmlContent); // Removes all ns prefixes like p:
+        $xmlContent = preg_replace('/\sxmlns=[\'"].*?[\'"]/i', '', $xmlContent); // Removes default namespaces
+        $xmlContent = preg_replace('/\sxmlns:[a-zA-Z0-9_-]+=[\'"].*?[\'"]/i', '', $xmlContent); // Removes prefixed namespaces
+
         libxml_use_internal_errors(true);
         $xml = simplexml_load_string($xmlContent);
         if ($xml === false) {
@@ -276,12 +281,8 @@ class ContabilitaController {
             return;
         }
 
-        // Register namespaces for FPR12
-        $namespaces = $xml->getNamespaces(true);
-        $p = isset($namespaces['p']) ? 'p' : ''; 
-        if ($p) $xml->registerXPathNamespace('p', $namespaces['p']);
-
         // Estrazione testata fattura
+        // Se l'XML root è <FatturaElettronica>, i child sono FatturaElettronicaHeader e FatturaElettronicaBody
         $header = $xml->FatturaElettronicaHeader;
         $body = $xml->FatturaElettronicaBody;
 
@@ -291,8 +292,14 @@ class ContabilitaController {
         }
 
         // Cliente (CessionarioCommittente/DatiAnagrafici/IdFiscaleIVA/IdCodice o CodiceFiscale)
+        $clientePaese = (string)($header->CessionarioCommittente->DatiAnagrafici->IdFiscaleIVA->IdPaese ?? '');
         $clientePartitaIva = (string)($header->CessionarioCommittente->DatiAnagrafici->IdFiscaleIVA->IdCodice ?? '');
         $clienteCodiceFiscale = (string)($header->CessionarioCommittente->DatiAnagrafici->CodiceFiscale ?? '');
+
+        if (!$clientePartitaIva && !$clienteCodiceFiscale) {
+            Response::json(false, 'Dati fiscali (Partita IVA / Codice Fiscale) non trovati nell\'XML.');
+            return;
+        }
 
         // Dati Generali
         $numeroFattura = (string)($body->DatiGenerali->DatiGeneraliDocumento->Numero ?? '');
@@ -311,9 +318,22 @@ class ContabilitaController {
 
         // 1. Trovo il cliente principale per Partita IVA o CF
         $clienteId = null;
+        
+        // Normalizzo PIVA/CF XML
+        $xmlPiva = strtoupper(str_replace(' ', '', $clientePartitaIva));
+        if (strpos($xmlPiva, 'IT') === 0) $xmlPiva = substr($xmlPiva, 2);
+        
+        $xmlCf = strtoupper(str_replace(' ', '', $clienteCodiceFiscale));
+        if (strpos($xmlCf, 'IT') === 0) $xmlCf = substr($xmlCf, 2);
+
         foreach ($allClienti as $c) {
-            if (($clientePartitaIva && strtoupper(str_replace(' ', '', $c['partita_iva'])) === strtoupper($clientePartitaIva)) || 
-                ($clienteCodiceFiscale && strtoupper(str_replace(' ', '', $c['codice_fiscale'])) === strtoupper($clienteCodiceFiscale))) {
+            $dbPiva = strtoupper(str_replace(' ', '', $c['partita_iva'] ?? ''));
+            if (strpos($dbPiva, 'IT') === 0) $dbPiva = substr($dbPiva, 2);
+            
+            $dbCf = strtoupper(str_replace(' ', '', $c['codice_fiscale'] ?? ''));
+            if (strpos($dbCf, 'IT') === 0) $dbCf = substr($dbCf, 2);
+
+            if (($xmlPiva && $xmlPiva === $dbPiva) || ($xmlCf && $xmlCf === $dbCf)) {
                 $clienteId = $c['id'];
                 break;
             }
