@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="it" dir="ltr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="MV Consulting ERP — Gestionale aziendale">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>MV Consulting ERP</title>
+    <!-- DNS preconnect per risorse CDN critiche -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com">
+    
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Barlow+Condensed:wght@600;700;800&family=Syne:wght@600;700&display=swap">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Barlow+Condensed:wght@600;700;800&family=Syne:wght@600;700&display=swap" rel="stylesheet">
+    
+    <script src="https://unpkg.com/@phosphor-icons/web" defer></script>
+    
+    <!-- Base CSS per MV Consulting -->
+    <link rel="stylesheet" href="css/style.css">
+    
+    <style>
+        /* Auth override from style_v2.css */
+        .auth-screen {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+            background: var(--bg-darker);
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 9999;
+            overflow: hidden;
+        }
+
+        .auth-panel {
+            width: 100%;
+            max-width: 480px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 40px;
+            background: rgba(12, 12, 16, 0.4);
+            backdrop-filter: var(--glass);
+            position: relative;
+            z-index: 10;
+            border-right: 1px solid var(--border-subtle);
+        }
+
+        @media (min-width: 1024px) {
+            .auth-panel {
+                padding: 60px;
+            }
+        }
+
+        .auth-logo {
+            margin-bottom: var(--sp-4);
+            text-align: center;
+        }
+
+        .auth-logo-img {
+            height: 64px;
+            object-fit: contain;
+            filter: drop-shadow(0 4px 12px rgba(255,255,255,0.1));
+        }
+
+        .auth-hero {
+            flex: 1;
+            display: none;
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(135deg, rgba(8,10,15,1) 0%, rgba(18,22,31,1) 100%);
+        }
+
+        @media (min-width: 768px) {
+            .auth-hero {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+        }
+
+        .auth-bg-orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.15;
+            animation: float 20s infinite ease-in-out;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .orb-1 {
+            width: 500px;
+            height: 500px;
+            background: var(--accent-primary);
+            top: -100px;
+            left: -100px;
+        }
+
+        .orb-2 {
+            width: 400px;
+            height: 400px;
+            background: var(--accent-secondary);
+            bottom: -50px;
+            right: 20%;
+            animation-delay: -5s;
+        }
+
+        .form-group-login {
+            margin-bottom: var(--sp-3);
+            position: relative;
+        }
+
+        .form-group-login label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-wrapper i.ph {
+            position: absolute;
+            left: 16px;
+            color: var(--text-muted);
+            font-size: 1.2rem;
+            pointer-events: none;
+        }
+
+        .input-wrapper input {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius);
+            padding: 14px 16px 14px 48px;
+            color: var(--text-primary);
+            font-size: 1rem;
+            transition: var(--transition);
+        }
+
+        .input-wrapper input:focus {
+            outline: none;
+            background: rgba(255, 255, 255, 0.05);
+            border-color: var(--accent-secondary);
+            box-shadow: var(--glow-cyan);
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 16px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            margin-top: var(--sp-2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            border: none;
+            border-radius: var(--radius);
+            color: white;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--glow-primary);
+        }
+        
+        .login-error {
+            padding: 12px 16px;
+            background: rgba(239, 68, 68, 0.1);
+            border-left: 3px solid var(--danger);
+            color: #fca5a5;
+            font-size: 0.85rem;
+            margin-bottom: var(--sp-3);
+            border-radius: 4px;
+        }
+        
+        .hidden { display: none !important; }
+        
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(30px, -50px) scale(1.1); }
+            66% { transform: translate(-20px, 20px) scale(0.9); }
+            100% { transform: translate(0, 0) scale(1); }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="auth-screen" class="auth-screen">
+        <!-- Background Orbs for UI Polish -->
+        <div class="auth-bg-orb orb-1"></div>
+        <div class="auth-bg-orb orb-2"></div>
+
+        <div class="auth-panel">
+            <div class="auth-logo">
+                <img src="assets/logo.png" alt="MV Consulting Logo" class="auth-logo-img">
+            </div>
+
+            <form id="login-form" class="login-form" novalidate>
+                <div class="form-group-login">
+                    <label for="login-email">Indirizzo email</label>
+                    <div class="input-wrapper">
+                        <i class="ph ph-envelope"></i>
+                        <input type="email" name="username" id="login-email" required
+                            placeholder="utente@mv-consulting.it" inputmode="email" autocomplete="username">
+                    </div>
+                </div>
+
+                <div class="form-group-login">
+                    <div class="label-row" style="display:flex; justify-content:space-between;">
+                        <label for="login-password">Password</label>
+                    </div>
+                    <div class="input-wrapper">
+                        <i class="ph ph-lock"></i>
+                        <input type="password" name="password" id="login-password" required
+                            placeholder="Inserisci la password" autocomplete="current-password">
+                    </div>
+                </div>
+
+                <p id="login-error" class="login-error hidden"></p>
+
+                <button type="submit" class="btn btn-primary btn-login" id="login-submit-btn">
+                    ACCEDI <i class="ph ph-caret-right"></i>
+                </button>
+            </form>
+        </div>
+        
+        <!-- Right side empty hero -->
+        <div class="auth-hero" aria-hidden="true">
+            <div style="opacity: 0.5;">
+                <img src="assets/logo.png" alt="MV Consulting Logo" style="max-height: 120px;">
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── APP SHELL ────────────────────────────── -->
+    <div id="app-shell" class="app-shell hidden">
+        <main class="main-content" style="padding: 2rem;">
+            <h1>Benvenuto in MV Consulting ERP</h1>
+            <button id="logout-btn" class="btn btn-login" style="max-width: 200px; margin-top: 2rem;">ESCI</button>
+        </main>
+    </div>
+
+    <!-- Core Scripts -->
+    <script src="js/core/store.js"></script>
+    <script src="js/core/auth.js"></script>
+    <script src="js/app.js"></script>
+
+</body>
+</html>

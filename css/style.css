@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
+:root {
+  /* Premium SaaS Palette - adjusted for MV Consulting */
+  --accent-primary: #1F88C9; /* MV Blue */
+  --accent-secondary: #0A5A8C; /* Darker blue */
+  
+  /* Surface & Background */
+  --bg-darker: #0B0E14;
+  --bg-dark: #12161F;
+  --bg-surface: rgba(255, 255, 255, 0.04);
+  --bg-surface-hover: rgba(255, 255, 255, 0.08);
+  
+  /* Typography */
+  --text-primary: #F8FAFC;
+  --text-secondary: rgba(248, 250, 252, 0.7);
+  --text-muted: rgba(248, 250, 252, 0.5);
+  
+  /* Borders & Outlines */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  
+  /* Effects */
+  --glass: blur(24px) saturate(180%);
+  --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --danger: #EF4444;
+  
+  --font-body: 'Inter', sans-serif;
+  --radius: 12px;
+  --sp-2: 16px;
+  --sp-3: 24px;
+  --sp-4: 32px;
+  
+  --glow-cyan: 0 0 16px rgba(31, 136, 201, 0.4);
+  --glow-primary: 0 0 16px rgba(10, 90, 140, 0.4);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--bg-darker);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
