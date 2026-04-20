@@ -16,8 +16,15 @@ const Store = (() => {
                 }
             }
 
+            const headers = {};
+            const token = localStorage.getItem('erp_token');
+            if (token) {
+                headers['Authorization'] = 'Bearer ' + token;
+            }
+
             const response = await fetch('api/router.php', {
                 method: 'POST',
+                headers: headers,
                 body: formData
             });
 
@@ -28,6 +35,13 @@ const Store = (() => {
             } catch (parseErr) {
                 console.error("Raw response:", text);
                 throw new Error('Risposta server non valida: ' + text.substring(0, 150));
+            }
+
+            if (response.status === 401 || (result && result.message === 'Token non valido o scaduto')) {
+                localStorage.removeItem('erp_token');
+                localStorage.removeItem('erp_user');
+                window.location.reload();
+                return;
             }
 
             if (!result.success) {

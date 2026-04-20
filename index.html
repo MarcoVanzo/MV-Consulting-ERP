@@ -220,6 +220,13 @@
                             <option value="9">Settembre</option><option value="10">Ottobre</option>
                             <option value="11">Novembre</option><option value="12">Dicembre</option>
                         </select>
+                        <div class="input-with-label" style="display: flex; align-items: center; gap: 8px;">
+                            <label for="trasferte-costo-km" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">€/KM</label>
+                            <input type="number" id="trasferte-costo-km" class="form-control" value="0.45" step="0.01" style="width: 80px;" title="Costo per KM">
+                        </div>
+                        <button class="btn btn-secondary" id="btn-calcola-viaggi" title="Calcola KM per tutte le date del mese selezionato">
+                            <i class="ph ph-map-trifold"></i> Calcola Viaggi
+                        </button>
                         <button class="btn btn-ghost" id="btn-sync-google" title="Sincronizza da Google Calendar">
                             <i class="ph ph-arrows-clockwise"></i> Sincronizza
                         </button>
@@ -234,17 +241,16 @@
                         <thead>
                             <tr>
                                 <th>Data</th>
-                                <th>Cliente</th>
-                                <th>Destinazione</th>
+                                <th>Cliente Mattina</th>
+                                <th>Cliente Pomeriggio</th>
                                 <th class="text-right">KM Tot.</th>
-                                <th class="text-right">Pedaggio</th>
-                                <th class="text-right">Vitto</th>
-                                <th class="text-right">Altre</th>
-                                <th style="width:80px"></th>
+                                <th class="text-right">Indennità</th>
+                                <th class="text-right">Rimborso Tot.</th>
+                                <th style="width:100px"></th>
                             </tr>
                         </thead>
                         <tbody id="tbody-trasferte">
-                            <tr><td colspan="8" class="empty-state"><i class="ph ph-car-profile"></i><h3>Nessuna trasferta</h3></td></tr>
+                            <tr><td colspan="7" class="empty-state"><i class="ph ph-car-profile"></i><h3>Nessuna trasferta</h3></td></tr>
                         </tbody>
                     </table>
                 </div>

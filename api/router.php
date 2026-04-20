@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/Shared/Database.php';
 require_once __DIR__ . '/Shared/Response.php';
+require_once __DIR__ . '/Shared/JWT.php';
 require_once __DIR__ . '/Shared/Auth.php';
 require_once __DIR__ . '/Controllers/ClientiController.php';
 require_once __DIR__ . '/Controllers/SottoclientiController.php';
@@ -56,6 +57,27 @@ if ($rawInput) {
 
 // Merge POST + JSON input
 $data = array_merge($_POST, $input);
+
+// ═══════════════════════════════════════════
+// GLOBAL AUTHENTICATION MIDDLEWARE
+// ═══════════════════════════════════════════
+$authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+$public_modules = ['auth', 'google']; // Whitelist public entry points
+if (!in_array($module, $public_modules)) {
+    if (preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
+        $jwt = $matches[1];
+        $secret = getenv('JWT_SECRET') ?: 'mv_fallback_secret_secure_2026';
+        $decoded = JWT::decode($jwt, $secret);
+        if (!$decoded) {
+            Response::json(false, 'Token non valido o scaduto', null, 401);
+            exit;
+        }
+        $GLOBALS['userContext'] = $decoded;
+    } else {
+        Response::json(false, 'Autorizzazione negata. Token mancante nel payload', null, 401);
+        exit;
+    }
+}
 
 try {
     switch ($module) {
@@ -119,6 +141,7 @@ try {
                 case 'delete':           $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
                 case 'rendiconto':       $ctrl->rendiconto(); break;
                 case 'calcolaKmGiorno':  $ctrl->calcolaKmGiorno(); break;
+                case 'calcolaTuttiKm':   $ctrl->calcolaTuttiKm(); break;
                 default:                 Response::json(false, "Azione trasferte non supportata: $action");
             }
             break;
