@@ -4,195 +4,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="theme-color" content="#000000">
+    <meta name="theme-color" content="#0B0E14">
     <meta name="description" content="MV Consulting ERP — Gestionale aziendale">
     <meta name="robots" content="noindex, nofollow">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>MV Consulting ERP</title>
-    <!-- DNS preconnect per risorse CDN critiche -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preconnect" href="https://unpkg.com">
-    
-    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Barlow+Condensed:wght@600;700;800&family=Syne:wght@600;700&display=swap">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Barlow+Condensed:wght@600;700;800&family=Syne:wght@600;700&display=swap" rel="stylesheet">
-    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Syne:wght@600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web" defer></script>
-    
-    <!-- Base CSS per MV Consulting -->
     <link rel="stylesheet" href="css/style.css">
-    
-    <style>
-        /* Auth override from style_v2.css */
-        .auth-screen {
-            display: flex;
-            height: 100vh;
-            width: 100vw;
-            background: var(--bg-darker);
-            position: fixed;
-            top: 0;
-            left: 0;
-            z-index: 9999;
-            overflow: hidden;
-        }
 
+    <style>
+        /* ── Auth Screen (inline for instant render) ── */
+        .auth-screen {
+            display: flex; height: 100vh; width: 100vw;
+            background: var(--bg-darker); position: fixed;
+            top: 0; left: 0; z-index: 9999; overflow: hidden;
+        }
         .auth-panel {
-            width: 100%;
-            max-width: 480px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            padding: 40px;
-            background: rgba(12, 12, 16, 0.4);
-            backdrop-filter: var(--glass);
-            position: relative;
-            z-index: 10;
+            width: 100%; max-width: 480px; display: flex;
+            flex-direction: column; justify-content: center;
+            padding: 40px; background: rgba(12, 12, 16, 0.4);
+            backdrop-filter: var(--glass); position: relative; z-index: 10;
             border-right: 1px solid var(--border-subtle);
         }
-
-        @media (min-width: 1024px) {
-            .auth-panel {
-                padding: 60px;
-            }
-        }
-
-        .auth-logo {
-            margin-bottom: var(--sp-4);
-            text-align: center;
-        }
-
-        .auth-logo-img {
-            height: 64px;
-            object-fit: contain;
-            filter: drop-shadow(0 4px 12px rgba(255,255,255,0.1));
-        }
-
+        @media (min-width: 1024px) { .auth-panel { padding: 60px; } }
+        .auth-logo { margin-bottom: var(--sp-4); text-align: center; }
+        .auth-logo-img { height: 64px; object-fit: contain; filter: drop-shadow(0 4px 12px rgba(255,255,255,0.1)); }
         .auth-hero {
-            flex: 1;
-            display: none;
-            position: relative;
-            overflow: hidden;
+            flex: 1; display: none; position: relative; overflow: hidden;
             background: linear-gradient(135deg, rgba(8,10,15,1) 0%, rgba(18,22,31,1) 100%);
         }
-
-        @media (min-width: 768px) {
-            .auth-hero {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-        }
-
-        .auth-bg-orb {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(80px);
-            opacity: 0.15;
-            animation: float 20s infinite ease-in-out;
-            pointer-events: none;
-            z-index: 1;
-        }
-
-        .orb-1 {
-            width: 500px;
-            height: 500px;
-            background: var(--accent-primary);
-            top: -100px;
-            left: -100px;
-        }
-
-        .orb-2 {
-            width: 400px;
-            height: 400px;
-            background: var(--accent-secondary);
-            bottom: -50px;
-            right: 20%;
-            animation-delay: -5s;
-        }
-
-        .form-group-login {
-            margin-bottom: var(--sp-3);
-            position: relative;
-        }
-
-        .form-group-login label {
-            display: block;
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-            font-weight: 500;
-        }
-
-        .input-wrapper {
-            position: relative;
-            display: flex;
-            align-items: center;
-        }
-
-        .input-wrapper i.ph {
-            position: absolute;
-            left: 16px;
-            color: var(--text-muted);
-            font-size: 1.2rem;
-            pointer-events: none;
-        }
-
+        @media (min-width: 768px) { .auth-hero { display: flex; align-items: center; justify-content: center; } }
+        .auth-bg-orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.15; animation: orbFloat 20s infinite ease-in-out; pointer-events: none; z-index: 1; }
+        .orb-1 { width: 500px; height: 500px; background: var(--accent-primary); top: -100px; left: -100px; }
+        .orb-2 { width: 400px; height: 400px; background: #0EBCB3; bottom: -50px; right: 20%; animation-delay: -5s; }
+        .form-group-login { margin-bottom: var(--sp-3); position: relative; }
+        .form-group-login label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px; font-weight: 500; }
+        .input-wrapper { position: relative; display: flex; align-items: center; }
+        .input-wrapper i.ph { position: absolute; left: 16px; color: var(--text-muted); font-size: 1.2rem; pointer-events: none; }
         .input-wrapper input {
-            width: 100%;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius);
-            padding: 14px 16px 14px 48px;
-            color: var(--text-primary);
-            font-size: 1rem;
-            transition: var(--transition);
+            width: 100%; background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-subtle); border-radius: var(--radius);
+            padding: 14px 16px 14px 48px; color: var(--text-primary);
+            font-size: 1rem; transition: var(--transition); font-family: var(--font-body);
         }
-
-        .input-wrapper input:focus {
-            outline: none;
-            background: rgba(255, 255, 255, 0.05);
-            border-color: var(--accent-secondary);
-            box-shadow: var(--glow-cyan);
-        }
-
+        .input-wrapper input:focus { outline: none; background: rgba(255, 255, 255, 0.05); border-color: var(--accent-secondary); box-shadow: var(--glow-cyan); }
         .btn-login {
-            width: 100%;
-            padding: 16px;
-            font-size: 1.1rem;
-            font-weight: 700;
-            letter-spacing: 0.05em;
-            margin-top: var(--sp-2);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-            border: none;
-            border-radius: var(--radius);
-            color: white;
-            cursor: pointer;
-            transition: var(--transition);
+            width: 100%; padding: 16px; font-size: 1.1rem; font-weight: 700;
+            letter-spacing: 0.05em; margin-top: var(--sp-2); display: flex;
+            align-items: center; justify-content: center; gap: 12px;
+            background: var(--accent-gradient); border: none;
+            border-radius: var(--radius); color: white; cursor: pointer; transition: var(--transition);
         }
-
-        .btn-login:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--glow-primary);
-        }
-        
-        .login-error {
-            padding: 12px 16px;
-            background: rgba(239, 68, 68, 0.1);
-            border-left: 3px solid var(--danger);
-            color: #fca5a5;
-            font-size: 0.85rem;
-            margin-bottom: var(--sp-3);
-            border-radius: 4px;
-        }
-        
-        .hidden { display: none !important; }
-        
-        @keyframes float {
+        .btn-login:hover { transform: translateY(-2px); box-shadow: var(--glow-primary); }
+        .login-error { padding: 12px 16px; background: rgba(239, 68, 68, 0.1); border-left: 3px solid var(--danger); color: #fca5a5; font-size: 0.85rem; margin-bottom: var(--sp-3); border-radius: 4px; }
+        @keyframes orbFloat {
             0% { transform: translate(0, 0) scale(1); }
             33% { transform: translate(30px, -50px) scale(1.1); }
             66% { transform: translate(-20px, 20px) scale(0.9); }
@@ -203,46 +72,35 @@
 
 <body>
 
+    <!-- ═══ AUTH SCREEN ═══ -->
     <div id="auth-screen" class="auth-screen">
-        <!-- Background Orbs for UI Polish -->
         <div class="auth-bg-orb orb-1"></div>
         <div class="auth-bg-orb orb-2"></div>
-
         <div class="auth-panel">
             <div class="auth-logo">
                 <img src="assets/logo.png" alt="MV Consulting Logo" class="auth-logo-img">
             </div>
-
             <form id="login-form" class="login-form" novalidate>
                 <div class="form-group-login">
                     <label for="login-email">Indirizzo email</label>
                     <div class="input-wrapper">
                         <i class="ph ph-envelope"></i>
-                        <input type="email" name="username" id="login-email" required
-                            placeholder="utente@mv-consulting.it" inputmode="email" autocomplete="username">
+                        <input type="email" name="username" id="login-email" required placeholder="utente@mv-consulting.it" inputmode="email" autocomplete="username">
                     </div>
                 </div>
-
                 <div class="form-group-login">
-                    <div class="label-row" style="display:flex; justify-content:space-between;">
-                        <label for="login-password">Password</label>
-                    </div>
+                    <label for="login-password">Password</label>
                     <div class="input-wrapper">
                         <i class="ph ph-lock"></i>
-                        <input type="password" name="password" id="login-password" required
-                            placeholder="Inserisci la password" autocomplete="current-password">
+                        <input type="password" name="password" id="login-password" required placeholder="Inserisci la password" autocomplete="current-password">
                     </div>
                 </div>
-
                 <p id="login-error" class="login-error hidden"></p>
-
                 <button type="submit" class="btn btn-primary btn-login" id="login-submit-btn">
                     ACCEDI <i class="ph ph-caret-right"></i>
                 </button>
             </form>
         </div>
-        
-        <!-- Right side empty hero -->
         <div class="auth-hero" aria-hidden="true">
             <div style="opacity: 0.5;">
                 <img src="assets/logo.png" alt="MV Consulting Logo" style="max-height: 120px;">
@@ -250,17 +108,235 @@
         </div>
     </div>
 
-    <!-- ─── APP SHELL ────────────────────────────── -->
+    <!-- ═══ APP SHELL ═══ -->
     <div id="app-shell" class="app-shell hidden">
-        <main class="main-content" style="padding: 2rem;">
-            <h1>Benvenuto in MV Consulting ERP</h1>
-            <button id="logout-btn" class="btn btn-login" style="max-width: 200px; margin-top: 2rem;">ESCI</button>
-        </main>
+
+        <!-- SIDEBAR -->
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <img src="assets/logo.png" alt="MV" class="sidebar-logo">
+                <span class="sidebar-title">MV Consulting</span>
+            </div>
+            <div class="sidebar-nav">
+                <div class="nav-section-label">Gestione</div>
+                <div class="nav-item active" data-view="clienti" id="nav-clienti">
+                    <i class="ph ph-buildings"></i>
+                    <span>Clienti</span>
+                </div>
+                <div class="nav-item" data-view="trasferte" id="nav-trasferte">
+                    <i class="ph ph-car-profile"></i>
+                    <span>Trasferte</span>
+                </div>
+                <div class="nav-item" data-view="contabilita" id="nav-contabilita">
+                    <i class="ph ph-chart-line-up"></i>
+                    <span>Contabilità</span>
+                </div>
+            </div>
+            <div class="sidebar-footer">
+                <div class="sidebar-user" id="user-menu-btn" style="cursor: pointer; position: relative;">
+                    <div class="sidebar-avatar" id="user-avatar">MV</div>
+                    <div class="sidebar-user-info">
+                        <div class="sidebar-user-name" id="user-display-name">Marco Vanzo</div>
+                        <div class="sidebar-user-role">Admin</div>
+                    </div>
+                    <i class="ph ph-caret-up" style="margin-left: auto; color: var(--text-muted);"></i>
+                </div>
+                
+                <div id="user-dropdown" class="dropdown-menu hidden" style="bottom: 100%; left: 0; margin-bottom: 8px; width: 100%;">
+                    <button class="dropdown-item" id="profile-btn" type="button">
+                        <i class="ph ph-user"></i> Il mio profilo
+                    </button>
+                    <div class="admin-only">
+                        <div class="dropdown-divider"></div>
+                        <button class="dropdown-item nav-item" data-view="utenti" type="button">
+                            <i class="ph ph-users"></i> Gestione Utenti
+                        </button>
+                        <button class="dropdown-item nav-item" data-view="backup" type="button">
+                            <i class="ph ph-database"></i> Backup Sistema
+                        </button>
+                        <button class="dropdown-item nav-item" data-view="logs" type="button">
+                            <i class="ph ph-clipboard-text"></i> Log di Sistema
+                        </button>
+                    </div>
+                    <div class="dropdown-divider"></div>
+                    <button class="dropdown-item" id="logout-btn" type="button">
+                        <i class="ph ph-sign-out"></i> Esci
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <!-- MAIN CONTENT -->
+        <div class="main-content">
+
+            <!-- ═══ VIEW: CLIENTI ═══ -->
+            <section class="view-section active" id="view-clienti">
+                <div class="page-header">
+                    <h1 class="page-title"><i class="ph ph-buildings"></i> Clienti</h1>
+                    <div class="page-actions">
+                        <button class="btn btn-primary" id="btn-add-cliente">
+                            <i class="ph ph-plus"></i> Nuovo Cliente
+                        </button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <div class="table-toolbar">
+                        <div class="table-search">
+                            <i class="ph ph-magnifying-glass"></i>
+                            <input type="text" id="search-clienti" placeholder="Cerca cliente...">
+                        </div>
+                    </div>
+                    <table class="data-table" id="table-clienti">
+                        <thead>
+                            <tr>
+                                <th style="width:30px"></th>
+                                <th>Ragione Sociale</th>
+                                <th>P. IVA</th>
+                                <th>Città</th>
+                                <th>Email / PEC</th>
+                                <th>Sotto.</th>
+                                <th style="width:100px"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-clienti">
+                            <tr><td colspan="7" class="empty-state"><i class="ph ph-buildings"></i><h3>Nessun cliente</h3><p>Aggiungi il primo cliente con il pulsante sopra</p></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ═══ VIEW: TRASFERTE ═══ -->
+            <section class="view-section" id="view-trasferte">
+                <div class="page-header">
+                    <h1 class="page-title"><i class="ph ph-car-profile"></i> Trasferte</h1>
+                    <div class="page-actions">
+                        <select class="form-control" id="trasferte-year" style="width: auto;"></select>
+                        <select class="form-control" id="trasferte-month" style="width: auto;">
+                            <option value="">Tutti i mesi</option>
+                            <option value="1">Gennaio</option><option value="2">Febbraio</option>
+                            <option value="3">Marzo</option><option value="4">Aprile</option>
+                            <option value="5">Maggio</option><option value="6">Giugno</option>
+                            <option value="7">Luglio</option><option value="8">Agosto</option>
+                            <option value="9">Settembre</option><option value="10">Ottobre</option>
+                            <option value="11">Novembre</option><option value="12">Dicembre</option>
+                        </select>
+                        <button class="btn btn-primary" id="btn-add-trasferta">
+                            <i class="ph ph-plus"></i> Nuova Trasferta
+                        </button>
+                    </div>
+                </div>
+                <div class="kpi-grid" id="trasferte-kpis"></div>
+                <div class="table-container">
+                    <table class="data-table" id="table-trasferte">
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Cliente</th>
+                                <th>Destinazione</th>
+                                <th class="text-right">KM Tot.</th>
+                                <th class="text-right">Pedaggio</th>
+                                <th class="text-right">Vitto</th>
+                                <th class="text-right">Altre</th>
+                                <th style="width:80px"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-trasferte">
+                            <tr><td colspan="8" class="empty-state"><i class="ph ph-car-profile"></i><h3>Nessuna trasferta</h3></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ═══ VIEW: CONTABILITÀ ═══ -->
+            <section class="view-section" id="view-contabilita">
+                <div class="page-header">
+                    <h1 class="page-title"><i class="ph ph-chart-line-up"></i> Contabilità</h1>
+                    <div class="page-actions">
+                        <select class="form-control" id="contabilita-year" style="width: auto;"></select>
+                        <button class="btn btn-primary" id="btn-add-fattura">
+                            <i class="ph ph-plus"></i> Nuova Fattura
+                        </button>
+                    </div>
+                </div>
+                <div class="kpi-grid" id="contabilita-kpis"></div>
+                <div class="chart-card" id="contabilita-chart-card">
+                    <div class="chart-card-title">Andamento Mensile</div>
+                    <div class="chart-bars" id="contabilita-chart"></div>
+                </div>
+                <div class="table-container">
+                    <div class="table-toolbar">
+                        <div class="filters-row" style="margin-bottom:0">
+                            <span class="filter-chip active" data-stato="">Tutte</span>
+                            <span class="filter-chip" data-stato="emessa">Emesse</span>
+                            <span class="filter-chip" data-stato="inviata">Inviate</span>
+                            <span class="filter-chip" data-stato="pagata">Pagate</span>
+                            <span class="filter-chip" data-stato="scaduta">Scadute</span>
+                        </div>
+                    </div>
+                    <table class="data-table" id="table-fatture">
+                        <thead>
+                            <tr>
+                                <th>N. Fattura</th>
+                                <th>Data</th>
+                                <th>Cliente</th>
+                                <th class="text-right">Imponibile</th>
+                                <th class="text-right">Totale</th>
+                                <th>Stato</th>
+                                <th>Scadenza</th>
+                                <th style="width:80px"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-fatture">
+                            <tr><td colspan="8" class="empty-state"><i class="ph ph-chart-line-up"></i><h3>Nessuna fattura</h3></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ═══ VIEW: UTENTI ═══ -->
+            <section class="view-section" id="view-utenti">
+                <div id="admin-utenti-content"></div>
+            </section>
+
+            <!-- ═══ VIEW: BACKUP ═══ -->
+            <section class="view-section" id="view-backup">
+                <div id="admin-backup-content"></div>
+            </section>
+
+            <!-- ═══ VIEW: LOGS ═══ -->
+            <section class="view-section" id="view-logs">
+                <div id="admin-logs-content"></div>
+            </section>
+
+        </div><!-- /main-content -->
+    </div><!-- /app-shell -->
+
+    <!-- ═══ MODAL ═══ -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal" id="modal">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modal-title">Nuovo Cliente</h2>
+                <button class="modal-close" id="modal-close"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+            <div class="modal-footer" id="modal-footer">
+                <button class="btn btn-ghost" id="modal-cancel">Annulla</button>
+                <button class="btn btn-primary" id="modal-save">Salva</button>
+            </div>
+        </div>
     </div>
+
+    <!-- ═══ TOAST ═══ -->
+    <div class="toast-container" id="toast-container"></div>
 
     <!-- Core Scripts -->
     <script src="js/core/store.js"></script>
     <script src="js/core/auth.js"></script>
+    <script src="js/core/ui.js"></script>
+    <script src="js/modules/clienti.js"></script>
+    <script src="js/modules/trasferte.js"></script>
+    <script src="js/modules/contabilita.js"></script>
+    <script src="js/modules/admin.js"></script>
     <script src="js/app.js"></script>
 
 </body>

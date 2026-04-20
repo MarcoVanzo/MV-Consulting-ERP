@@ -18,14 +18,16 @@ class Auth {
             $stmt->execute(['email' => $email]);
             $user = $stmt->fetch();
 
-            if ($user && password_verify($password, $user['password'])) {
+            $dbPassword = !empty($user['password']) ? $user['password'] : (!empty($user['pwd_hash']) ? $user['pwd_hash'] : null);
+
+            if ($user && $dbPassword && password_verify($password, $dbPassword)) {
                 // Generate a simple token (in production use real JWT)
                 $token = bin2hex(random_bytes(32));
                 
                 // Save it to user record if necessary or return it
                 return [
                     'id' => $user['id'],
-                    'name' => $user['name'] ?? 'User',
+                    'name' => $user['name'] ?? $user['full_name'] ?? 'User',
                     'email' => $user['email'],
                     'role' => $user['role'] ?? 'admin',
                     'token' => $token
