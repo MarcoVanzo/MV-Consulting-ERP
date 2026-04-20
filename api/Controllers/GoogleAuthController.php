@@ -199,6 +199,21 @@ class GoogleAuthController {
                         $descDb = "Titolo Originario: $summary\n";
                         if ($description) $descDb .= "Descrizione: $description";
 
+                        // Determine fascia_oraria based on start/end time
+                        $isAllDay = isset($event['start']['date']);
+                        $fasciaOraria = 'intera';
+                        
+                        if (!$isAllDay && isset($event['start']['dateTime']) && isset($event['end']['dateTime'])) {
+                            $startHour = (int)date('H', strtotime($event['start']['dateTime']));
+                            $endHour = (int)date('H', strtotime($event['end']['dateTime']));
+                            
+                            if ($startHour < 13 && $endHour <= 14) {
+                                $fasciaOraria = 'mattino';
+                            } elseif ($startHour >= 13) {
+                                $fasciaOraria = 'pomeriggio';
+                            }
+                        }
+
                         // Logica di auto-matching del cliente e sottocliente
                         $matchedClienteId = null;
                         $matchedSottoclienteId = null;
@@ -206,26 +221,27 @@ class GoogleAuthController {
                         // Prep search strings da event
                         $searchStrings = [];
                         if (!empty($summary)) {
+                            // Filter out common tiny words and split loosely
                             $parts = preg_split('/[\s\-]+/', $summary);
                             foreach ($parts as $p) {
                                 $p = trim($p);
-                                if (strlen($p) >= 3) $searchStrings[] = strtolower($p);
+                                if (mb_strlen($p, 'UTF-8') >= 3) $searchStrings[] = mb_strtolower($p, 'UTF-8');
                             }
-                            $searchStrings[] = strtolower(trim($summary));
+                            $searchStrings[] = mb_strtolower(trim($summary), 'UTF-8');
                         }
                         if (!empty($location)) {
                             $locParts = preg_split('/[\s\-]+/', $location);
                             foreach ($locParts as $p) {
                                 $p = trim($p);
-                                if (strlen($p) >= 3) $searchStrings[] = strtolower($p);
+                                if (mb_strlen($p, 'UTF-8') >= 3) $searchStrings[] = mb_strtolower($p, 'UTF-8');
                             }
-                            $searchStrings[] = strtolower(trim($location));
+                            $searchStrings[] = mb_strtolower(trim($location), 'UTF-8');
                         }
 
                         // Funzione di match sicura
                         $isMatch = function($dbName, $str, $fullDescription = '') {
-                            $dbName = strtolower(trim($dbName));
-                            if ($dbName === $str && strlen($dbName) > 0) return true;
+                            $dbName = mb_strtolower(trim($dbName), 'UTF-8');
+                            if ($dbName === $str && mb_strlen($dbName, 'UTF-8') > 0) return true;
                             
                             // Prevent short generic matches
                             $forbidden = ['spa', 'srl', 'snc', 'sas', 'per', 'con', 'del', 'dal', 'all', 'una', 'ita', 'titolo'];
@@ -233,29 +249,31 @@ class GoogleAuthController {
 
                             // Verifica nelle short string
                             $escapedDb = preg_quote($dbName, '/');
-                            if (strlen($dbName) >= 3 && preg_match('/\b' . $escapedDb . '\b/i', $str)) return true;
+                            if (mb_strlen($dbName, 'UTF-8') >= 3 && preg_match('/\b' . $escapedDb . '\b/iu', $str)) return true;
                             
                             $escapedStr = preg_quote($str, '/');
-                            if (strlen($str) >= 3 && preg_match('/\b' . $escapedStr . '\b/i', $dbName)) return true;
+                            if (mb_strlen($str, 'UTF-8') >= 3 && preg_match('/\b' . $escapedStr . '\b/iu', $dbName)) return true;
 
                             // Verifica nella descrizione completa del calendario (se fornita)
-                            if (strlen($dbName) > 4 && !empty($fullDescription)) {
-                                if (preg_match('/\b' . $escapedDb . '\b/i', $fullDescription)) return true;
+                            if (mb_strlen($dbName, 'UTF-8') > 4 && !empty($fullDescription)) {
+                                if (preg_match('/\b' . $escapedDb . '\b/iu', $fullDescription)) return true;
                             }
                             
+                            // Extra fallback: se il dbName inizia con la str o viceversa (matches parziali senza word boundary se sono lunghe)
+                            if (mb_strlen($str, 'UTF-8') >= 5 && mb_strpos($dbName, $str) !== false) return true;
+                            if (mb_strlen($dbName, 'UTF-8') >= 5 && mb_strpos($str, $dbName) !== false) return true;
+
                             return false;
                         };
 
                         // Scorriamo le search string e testiamo contro sottoclienti prima (più specifici)
                         foreach ($sottoclienti as $sc) {
                             $nomeSc = $sc['nome'];
-                            // Proviamo a matchare la descrizione completa anche senza lo split
                             if ($isMatch($nomeSc, '', $description)) {
                                 $matchedSottoclienteId = $sc['id'];
                                 $matchedClienteId = $sc['cliente_id'];
                                 break;
                             }
-                            // Proviamo le singole parole del titolo/luogo
                             foreach ($searchStrings as $s) {
                                 if ($isMatch($nomeSc, $s)) {
                                     $matchedSottoclienteId = $sc['id'];
@@ -286,41 +304,40 @@ class GoogleAuthController {
                         for ($time = $startTs; $time <= $endTs; $time += 86400) {
                             $currentDate = date('Y-m-d', $time);
                             
-                            // ID Univoco formato aggregando EventId e la data, così permettiamo eventi multi-giorno
                             $uniqueId = $eventId . '_' . $currentDate;
 
-                            // Verifica se l'evento in questo preciso giorno è già in tabella
-                            $stmt = $this->pdo->prepare("SELECT id, cliente_id, sottocliente_id, descrizione FROM {$this->prefix}trasferte WHERE google_event_id = ? OR (google_event_id = ? AND data_trasferta = ?)");
+                            $stmt = $this->pdo->prepare("SELECT id, cliente_id, sottocliente_id, descrizione, fascia_oraria FROM {$this->prefix}trasferte WHERE google_event_id = ? OR (google_event_id = ? AND data_trasferta = ?)");
                             $stmt->execute([$uniqueId, $eventId, $currentDate]);
                             $existingRow = $stmt->fetch();
                             if ($existingRow) {
-                                // Se esiste già, VERIFICHIAMO che titolo e match vengano forzati ad aggiornarsi
-                                // Solo se troviamo un MATCH migliore o se era vuoto, e assicuriamo che descrizione sia sync
                                 $needsUpdate = false;
-                                $updId = null;
-                                $updSotto = null;
+                                $updId = $existingRow['cliente_id'];
+                                $updSotto = $existingRow['sottocliente_id'];
+                                $updFascia = $existingRow['fascia_oraria'];
                                 
                                 if ($matchedClienteId && empty($existingRow['cliente_id'])) {
-                                    // Non aveva cliente, ora l'abbiamo trovato
                                     $needsUpdate = true;
                                     $updId = $matchedClienteId;
                                     $updSotto = $matchedSottoclienteId;
                                 } elseif ($matchedClienteId && $existingRow['cliente_id'] != $matchedClienteId && $matchedSottoclienteId && empty($existingRow['sottocliente_id'])) {
-                                     // Es. avevamo assegnato manualmente 'Unindustria' ma non il sottocliente
                                     $needsUpdate = true;
                                     $updId = $matchedClienteId;
                                     $updSotto = $matchedSottoclienteId;
                                 }
 
                                 if (trim((string)$existingRow['descrizione']) !== trim($descDb)) {
-                                    // Aggiorniamo sempre la descrizione se cambiata dal calendario
                                     $sqlDesc = "UPDATE {$this->prefix}trasferte SET descrizione = ? WHERE id = ?";
                                     $this->pdo->prepare($sqlDesc)->execute([trim($descDb), $existingRow['id']]);
                                 }
 
+                                if (empty($existingRow['fascia_oraria']) || $existingRow['fascia_oraria'] !== $fasciaOraria) {
+                                    $needsUpdate = true;
+                                    $updFascia = $fasciaOraria;
+                                }
+
                                 if ($needsUpdate) {
-                                    $sqlUpdate = "UPDATE {$this->prefix}trasferte SET cliente_id = ?, sottocliente_id = ? WHERE id = ?";
-                                    $this->pdo->prepare($sqlUpdate)->execute([$updId, $updSotto, $existingRow['id']]);
+                                    $sqlUpdate = "UPDATE {$this->prefix}trasferte SET cliente_id = ?, sottocliente_id = ?, fascia_oraria = ? WHERE id = ?";
+                                    $this->pdo->prepare($sqlUpdate)->execute([$updId, $updSotto, $updFascia, $existingRow['id']]);
                                     $affectedDates[] = $currentDate;
                                     $countImported++;
                                 }
@@ -329,17 +346,18 @@ class GoogleAuthController {
 
                             // Inserimento a DB
                             $sql = "INSERT INTO {$this->prefix}trasferte (
-                                data_trasferta, luogo_arrivo, descrizione, google_event_id, google_calendar_id, cliente_id, sottocliente_id
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?)";
+                                data_trasferta, luogo_arrivo, descrizione, google_event_id, google_calendar_id, cliente_id, sottocliente_id, fascia_oraria
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
                             
                             $this->pdo->prepare($sql)->execute([
                                 $currentDate,
                                 $location,
                                 trim($descDb),
-                                $uniqueId, // Salviamo con id giorno-specifico
+                                $uniqueId,
                                 $calId,
                                 $matchedClienteId,
-                                $matchedSottoclienteId
+                                $matchedSottoclienteId,
+                                $fasciaOraria
                             ]);
                             
                             $countImported++;

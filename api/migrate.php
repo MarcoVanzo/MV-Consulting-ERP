@@ -140,7 +140,12 @@ $queries = [
         setting_key VARCHAR(100) PRIMARY KEY,
         setting_value TEXT DEFAULT NULL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    "ALTER TABLE {$prefix}sottoclienti ADD COLUMN partita_iva VARCHAR(16) DEFAULT NULL AFTER nome",
+    "ALTER TABLE {$prefix}sottoclienti ADD COLUMN codice_fiscale VARCHAR(20) DEFAULT NULL AFTER partita_iva",
+    "ALTER TABLE {$prefix}sottoclienti ADD COLUMN sdi VARCHAR(10) DEFAULT NULL AFTER email",
+    "ALTER TABLE {$prefix}sottoclienti ADD COLUMN pec VARCHAR(150) DEFAULT NULL AFTER sdi"
 ];
 
 $results = [];

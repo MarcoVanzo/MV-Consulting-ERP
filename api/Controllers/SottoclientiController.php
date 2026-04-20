@@ -60,6 +60,7 @@ class SottoclientiController {
             $cols = implode(', ', array_keys($fields));
             $placeholders = implode(', ', array_fill(0, count($fields), '?'));
             $sql = "INSERT INTO {$this->prefix}sottoclienti ($cols) VALUES ($placeholders)";
+            $this->pdo->prepare($sql)->execute(array_values($fields));
             $newId = $this->pdo->lastInsertId();
             Logger::logAction('INSERT', 'sottoclienti', $newId, ['nome' => $fields['nome']]);
             Response::json(true, 'Sottocliente creato', ['id' => $newId]);
