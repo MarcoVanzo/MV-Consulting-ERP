@@ -81,9 +81,9 @@ class AdminController {
             Response::json(false, 'Email già in uso');
         }
 
-        $sql = "INSERT INTO {$this->prefix}users (email, password, full_name, role) VALUES (?, ?, ?, ?)";
+        $sql = "INSERT INTO {$this->prefix}users (email, username, password, full_name, role) VALUES (?, ?, ?, ?, ?)";
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([$email, $hash, $name, $role]);
+        $stmt->execute([$email, $email, $hash, $name, $role]);
         $id = $this->pdo->lastInsertId();
 
         $this->logAction('INSERT', 'users', $id, ['email' => $email]);
