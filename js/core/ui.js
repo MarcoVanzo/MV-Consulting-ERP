@@ -40,8 +40,20 @@ const UI = (() => {
         document.getElementById('modal-overlay').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) closeModal();
         });
-        document.getElementById('modal-save').addEventListener('click', () => {
-            if (_modalSaveCallback) _modalSaveCallback();
+        const saveBtn = document.getElementById('modal-save');
+        saveBtn.addEventListener('click', async () => {
+            if (_modalSaveCallback) {
+                const prevHtml = saveBtn.innerHTML;
+                saveBtn.disabled = true;
+                saveBtn.innerHTML = '<i class="ph ph-spinner ph-spin"></i>';
+                try {
+                    const res = _modalSaveCallback();
+                    if (res instanceof Promise) await res;
+                } finally {
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = prevHtml;
+                }
+            }
         });
     }
 

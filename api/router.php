@@ -12,6 +12,7 @@ require_once __DIR__ . '/Controllers/SottoclientiController.php';
 require_once __DIR__ . '/Controllers/TrasferteController.php';
 require_once __DIR__ . '/Controllers/ContabilitaController.php';
 require_once __DIR__ . '/Controllers/AdminController.php'; // Nuovo: Admin Controller
+require_once __DIR__ . '/Controllers/GoogleAuthController.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
@@ -113,11 +114,25 @@ try {
         case 'trasferte':
             $ctrl = new TrasferteController();
             switch ($action) {
-                case 'list':       $ctrl->list(); break;
-                case 'save':       $ctrl->save($data); break;
-                case 'delete':     $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
-                case 'rendiconto': $ctrl->rendiconto(); break;
-                default:           Response::json(false, "Azione trasferte non supportata: $action");
+                case 'list':             $ctrl->list(); break;
+                case 'save':             $ctrl->save($data); break;
+                case 'delete':           $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
+                case 'rendiconto':       $ctrl->rendiconto(); break;
+                case 'calcolaKmGiorno':  $ctrl->calcolaKmGiorno(); break;
+                default:                 Response::json(false, "Azione trasferte non supportata: $action");
+            }
+            break;
+
+        // ═══════════════════════════════════════════
+        // GOOGLE CALENDAR
+        // ═══════════════════════════════════════════
+        case 'google':
+            $ctrl = new GoogleAuthController();
+            switch ($action) {
+                case 'auth':     $ctrl->auth(); break;
+                case 'callback': $ctrl->callback(); break;
+                case 'sync':     $ctrl->sync(); break;
+                default:         Response::json(false, "Azione google non supportata: $action");
             }
             break;
 

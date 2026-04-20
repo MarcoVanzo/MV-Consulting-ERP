@@ -5,6 +5,7 @@
  */
 const ModClienti = (() => {
     let _clienti = [];
+    let _sottoclientiCache = {};
 
     async function load() {
         try {
@@ -36,7 +37,7 @@ const ModClienti = (() => {
                 <td>${parseInt(c.num_sottoclienti) > 0 ? `<span class="badge badge-purple">${c.num_sottoclienti}</span>` : '—'}</td>
                 <td>
                     <div class="flex gap-2">
-                        <button class="btn btn-sm btn-ghost" onclick="ModClienti.openSottoclienteModal(${c.id}, '${UI.esc(c.ragione_sociale)}')" title="Aggiungi sottocliente"><i class="ph ph-plus-circle"></i></button>
+                        <button class="btn btn-sm btn-ghost" onclick="ModClienti.openSottoclienteModal(${c.id})" title="Aggiungi sottocliente"><i class="ph ph-plus-circle"></i></button>
                         <button class="btn btn-sm btn-ghost" onclick="ModClienti.edit(${c.id})" title="Modifica"><i class="ph ph-pencil-simple"></i></button>
                         <button class="btn btn-sm btn-danger" onclick="ModClienti.remove(${c.id})" title="Elimina"><i class="ph ph-trash"></i></button>
                     </div>
@@ -51,37 +52,47 @@ const ModClienti = (() => {
     }
 
     async function toggleSottoclienti(btn) {
-        const clienteId = btn.dataset.clienteId;
-        const parentRow = btn.closest('tr');
-        const isExpanded = btn.classList.contains('expanded');
-
-        // Remove existing sottoclienti rows
-        let next = parentRow.nextElementSibling;
-        while (next && next.classList.contains('sottoclienti-row')) {
-            const toRemove = next;
-            next = next.nextElementSibling;
-            toRemove.remove();
-        }
-
-        if (isExpanded) {
-            btn.classList.remove('expanded');
-            return;
-        }
-
-        btn.classList.add('expanded');
+        if (btn.dataset.loading) return;
+        btn.dataset.loading = "true";
 
         try {
+            const clienteId = btn.dataset.clienteId;
+            const parentRow = btn.closest('tr');
+            const isExpanded = btn.classList.contains('expanded');
+
+            // Remove existing sottoclienti rows
+            let next = parentRow.nextElementSibling;
+            while (next && next.classList.contains('sottoclienti-row')) {
+                const toRemove = next;
+                next = next.nextElementSibling;
+                toRemove.remove();
+            }
+
+            if (isExpanded) {
+                btn.classList.remove('expanded');
+                return;
+            }
+
+            btn.classList.add('expanded');
+
             const subs = await Store.api('list', 'sottoclienti', { cliente_id: clienteId });
             if (!subs || !subs.length) return;
+            
+            _sottoclientiCache[clienteId] = subs;
 
             const rows = subs.map(s => `
                 <tr class="sottoclienti-row">
                     <td></td>
-                    <td colspan="3"><i class="ph ph-arrow-bend-down-right" style="color:var(--text-muted);margin-right:8px"></i> ${UI.esc(s.nome)} ${s.riferimento ? `<span style="color:var(--text-muted)">— ${UI.esc(s.riferimento)}</span>` : ''}</td>
-                    <td>${UI.esc(s.email || '—')}</td>
+                    <td class="td-primary" style="padding-left:1.5rem"><i class="ph ph-arrow-bend-down-right" style="color:var(--text-muted);margin-right:8px"></i> ${UI.esc(s.nome)} ${s.riferimento ? `<span style="color:var(--text-muted)">— ${UI.esc(s.riferimento)}</span>` : ''}</td>
+                    <td class="td-mono">${UI.esc(s.partita_iva || s.codice_fiscale || '—')}</td>
+                    <td>${UI.esc(s.citta || '—')} ${s.provincia ? `(${UI.esc(s.provincia)})` : ''}</td>
+                    <td>${UI.esc(s.email || s.pec || '—')}</td>
                     <td></td>
                     <td>
-                        <button class="btn btn-sm btn-danger" onclick="ModClienti.removeSotto(${s.id})"><i class="ph ph-trash"></i></button>
+                        <div class="flex gap-2">
+                            <button class="btn btn-sm btn-ghost" onclick="ModClienti.editSotto(${clienteId}, ${s.id})" title="Modifica"><i class="ph ph-pencil-simple"></i></button>
+                            <button class="btn btn-sm btn-danger" onclick="ModClienti.removeSotto(${s.id})" title="Elimina"><i class="ph ph-trash"></i></button>
+                        </div>
                     </td>
                 </tr>
             `).join('');
@@ -89,6 +100,8 @@ const ModClienti = (() => {
             parentRow.insertAdjacentHTML('afterend', rows);
         } catch (err) {
             console.error('[Sottoclienti] Load error:', err);
+        } finally {
+            delete btn.dataset.loading;
         }
     }
 
@@ -157,17 +170,17 @@ const ModClienti = (() => {
 
     function openNew() {
         UI.openModal('Nuovo Cliente', getFormHtml(), saveFromForm);
-        setTimeout(initVatLookup, 100);
+        setTimeout(() => initVatLookup(false), 100);
     }
 
     function edit(id) {
         const c = _clienti.find(x => x.id == id);
         if (!c) return;
         UI.openModal('Modifica Cliente', getFormHtml(c), saveFromForm);
-        setTimeout(initVatLookup, 100);
+        setTimeout(() => initVatLookup(false), 100);
     }
 
-    function initVatLookup() {
+    function initVatLookup(isSotto = false) {
         const btn = document.getElementById('btn-vat-lookup');
         if (!btn) return;
         btn.addEventListener('click', async () => {
@@ -182,15 +195,19 @@ const ModClienti = (() => {
                 statusEl.innerHTML = '<div class="vat-status success"><i class="ph ph-check-circle"></i> Dati trovati e compilati!</div>';
 
                 // Populate form
-                if (data.ragione_sociale) document.getElementById('f-ragione-sociale').value = data.ragione_sociale;
-                if (data.partita_iva) document.getElementById('f-partita-iva').value = data.partita_iva;
-                if (data.codice_fiscale) document.getElementById('f-codice-fiscale').value = data.codice_fiscale;
-                if (data.indirizzo) document.getElementById('f-indirizzo').value = data.indirizzo;
-                if (data.citta) document.getElementById('f-citta').value = data.citta;
-                if (data.cap) document.getElementById('f-cap').value = data.cap;
-                if (data.provincia) document.getElementById('f-provincia').value = data.provincia;
-                if (data.sdi) document.getElementById('f-sdi').value = data.sdi;
-                if (data.pec) document.getElementById('f-pec').value = data.pec;
+                if (data.ragione_sociale) {
+                    if (isSotto) document.getElementById('f-sotto-nome').value = data.ragione_sociale;
+                    else document.getElementById('f-ragione-sociale').value = data.ragione_sociale;
+                }
+                const pf = isSotto ? 'f-sotto-' : 'f-';
+                if (data.partita_iva) document.getElementById(pf + 'partita-iva').value = data.partita_iva;
+                if (data.codice_fiscale) document.getElementById(pf + 'codice-fiscale').value = data.codice_fiscale;
+                if (data.indirizzo) document.getElementById(pf + 'indirizzo').value = data.indirizzo;
+                if (data.citta) document.getElementById(pf + 'citta').value = data.citta;
+                if (data.cap) document.getElementById(pf + 'cap').value = data.cap;
+                if (data.provincia) document.getElementById(pf + 'provincia').value = data.provincia;
+                if (data.sdi) document.getElementById(pf + 'sdi').value = data.sdi;
+                if (data.pec) document.getElementById(pf + 'pec').value = data.pec;
             } catch (err) {
                 statusEl.innerHTML = `<div class="vat-status error"><i class="ph ph-warning-circle"></i> ${err.message}</div>`;
             }
@@ -236,44 +253,109 @@ const ModClienti = (() => {
     }
 
     // ── Sottoclienti ──
-    function openSottoclienteModal(clienteId, clienteNome) {
+    function editSotto(clienteId, sottoId) {
+        const subs = _sottoclientiCache[clienteId];
+        if (!subs) return;
+        const s = subs.find(x => x.id == sottoId);
+        if (!s) return;
+        openSottoclienteModal(clienteId, s);
+    }
+
+    function openSottoclienteModal(clienteId, data = {}) {
+        const c = _clienti.find(x => x.id == clienteId);
+        const clienteNome = c ? c.ragione_sociale : 'Cliente';
         const html = `
             <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:var(--sp-2)">Sottocliente di <strong>${UI.esc(clienteNome)}</strong></p>
-            <div class="form-grid">
+            <div class="vat-lookup-row mb-2">
+                <input type="text" class="form-control" id="f-vat-lookup" placeholder="Inserisci P.IVA per compilare automaticamente" value="${UI.esc(data.partita_iva || '')}">
+                <button class="btn btn-primary" id="btn-vat-lookup" type="button">
+                    <i class="ph ph-magnifying-glass"></i> Cerca
+                </button>
+            </div>
+            <div id="vat-status"></div>
+            <div class="form-grid mt-2">
                 <div class="form-group full-width">
-                    <label>Nome *</label>
-                    <input type="text" class="form-control" id="f-sotto-nome" placeholder="es. Sede di Roma, Dipartimento IT...">
+                    <label>Nome Sottocliente *</label>
+                    <input type="text" class="form-control" id="f-sotto-nome" placeholder="es. Sede di Roma, Dipartimento IT..." value="${UI.esc(data.nome || '')}">
                 </div>
                 <div class="form-group">
-                    <label>Riferimento</label>
-                    <input type="text" class="form-control" id="f-sotto-riferimento" placeholder="Persona di contatto">
+                    <label>Persona di Riferimento</label>
+                    <input type="text" class="form-control" id="f-sotto-riferimento" placeholder="Persona di contatto" value="${UI.esc(data.riferimento || '')}">
+                </div>
+                <div class="form-group">
+                    <label>Partita IVA</label>
+                    <input type="text" class="form-control" id="f-sotto-partita-iva" value="${UI.esc(data.partita_iva || '')}">
+                </div>
+                <div class="form-group">
+                    <label>Codice Fiscale</label>
+                    <input type="text" class="form-control" id="f-sotto-codice-fiscale" value="${UI.esc(data.codice_fiscale || '')}">
+                </div>
+                <div class="form-group full-width">
+                    <label>Indirizzo</label>
+                    <input type="text" class="form-control" id="f-sotto-indirizzo" value="${UI.esc(data.indirizzo || '')}">
+                </div>
+                <div class="form-group">
+                    <label>Città</label>
+                    <input type="text" class="form-control" id="f-sotto-citta" value="${UI.esc(data.citta || '')}">
+                </div>
+                <div class="form-group">
+                    <label>CAP</label>
+                    <input type="text" class="form-control" id="f-sotto-cap" value="${UI.esc(data.cap || '')}">
+                </div>
+                <div class="form-group">
+                    <label>Provincia</label>
+                    <input type="text" class="form-control" id="f-sotto-provincia" maxlength="5" value="${UI.esc(data.provincia || '')}">
+                </div>
+                <div class="form-group">
+                    <label>SDI</label>
+                    <input type="text" class="form-control" id="f-sotto-sdi" value="${UI.esc(data.sdi || '')}">
+                </div>
+                <div class="form-group">
+                    <label>PEC</label>
+                    <input type="email" class="form-control" id="f-sotto-pec" value="${UI.esc(data.pec || '')}">
                 </div>
                 <div class="form-group">
                     <label>Email</label>
-                    <input type="email" class="form-control" id="f-sotto-email">
+                    <input type="email" class="form-control" id="f-sotto-email" value="${UI.esc(data.email || '')}">
+                </div>
+                <div class="form-group">
+                    <label>Telefono</label>
+                    <input type="tel" class="form-control" id="f-sotto-telefono" value="${UI.esc(data.telefono || '')}">
                 </div>
                 <div class="form-group full-width">
                     <label>Note</label>
-                    <textarea class="form-control" id="f-sotto-note"></textarea>
+                    <textarea class="form-control" id="f-sotto-note">${UI.esc(data.note || '')}</textarea>
                 </div>
             </div>
+            <input type="hidden" id="f-sotto-id" value="${data.id || ''}">
             <input type="hidden" id="f-sotto-cliente-id" value="${clienteId}">
         `;
-        UI.openModal('Nuovo Sottocliente', html, saveSottocliente);
+        UI.openModal(data.id ? 'Modifica Sottocliente' : 'Nuovo Sottocliente', html, saveSottocliente);
+        setTimeout(() => initVatLookup(true), 100);
     }
 
     async function saveSottocliente() {
         const payload = {
+            id: document.getElementById('f-sotto-id').value || undefined,
             cliente_id: document.getElementById('f-sotto-cliente-id').value,
             nome: document.getElementById('f-sotto-nome').value,
             riferimento: document.getElementById('f-sotto-riferimento').value,
+            partita_iva: document.getElementById('f-sotto-partita-iva').value,
+            codice_fiscale: document.getElementById('f-sotto-codice-fiscale').value,
+            indirizzo: document.getElementById('f-sotto-indirizzo').value,
+            citta: document.getElementById('f-sotto-citta').value,
+            cap: document.getElementById('f-sotto-cap').value,
+            provincia: document.getElementById('f-sotto-provincia').value,
+            sdi: document.getElementById('f-sotto-sdi').value,
+            pec: document.getElementById('f-sotto-pec').value,
+            telefono: document.getElementById('f-sotto-telefono').value,
             email: document.getElementById('f-sotto-email').value,
             note: document.getElementById('f-sotto-note').value
         };
         try {
             await Store.api('save', 'sottoclienti', payload);
             UI.closeModal();
-            UI.toast('Sottocliente aggiunto');
+            UI.toast(payload.id ? 'Sottocliente aggiornato' : 'Sottocliente aggiunto');
             load();
         } catch (err) {
             UI.toast(err.message, 'error');
@@ -304,7 +386,7 @@ const ModClienti = (() => {
         });
     }
 
-    return { load, render, openNew, edit, remove, openSottoclienteModal, removeSotto, getClienti, initSearch };
+    return { load, render, openNew, edit, remove, openSottoclienteModal, editSotto, removeSotto, getClienti, initSearch };
 })();
 
 window.ModClienti = ModClienti;

@@ -128,32 +128,45 @@ class AdminController {
     }
 
     public function createBackup() {
-        $id = 'BKP_' . bin2hex(random_bytes(6));
-        $filename = "backup_mv_{$id}_" . date('Ymd_His') . ".sql";
-        $dir = dirname(__DIR__, 2) . '/storage/backups';
-        if (!is_dir($dir)) mkdir($dir, 0755, true);
-        $filepath = $dir . '/' . $filename;
+        ob_start();
+        try {
+            $id = 'BKP_' . bin2hex(random_bytes(6));
+            $filename = "backup_mv_{$id}_" . date('Ymd_His') . ".sql";
+            $dir = dirname(__DIR__, 2) . '/storage/backups';
+            if (!is_dir($dir)) {
+                if (!@mkdir($dir, 0755, true)) {
+                    throw new Exception("Impossibile creare la cartella di backup: $dir");
+                }
+            }
+            $filepath = $dir . '/' . $filename;
 
-        // Esegui dump usando mysqldump se disponibile, altrimenti finto backup
-        $host = getenv('DB_HOST') ?: 'localhost';
-        $user = getenv('DB_USER') ?: 'root';
-        $pass = getenv('DB_PASS') ?: '';
-        $name = getenv('DB_NAME') ?: 'mv_erp';
-        
-        $cmd = "mysqldump -h {$host} -u {$user} -p{$pass} {$name} > {$filepath}";
-        exec($cmd, $output, $return_var);
+            // Esegui dump usando mysqldump se disponibile, altrimenti finto backup
+            $host = getenv('DB_HOST') ?: 'localhost';
+            $user = getenv('DB_USER') ?: 'root';
+            $pass = getenv('DB_PASS') ?: '';
+            $name = getenv('DB_NAME') ?: 'mv_erp';
+            
+            $cmd = "mysqldump -h {$host} -u {$user} -p{$pass} {$name} > {$filepath} 2>/dev/null";
+            exec($cmd, $output, $return_var);
 
-        if ($return_var !== 0 || !file_exists($filepath)) {
-            // Se mysqldump non va, generiamo un dump dummy ma informiamo l'utente
-            file_put_contents($filepath, "-- Backup simulato (mysqldump non disponibile)\n-- Creazione $filename\n");
+            if ($return_var !== 0 || !file_exists($filepath)) {
+                // Se mysqldump non va, generiamo un dump dummy
+                if (!@file_put_contents($filepath, "-- Backup simulato (mysqldump non disponibile)\n-- Creazione $filename\n")) {
+                    throw new Exception("Impossibile scrivere il file di backup in $filepath");
+                }
+            }
+
+            $filesize = @filesize($filepath) ?: 0;
+            $sql = "INSERT INTO {$this->prefix}db_backups (id, filename, filesize) VALUES (?, ?, ?)";
+            $this->pdo->prepare($sql)->execute([$id, $filename, $filesize]);
+
+            $this->logAction('CREATE', 'db_backups', $id, ['filename' => $filename]);
+            $warns = ob_get_clean();
+            Response::json(true, 'Backup creato' . ($warns ? " [Avvisi: $warns]" : ""), ['filename' => $filename]);
+        } catch (Throwable $e) {
+            $warns = ob_get_clean();
+            Response::json(false, "Errore interno server: " . $e->getMessage() . " | " . $warns);
         }
-
-        $filesize = filesize($filepath);
-        $sql = "INSERT INTO {$this->prefix}db_backups (id, filename, filesize) VALUES (?, ?, ?)";
-        $this->pdo->prepare($sql)->execute([$id, $filename, $filesize]);
-
-        $this->logAction('CREATE', 'db_backups', $id, ['filename' => $filename]);
-        Response::json(true, 'Backup creato', ['filename' => $filename]);
     }
 
     public function downloadBackup() {
@@ -201,8 +214,9 @@ class AdminController {
     // ─── LOGS ─────────────────────────────────────────────────────────────
 
     public function listLogs() {
-        $limit = max(1, min(500, (int)($_GET['limit'] ?? 100)));
-        $offset = max(0, (int)($_GET['offset'] ?? 0));
+        $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+        $limit = max(1, min(500, (int)($data['limit'] ?? $_GET['limit'] ?? 100)));
+        $offset = max(0, (int)($data['offset'] ?? $_GET['offset'] ?? 0));
         
         $sql = "SELECT * FROM {$this->prefix}audit_logs ORDER BY created_at DESC LIMIT $limit OFFSET $offset";
         $logs = $this->pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
