@@ -65,6 +65,7 @@ class ClientiController {
             $vals[] = $id;
             $sql = "UPDATE {$this->prefix}clienti SET " . implode(', ', $sets) . " WHERE id = ?";
             $this->pdo->prepare($sql)->execute($vals);
+            Logger::logAction('UPDATE', 'clienti', $id, ['ragione_sociale' => $fields['ragione_sociale']]);
             Response::json(true, 'Cliente aggiornato', ['id' => $id]);
         } else {
             $cols = implode(', ', array_keys($fields));
@@ -72,6 +73,7 @@ class ClientiController {
             $sql = "INSERT INTO {$this->prefix}clienti ($cols) VALUES ($placeholders)";
             $this->pdo->prepare($sql)->execute(array_values($fields));
             $newId = $this->pdo->lastInsertId();
+            Logger::logAction('INSERT', 'clienti', $newId, ['ragione_sociale' => $fields['ragione_sociale']]);
             Response::json(true, 'Cliente creato', ['id' => $newId]);
         }
     }
@@ -79,6 +81,7 @@ class ClientiController {
     public function delete($id) {
         $stmt = $this->pdo->prepare("DELETE FROM {$this->prefix}clienti WHERE id = ?");
         $stmt->execute([$id]);
+        Logger::logAction('DELETE', 'clienti', $id);
         Response::json(true, 'Cliente eliminato');
     }
 

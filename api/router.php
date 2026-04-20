@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/Shared/Database.php';
+require_once __DIR__ . '/Shared/Logger.php';
 require_once __DIR__ . '/Shared/Response.php';
 require_once __DIR__ . '/Shared/JWT.php';
 require_once __DIR__ . '/Shared/Auth.php';
@@ -64,8 +65,14 @@ $data = array_merge($_POST, $input);
 $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
 $public_modules = ['auth', 'google']; // Whitelist public entry points
 if (!in_array($module, $public_modules)) {
+    $jwt = '';
     if (preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
         $jwt = $matches[1];
+    } elseif (isset($_GET['token'])) {
+        $jwt = $_GET['token'];
+    }
+
+    if ($jwt) {
         $secret = getenv('JWT_SECRET') ?: 'mv_fallback_secret_secure_2026';
         $decoded = JWT::decode($jwt, $secret);
         if (!$decoded) {
@@ -165,11 +172,13 @@ try {
         case 'contabilita':
             $ctrl = new ContabilitaController();
             switch ($action) {
-                case 'list':     $ctrl->list(); break;
-                case 'save':     $ctrl->save($data); break;
-                case 'delete':   $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
-                case 'overview': $ctrl->overview(); break;
-                default:         Response::json(false, "Azione contabilità non supportata: $action");
+                case 'list':       $ctrl->list(); break;
+                case 'save':       $ctrl->save($data); break;
+                case 'delete':     $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
+                case 'overview':   $ctrl->overview(); break;
+                case 'import_pdf': $ctrl->importPdfData($data); break;
+                case 'import_xml': $ctrl->importXmlData($data); break;
+                default:           Response::json(false, "Azione contabilità non supportata: $action");
             }
             break;
 

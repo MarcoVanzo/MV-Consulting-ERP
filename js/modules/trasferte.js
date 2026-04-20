@@ -116,14 +116,17 @@ const ModTrasferte = (() => {
             const indennita = g.has_client ? 46.48 : 0;
             const rimborsoTotale = (g.km_totali * costoKm) + indennita;
             
+            const nameMattina = g.mattina.id ? (g.mattina.nome || '<span style="color: var(--danger); font-size: 0.8rem; font-weight: 500;">Da assegnare</span>') : '';
+            const namePomeriggio = g.pomeriggio.id ? (g.pomeriggio.nome || '<span style="color: var(--danger); font-size: 0.8rem; font-weight: 500;">Da assegnare</span>') : '';
+            
             return `
             <tr>
                 <td>${UI.formatDate(g.data)}</td>
                 <td class="td-primary">
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span>${g.mattina.nome}</span>
+                        <span style="flex: 1;">${nameMattina}</span>
                         ${g.mattina.id ? `
-                        <div class="flex gap-1">
+                        <div class="flex gap-1" style="flex-shrink: 0;">
                             <button class="btn btn-sm btn-ghost" style="padding: 2px" onclick="ModTrasferte.edit(${g.mattina.id})"><i class="ph ph-pencil-simple"></i></button>
                             <button class="btn btn-sm btn-danger" style="padding: 2px" onclick="ModTrasferte.remove(${g.mattina.id})"><i class="ph ph-trash"></i></button>
                         </div>` : ''}
@@ -131,9 +134,9 @@ const ModTrasferte = (() => {
                 </td>
                 <td class="td-primary">
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span>${g.pomeriggio.nome}</span>
+                        <span style="flex: 1;">${namePomeriggio}</span>
                         ${g.pomeriggio.id && g.pomeriggio.id !== g.mattina.id ? `
-                        <div class="flex gap-1">
+                        <div class="flex gap-1" style="flex-shrink: 0;">
                             <button class="btn btn-sm btn-ghost" style="padding: 2px" onclick="ModTrasferte.edit(${g.pomeriggio.id})"><i class="ph ph-pencil-simple"></i></button>
                             <button class="btn btn-sm btn-danger" style="padding: 2px" onclick="ModTrasferte.remove(${g.pomeriggio.id})"><i class="ph ph-trash"></i></button>
                         </div>` : ''}

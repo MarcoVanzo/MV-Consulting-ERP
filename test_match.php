@@ -8,8 +8,8 @@ if (file_exists($envPath)) {
     foreach ($lines as $line) {
         if (strpos(trim($line), '#') === 0) continue;
         list($name, $value) = explode('=', $line, 2);
-        putenv(trim($name) . '=' . trim($value));
-        $_ENV[trim($name)] = trim($value);
+        putenv(trim($name) . '=' . trim($value, " \t\n\r\0\x0B\"'"));
+        $_ENV[trim($name)] = trim($value, " \t\n\r\0\x0B\"'");
     }
 }
 
@@ -23,14 +23,22 @@ try {
     $stmtClienti = $pdo->query("SELECT id, ragione_sociale FROM {$prefix}clienti WHERE ragione_sociale != ''");
     $clienti = $stmtClienti->fetchAll(PDO::FETCH_ASSOC);
 
-    $stmt = $pdo->query("SELECT id, data_trasferta, descrizione, cliente_id, sottocliente_id FROM {$prefix}trasferte WHERE descrizione LIKE '%Titolo Originario: ITA%' AND data_trasferta >= '2026-04-16'");
+    // Get transfers lacking a client mapping
+    $stmt = $pdo->query("SELECT id, data_trasferta, descrizione, cliente_id, sottocliente_id FROM {$prefix}trasferte WHERE cliente_id IS NULL OR cliente_id = 0");
     $trasferte = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    $affected = 0;
 
     foreach($trasferte as $t) {
         $desc = $t['descrizione'];
-        $summary = "ITA";
-        $location = "";
-        
+        $summary = '';
+        if (preg_match('/Titolo Originario:\s*(.*?)(?:\n|$)/i', $desc, $matches)) {
+            $summary = trim($matches[1]);
+        } else {
+            // fallback generic words
+            $summary = strip_tags(str_replace('\n', ' ', $desc));
+        }
+
         $searchStrings = [];
         if (!empty($summary)) {
             $parts = preg_split('/[\s\-]+/', $summary);
@@ -41,28 +49,59 @@ try {
             $searchStrings[] = strtolower(trim($summary));
         }
 
-        echo "TESTING TRASFERTA {$t['id']} con search strings: ";
-        print_r($searchStrings);
+        if (empty($searchStrings)) continue;
+
+        echo "TESTING TRASFERTA ID {$t['id']} (Data: {$t['data_trasferta']}) - Estratto: '$summary'\n";
 
         $matchedClienteId = null;
-                        $matchedSottoclienteId = null;
+        $matchedSottoclienteId = null;
+
+        // Funzione di match sicura
+        $isMatch = function($dbName, $str) {
+            $dbName = strtolower(trim($dbName));
+            if ($dbName === $str && strlen($dbName) > 0) return true;
+            $forbidden = ['spa', 'srl', 'snc', 'sas', 'per', 'con', 'del', 'dal', 'all', 'una', 'ita', 'titolo', 'originario'];
+            if (in_array($dbName, $forbidden) || in_array($str, $forbidden)) return false;
+            $escapedDb = preg_quote($dbName, '/');
+            if (strlen($dbName) >= 3 && preg_match('/\b' . $escapedDb . '\b/i', $str)) return true;
+            $escapedStr = preg_quote($str, '/');
+            if (strlen($str) >= 3 && preg_match('/\b' . $escapedStr . '\b/i', $dbName)) return true;
+            return false;
+        };
+
         foreach ($sottoclienti as $sc) {
-            $nomeSc = strtolower(trim($sc['nome']));
             foreach ($searchStrings as $s) {
-                if (strpos($nomeSc, $s) !== false || strpos($s, $nomeSc) !== false) {
+                if ($isMatch($sc['nome'], $s)) {
                     $matchedSottoclienteId = $sc['id'];
                     $matchedClienteId = $sc['cliente_id'];
-                    echo "\nMATCH TROVATO in sottocliente: {$nomeSc} con id {$matchedSottoclienteId}\n";
+                    echo "  -> MATCH TROVATO in sottocliente: {$sc['nome']} (ID {$matchedSottoclienteId})\n";
                     break 2;
                 }
             }
         }
+
+        if (!$matchedClienteId) {
+            foreach ($clienti as $c) {
+                foreach ($searchStrings as $s) {
+                    if ($isMatch($c['ragione_sociale'], $s)) {
+                        $matchedClienteId = $c['id'];
+                        echo "  -> MATCH TROVATO in cliente generico: {$c['ragione_sociale']} (ID {$matchedClienteId})\n";
+                        break 2;
+                    }
+                }
+            }
+        }
         
-        echo "Updating DB for ID {$t['id']}...\n";
-        $sqlUpdate = "UPDATE {$prefix}trasferte SET cliente_id = ?, sottocliente_id = ? WHERE id = ?";
-        $pdo->prepare($sqlUpdate)->execute([$matchedClienteId, $matchedSottoclienteId, $t['id']]);
-        echo "Update result: success\n";
+        if ($matchedClienteId) {
+            $sqlUpdate = "UPDATE {$prefix}trasferte SET cliente_id = ?, sottocliente_id = ? WHERE id = ?";
+            $pdo->prepare($sqlUpdate)->execute([$matchedClienteId, $matchedSottoclienteId, $t['id']]);
+            $affected++;
+        } else {
+            echo "  -> NESSUN MATCH TROVATO\n";
+        }
     }
+
+    echo "\nFATTO! Totale trasferte aggiornate: $affected\n";
 
 } catch (Exception $e) {
     echo "ERROR: " . $e->getMessage() . "\n";

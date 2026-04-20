@@ -223,26 +223,39 @@ class GoogleAuthController {
                         }
 
                         // Funzione di match sicura
-                        $isMatch = function($dbName, $str) {
+                        $isMatch = function($dbName, $str, $fullDescription = '') {
+                            $dbName = strtolower(trim($dbName));
                             if ($dbName === $str && strlen($dbName) > 0) return true;
                             
                             // Prevent short generic matches
-                            $forbidden = ['spa', 'srl', 'snc', 'sas', 'per', 'con', 'del', 'dal', 'all', 'una'];
+                            $forbidden = ['spa', 'srl', 'snc', 'sas', 'per', 'con', 'del', 'dal', 'all', 'una', 'ita', 'titolo'];
                             if (in_array($dbName, $forbidden) || in_array($str, $forbidden)) return false;
 
-                            // Match full words only using regex to avoid partial overlaps inside other words
+                            // Verifica nelle short string
                             $escapedDb = preg_quote($dbName, '/');
                             if (strlen($dbName) >= 3 && preg_match('/\b' . $escapedDb . '\b/i', $str)) return true;
                             
                             $escapedStr = preg_quote($str, '/');
                             if (strlen($str) >= 3 && preg_match('/\b' . $escapedStr . '\b/i', $dbName)) return true;
+
+                            // Verifica nella descrizione completa del calendario (se fornita)
+                            if (strlen($dbName) > 4 && !empty($fullDescription)) {
+                                if (preg_match('/\b' . $escapedDb . '\b/i', $fullDescription)) return true;
+                            }
                             
                             return false;
                         };
 
                         // Scorriamo le search string e testiamo contro sottoclienti prima (più specifici)
                         foreach ($sottoclienti as $sc) {
-                            $nomeSc = strtolower(trim($sc['nome']));
+                            $nomeSc = $sc['nome'];
+                            // Proviamo a matchare la descrizione completa anche senza lo split
+                            if ($isMatch($nomeSc, '', $description)) {
+                                $matchedSottoclienteId = $sc['id'];
+                                $matchedClienteId = $sc['cliente_id'];
+                                break;
+                            }
+                            // Proviamo le singole parole del titolo/luogo
                             foreach ($searchStrings as $s) {
                                 if ($isMatch($nomeSc, $s)) {
                                     $matchedSottoclienteId = $sc['id'];
@@ -255,7 +268,11 @@ class GoogleAuthController {
                         // Altrimenti cerchiamo nei clienti
                         if (!$matchedClienteId) {
                             foreach ($clienti as $c) {
-                                $ragSoc = strtolower(trim($c['ragione_sociale']));
+                                $ragSoc = $c['ragione_sociale'];
+                                if ($isMatch($ragSoc, '', $description)) {
+                                    $matchedClienteId = $c['id'];
+                                    break;
+                                }
                                 foreach ($searchStrings as $s) {
                                     if ($isMatch($ragSoc, $s)) {
                                         $matchedClienteId = $c['id'];
@@ -269,21 +286,45 @@ class GoogleAuthController {
                         for ($time = $startTs; $time <= $endTs; $time += 86400) {
                             $currentDate = date('Y-m-d', $time);
                             
-                            // ID Univoco formato aggregando EventId e la data, così permettiamo eventi multi-giorno!
+                            // ID Univoco formato aggregando EventId e la data, così permettiamo eventi multi-giorno
                             $uniqueId = $eventId . '_' . $currentDate;
 
                             // Verifica se l'evento in questo preciso giorno è già in tabella
-                            $stmt = $this->pdo->prepare("SELECT id, cliente_id, sottocliente_id FROM {$this->prefix}trasferte WHERE google_event_id = ? OR (google_event_id = ? AND data_trasferta = ?)");
+                            $stmt = $this->pdo->prepare("SELECT id, cliente_id, sottocliente_id, descrizione FROM {$this->prefix}trasferte WHERE google_event_id = ? OR (google_event_id = ? AND data_trasferta = ?)");
                             $stmt->execute([$uniqueId, $eventId, $currentDate]);
                             $existingRow = $stmt->fetch();
                             if ($existingRow) {
-                                // Se esiste già ma non ha un cliente associato, facciamo l'auto-matching retroattivo
-                                if (empty($existingRow['cliente_id']) && $matchedClienteId) {
-                                    $sqlUpdate = "UPDATE {$this->prefix}trasferte SET cliente_id = ?, sottocliente_id = ? WHERE id = ?";
-                                    $this->pdo->prepare($sqlUpdate)->execute([$matchedClienteId, $matchedSottoclienteId, $existingRow['id']]);
-                                    $affectedDates[] = $currentDate;
+                                // Se esiste già, VERIFICHIAMO che titolo e match vengano forzati ad aggiornarsi
+                                // Solo se troviamo un MATCH migliore o se era vuoto, e assicuriamo che descrizione sia sync
+                                $needsUpdate = false;
+                                $updId = null;
+                                $updSotto = null;
+                                
+                                if ($matchedClienteId && empty($existingRow['cliente_id'])) {
+                                    // Non aveva cliente, ora l'abbiamo trovato
+                                    $needsUpdate = true;
+                                    $updId = $matchedClienteId;
+                                    $updSotto = $matchedSottoclienteId;
+                                } elseif ($matchedClienteId && $existingRow['cliente_id'] != $matchedClienteId && $matchedSottoclienteId && empty($existingRow['sottocliente_id'])) {
+                                     // Es. avevamo assegnato manualmente 'Unindustria' ma non il sottocliente
+                                    $needsUpdate = true;
+                                    $updId = $matchedClienteId;
+                                    $updSotto = $matchedSottoclienteId;
                                 }
-                                continue; // Esiste già
+
+                                if (trim((string)$existingRow['descrizione']) !== trim($descDb)) {
+                                    // Aggiorniamo sempre la descrizione se cambiata dal calendario
+                                    $sqlDesc = "UPDATE {$this->prefix}trasferte SET descrizione = ? WHERE id = ?";
+                                    $this->pdo->prepare($sqlDesc)->execute([trim($descDb), $existingRow['id']]);
+                                }
+
+                                if ($needsUpdate) {
+                                    $sqlUpdate = "UPDATE {$this->prefix}trasferte SET cliente_id = ?, sottocliente_id = ? WHERE id = ?";
+                                    $this->pdo->prepare($sqlUpdate)->execute([$updId, $updSotto, $existingRow['id']]);
+                                    $affectedDates[] = $currentDate;
+                                    $countImported++;
+                                }
+                                continue;
                             }
 
                             // Inserimento a DB

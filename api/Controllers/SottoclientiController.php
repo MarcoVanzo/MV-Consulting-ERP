@@ -54,18 +54,21 @@ class SottoclientiController {
             $vals[] = $id;
             $sql = "UPDATE {$this->prefix}sottoclienti SET " . implode(', ', $sets) . " WHERE id = ?";
             $this->pdo->prepare($sql)->execute($vals);
+            Logger::logAction('UPDATE', 'sottoclienti', $id, ['nome' => $fields['nome']]);
             Response::json(true, 'Sottocliente aggiornato', ['id' => $id]);
         } else {
             $cols = implode(', ', array_keys($fields));
             $placeholders = implode(', ', array_fill(0, count($fields), '?'));
             $sql = "INSERT INTO {$this->prefix}sottoclienti ($cols) VALUES ($placeholders)";
-            $this->pdo->prepare($sql)->execute(array_values($fields));
-            Response::json(true, 'Sottocliente creato', ['id' => $this->pdo->lastInsertId()]);
+            $newId = $this->pdo->lastInsertId();
+            Logger::logAction('INSERT', 'sottoclienti', $newId, ['nome' => $fields['nome']]);
+            Response::json(true, 'Sottocliente creato', ['id' => $newId]);
         }
     }
 
     public function delete($id) {
         $this->pdo->prepare("DELETE FROM {$this->prefix}sottoclienti WHERE id = ?")->execute([$id]);
+        Logger::logAction('DELETE', 'sottoclienti', $id);
         Response::json(true, 'Sottocliente eliminato');
     }
 }
