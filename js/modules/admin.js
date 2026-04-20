@@ -193,8 +193,8 @@ const ModAdmin = (() => {
 
         try {
             const res = await Store.api('listBackups', 'admin', {}, 'GET');
-            const data = Array.isArray(res) ? res : (res.data?.backups || []);
-            const stats = res.data?.db_stats || {};
+            const data = Array.isArray(res) ? res : (res.backups || res.data?.backups || []);
+            const stats = res.db_stats || res.data?.db_stats || {};
             
             // Format KPI
             const formatBytes = (bytes) => {
@@ -338,7 +338,7 @@ const ModAdmin = (() => {
 
         try {
             const res = await Store.api('listLogs', 'admin', { limit: 100, offset: logsOffset });
-            const data = Array.isArray(res) ? res : (res.data?.logs || []);
+            const data = Array.isArray(res) ? res : (res.logs || res.data?.logs || []);
             const tableWrap = document.getElementById('logs-table-container');
 
             if (data.length === 0 && !append) {

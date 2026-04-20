@@ -236,10 +236,8 @@ class ContabilitaController {
             $existing = $stmtCheck->fetchColumn();
 
             if ($existing) {
-                // Update
-                $stmtUpd = $this->pdo->prepare("UPDATE {$this->prefix}fatture SET cliente_id = ?, imponibile = ?, importo_totale = ?, data_emissione = ? WHERE id = ?");
-                $stmtUpd->execute([$clienteId, $imponibile, $totale, $dataEmissione, $existing]);
-                $imported++;
+                // Skip
+                $errors[] = "Pagina " . ($i + 1) . ": Fattura $numero già presente, caricamento ignorato.";
             } else {
                 // Insert
                 $importoIva = round($totale - $imponibile, 2);
@@ -332,9 +330,16 @@ class ContabilitaController {
             $provincia = (string)($header->CessionarioCommittente->Sede->Provincia ?? '');
             
             $stmtInsertC = $this->pdo->prepare("INSERT INTO {$this->prefix}clienti (ragione_sociale, partita_iva, codice_fiscale, indirizzo, citta, cap, provincia) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmtInsertC->execute([$ragioneSociale, $clientePartitaIva, $clienteCodiceFiscale, $indirizzo, $comune, $cap, $provincia]);
-            $clienteId = $this->pdo->lastInsertId();
-            $errors[] = "Cliente '$ragioneSociale' creato automaticamente.";
+            $resC = $stmtInsertC->execute([$ragioneSociale, $clientePartitaIva, $clienteCodiceFiscale, $indirizzo, $comune, $cap, $provincia]);
+            
+            if ($resC) {
+                $clienteId = $this->pdo->lastInsertId();
+                $errors[] = "Cliente '$ragioneSociale' creato automaticamente.";
+            } else {
+                $errInfo = $stmtInsertC->errorInfo();
+                $errors[] = "Impossibile creare il Cliente '$ragioneSociale': " . ($errInfo[2] ?? 'Errore MySQL');
+                $clienteId = null;
+            }
         } elseif (!$clienteId) {
             $errors[] = "Impossibile creare il Cliente: P.IVA o CF mancanti nell'XML.";
         }
@@ -371,20 +376,27 @@ class ContabilitaController {
                 
                 // Se non esiste, lo creo
                 if (!$sottoclienteId) {
-                    $stmtInsertS = $this->pdo->prepare("INSERT INTO {$this->prefix}sottoclienti (cliente_id, nome) VALUES (?, ?)");
-                    $stmtInsertS->execute([$clienteId, $sotto_nome_trovato]);
-                    $sottoclienteId = $this->pdo->lastInsertId();
-                    
-                    // Aggiorno la cache array per non ricrearlo in righe successive della stessa fattura
-                    $allSottoclienti[] = ['id' => $sottoclienteId, 'cliente_id' => $clienteId, 'nome' => $sotto_nome_trovato];
-                    
-                    $errors[] = "Sottocliente '$sotto_nome_trovato' creato automaticamente.";
+                    $stmtInsertS = $this->pdo->prepare("INSERT INTO {$this->prefix}sottoclienti 
+                        (cliente_id, nome, partita_iva, codice_fiscale, riferimento, indirizzo, citta, cap, provincia, pec, sdi, email) 
+                        VALUES (?, ?, '', '', '', '', '', '', '', '', '', '')");
+                    $resS = $stmtInsertS->execute([$clienteId, $sotto_nome_trovato]);
+                    if ($resS) {
+                        $sottoclienteId = $this->pdo->lastInsertId();
+                        // Aggiorno la cache array per non ricrearlo in righe successive della stessa fattura
+                        $allSottoclienti[] = ['id' => $sottoclienteId, 'cliente_id' => $clienteId, 'nome' => $sotto_nome_trovato];
+                        $errors[] = "Sottocliente '$sotto_nome_trovato' creato automaticamente.";
+                    } else {
+                        // Fallback se l'insert fallisce (es. strict mode o missing defaults)
+                        $errInfo = $stmtInsertS->errorInfo();
+                        $errors[] = "Impossibile creare il sottocliente '$sotto_nome_trovato': " . ($errInfo[2] ?? 'Errore MySQL');
+                        $sottoclienteId = null;
+                    }
                 }
             }
 
             // Prepariamo una chiave per accumulare importi dello stesso sottocliente.
-            // Se nessun sottocliente -> ID = 0 (finisce nel blocco principale senza sottocliente)
-            $groupKey = $sottoclienteId ? $sottoclienteId : '0';
+            // Se nessun sottocliente -> ID = 'none' (finisce nel blocco principale senza sottocliente)
+            $groupKey = $sottoclienteId ? $sottoclienteId : 'none';
 
             if (!isset($raggruppamenti[$groupKey])) {
                 $raggruppamenti[$groupKey] = [
@@ -399,7 +411,7 @@ class ContabilitaController {
 
         // 3. Eseguiamo gli Insert/Update su `fatture`
         foreach ($raggruppamenti as $sk => $data) {
-            $sid = ($sk === '0') ? null : (int)$sk;
+            $sid = ($sk === 'none') ? null : (int)$sk;
             $imponibile = round($data['imponibile'], 2);
             $importoIva = round($imponibile * $data['iva_percentuale'] / 100, 2);
             $importoTotale = round($imponibile + $importoIva, 2);
@@ -426,10 +438,8 @@ class ContabilitaController {
             $existing = $stmtCheck->fetchColumn();
 
             if ($existing) {
-                // Update
-                $stmtUpd = $this->pdo->prepare("UPDATE {$this->prefix}fatture SET imponibile = ?, importo_totale = ?, importo_iva = ?, descrizione = ? WHERE id = ?");
-                $stmtUpd->execute([$imponibile, $importoTotale, $importoIva, $testoDesc, $existing]);
-                $imported++;
+                // Skip
+                $errors[] = "Fattura n. $numeroFattura già presente, caricamento ignorato.";
             } else {
                 // Insert
                 $stmtIns = $this->pdo->prepare("INSERT INTO {$this->prefix}fatture 
