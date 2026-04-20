@@ -281,7 +281,108 @@ const ModContabilita = (() => {
         });
     }
 
-    return { load, openNew, edit, remove, initFilters };
+    async function importPdf(file) {
+        if (!file || file.type !== 'application/pdf') {
+            UI.toast('Seleziona un file PDF valido', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('btn-import-pdf-fatture');
+        const prevHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Lettura PDF in corso...';
+        btn.disabled = true;
+
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            const numPages = pdf.numPages;
+            const pagesText = [];
+
+            for (let i = 1; i <= numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const textItems = textContent.items.map(item => item.str);
+                pagesText.push(textItems.join(' '));
+            }
+
+            btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Analisi dati in corso...';
+            
+            const req = await Store.api('import_pdf', 'contabilita', { pages: pagesText });
+            
+            if (req && req.success) {
+                UI.toast(`Importazione completata: ${req.num_imported} fatture importate.`);
+                if (req.errors && req.errors.length > 0) {
+                    req.errors.forEach(err => console.warn('[Contabilita Import]', err));
+                    UI.toast(`${req.errors.length} errori durante l'importazione, controlla la console.`, 'error');
+                }
+                load(); // Reload table
+            } else {
+                throw new Error("Risposta anomala dal server");
+            }
+        } catch (err) {
+            console.error('[Contabilita Import] Error:', err);
+            UI.toast('Errore durante l\'importazione PDF: ' + err.message, 'error');
+        } finally {
+            btn.innerHTML = prevHtml;
+            btn.disabled = false;
+        }
+    }
+
+    async function importXml(files) {
+        if (!Array.isArray(files)) files = [files];
+        
+        const validFiles = files.filter(f => f.type === 'text/xml' || f.type === 'application/xml' || f.name.endsWith('.xml'));
+        if (validFiles.length === 0) {
+            UI.toast('Seleziona almeno un file XML valido', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('btn-import-xml-fatture');
+        const prevHtml = btn.innerHTML;
+        btn.disabled = true;
+
+        let totalImported = 0;
+        let totalErrors = 0;
+
+        try {
+            for (let i = 0; i < validFiles.length; i++) {
+                const file = validFiles[i];
+                btn.innerHTML = `<i class="ph ph-spinner ph-spin"></i> Lettura XML (${i+1}/${validFiles.length})...`;
+                
+                const text = await file.text();
+                
+                btn.innerHTML = `<i class="ph ph-spinner ph-spin"></i> Analisi DB (${i+1}/${validFiles.length})...`;
+                
+                const req = await Store.api('import_xml', 'contabilita', { xml: text });
+                
+                if (req && req.success) {
+                    totalImported += req.num_imported || 0;
+                    if (req.errors && req.errors.length > 0) {
+                        req.errors.forEach(err => console.warn(`[Contabilita Import XML - ${file.name}]`, err));
+                        totalErrors += req.errors.length;
+                    }
+                } else {
+                    console.error(`Error importing ${file.name}:`, req);
+                    totalErrors++;
+                }
+            }
+            
+            if (totalErrors > 0) {
+                UI.toast(`Importazione terminata: ${totalImported} righe, ${totalErrors} anomalie (vedi console).`, 'warning');
+            } else {
+                UI.toast(`Importazione completata: ${totalImported} righe create/aggiornate.`);
+            }
+            load(); // Reload table
+        } catch (err) {
+            console.error('[Contabilita Import XML] Error:', err);
+            UI.toast('Errore durante l\'importazione XML: ' + err.message, 'error');
+        } finally {
+            btn.innerHTML = prevHtml;
+            btn.disabled = false;
+        }
+    }
+
+    return { load, openNew, edit, remove, initFilters, importPdf, importXml };
 })();
 
 window.ModContabilita = ModContabilita;

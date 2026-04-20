@@ -88,6 +88,7 @@ class TrasferteController {
             $vals[] = $id;
             $sql = "UPDATE {$this->prefix}trasferte SET " . implode(', ', $sets) . " WHERE id = ?";
             $this->pdo->prepare($sql)->execute($vals);
+            Logger::logAction('UPDATE', 'trasferte', $id, ['data_trasferta' => $fields['data_trasferta'], 'cliente_id' => $fields['cliente_id']]);
             Response::json(true, 'Trasferta aggiornata', ['id' => $id]);
         } else {
             $cols = implode(', ', array_keys($fields));
@@ -95,6 +96,7 @@ class TrasferteController {
             $sql = "INSERT INTO {$this->prefix}trasferte ($cols) VALUES ($placeholders)";
             $this->pdo->prepare($sql)->execute(array_values($fields));
             $id = $this->pdo->lastInsertId();
+            Logger::logAction('INSERT', 'trasferte', $id, ['data_trasferta' => $fields['data_trasferta'], 'cliente_id' => $fields['cliente_id']]);
         }
 
         // Auto-calcula rotta
@@ -108,6 +110,7 @@ class TrasferteController {
 
     public function delete($id) {
         $this->pdo->prepare("DELETE FROM {$this->prefix}trasferte WHERE id = ?")->execute([$id]);
+        Logger::logAction('DELETE', 'trasferte', $id);
         Response::json(true, 'Trasferta eliminata');
     }
 

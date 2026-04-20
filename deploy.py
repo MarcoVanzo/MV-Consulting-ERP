@@ -29,7 +29,7 @@ FTP_PATH = os.environ.get("FTP_PATH", "")
 
 def upload_ftp():
     EXCLUDE_DIRS = ['.git', 'node_modules', 'dist', '.github', '.gemini']
-    EXCLUDE_FILES = ['deploy', '.env.deploy', '.DS_Store', 'task.md', 'walkthrough.md', 'implementation_plan.md']
+    EXCLUDE_FILES = ['deploy', '.env.deploy', '.env', '.DS_Store', 'task.md', 'walkthrough.md', 'implementation_plan.md']
 
     print(f"🚀 Connessione a {FTP_SERVER} come {FTP_USERNAME}...")
     try:

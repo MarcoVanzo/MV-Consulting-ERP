@@ -44,13 +44,7 @@ class AdminController {
         $this->pdo->exec($sqlBackups);
     }
 
-    private function logAction($action, $tableName = null, $recordId = null, $details = null) {
-        // Check if session token exists or assume admin for now
-        $user_name = 'Admin (Sistema)';
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-        $sql = "INSERT INTO {$this->prefix}audit_logs (user_name, action, table_name, record_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)";
-        $this->pdo->prepare($sql)->execute([$user_name, $action, $tableName, $recordId, json_encode($details, JSON_UNESCAPED_UNICODE), $ip]);
-    }
+
 
     // ─── UTENTI ─────────────────────────────────────────────────────────────
 
@@ -86,7 +80,7 @@ class AdminController {
         $stmt->execute([$email, $email, $hash, $name, $role]);
         $id = $this->pdo->lastInsertId();
 
-        $this->logAction('INSERT', 'users', $id, ['email' => $email]);
+        Logger::logAction('INSERT', 'users', $id, ['email' => $email]);
         Response::json(true, 'Utente creato', ['tempPassword' => $tempPassword, 'id' => $id]);
     }
 
@@ -96,7 +90,7 @@ class AdminController {
         if (!$id) Response::json(false, 'ID utente mancante');
         
         $this->pdo->prepare("DELETE FROM {$this->prefix}users WHERE id = ?")->execute([$id]);
-        $this->logAction('DELETE', 'users', $id);
+        Logger::logAction('DELETE', 'users', $id);
         Response::json(true, 'Utente eliminato');
     }
 
@@ -109,7 +103,7 @@ class AdminController {
         $hash = password_hash($tempPassword, PASSWORD_DEFAULT);
         
         $this->pdo->prepare("UPDATE {$this->prefix}users SET password = ? WHERE id = ?")->execute([$hash, $id]);
-        $this->logAction('UPDATE', 'users', $id, ['action' => 'reset_password']);
+        Logger::logAction('UPDATE', 'users', $id, ['action' => 'reset_password']);
         
         Response::json(true, 'Password resettata', ['tempPassword' => $tempPassword]);
     }
@@ -146,21 +140,56 @@ class AdminController {
             $pass = getenv('DB_PASS') ?: '';
             $name = getenv('DB_NAME') ?: 'mv_erp';
             
-            $cmd = "mysqldump -h {$host} -u {$user} -p{$pass} {$name} > {$filepath} 2>/dev/null";
-            exec($cmd, $output, $return_var);
+            $return_var = 1;
+            if (function_exists('exec')) {
+                $cmd = "mysqldump -h {$host} -u {$user} -p{$pass} {$name} > {$filepath} 2>/dev/null";
+                @exec($cmd, $output, $return_var);
+            }
 
-            if ($return_var !== 0 || !file_exists($filepath)) {
-                // Se mysqldump non va, generiamo un dump dummy
-                if (!@file_put_contents($filepath, "-- Backup simulato (mysqldump non disponibile)\n-- Creazione $filename\n")) {
+            if ($return_var !== 0 || !file_exists($filepath) || filesize($filepath) === 0) {
+                // Generiamo un dump via PHP PDO visto che mysqldump non va
+                $fp = @fopen($filepath, 'w');
+                if (!$fp) {
                     throw new Exception("Impossibile scrivere il file di backup in $filepath");
                 }
+                fwrite($fp, "-- Backup DB $name via PHP PDO\n");
+                fwrite($fp, "-- Data: " . date('Y-m-d H:i:s') . "\n\n");
+                
+                try {
+                    $tables = [];
+                    $stmt = $this->pdo->query("SHOW TABLES");
+                    while ($row = $stmt->fetch(PDO::FETCH_NUM)) {
+                        $tables[] = $row[0];
+                    }
+
+                    foreach ($tables as $table) {
+                        $stmt = $this->pdo->query("SHOW CREATE TABLE `$table`");
+                        $row = $stmt->fetch(PDO::FETCH_NUM);
+                        fwrite($fp, "DROP TABLE IF EXISTS `$table`;\n");
+                        fwrite($fp, $row[1] . ";\n\n");
+
+                        $stmt = $this->pdo->query("SELECT * FROM `$table`");
+                        while ($rowData = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                            $escapedValues = array_map(function($v) {
+                                return ($v === null) ? 'NULL' : $this->pdo->quote($v);
+                            }, array_values($rowData));
+                            $sql = "INSERT INTO `$table` (`" . implode("`, `", array_keys($rowData)) . "`) VALUES (" . implode(", ", $escapedValues) . ");\n";
+                            fwrite($fp, $sql);
+                        }
+                        fwrite($fp, "\n");
+                    }
+                } catch(Exception $e) {
+                    fclose($fp);
+                    throw new Exception("Errore durante il dump PDO: " . $e->getMessage());
+                }
+                fclose($fp);
             }
 
             $filesize = @filesize($filepath) ?: 0;
             $sql = "INSERT INTO {$this->prefix}db_backups (id, filename, filesize) VALUES (?, ?, ?)";
             $this->pdo->prepare($sql)->execute([$id, $filename, $filesize]);
 
-            $this->logAction('CREATE', 'db_backups', $id, ['filename' => $filename]);
+            Logger::logAction('CREATE', 'db_backups', $id, ['filename' => $filename]);
             $warns = ob_get_clean();
             Response::json(true, 'Backup creato' . ($warns ? " [Avvisi: $warns]" : ""), ['filename' => $filename]);
         } catch (Throwable $e) {
@@ -204,7 +233,7 @@ class AdminController {
             if (file_exists($filepath)) unlink($filepath);
             
             $this->pdo->prepare("DELETE FROM {$this->prefix}db_backups WHERE id = ?")->execute([$id]);
-            $this->logAction('DELETE', 'db_backups', $id, ['filename' => $filename]);
+            Logger::logAction('DELETE', 'db_backups', $id, ['filename' => $filename]);
             Response::json(true, 'Backup eliminato');
         } else {
             Response::json(false, 'Backup non trovato');

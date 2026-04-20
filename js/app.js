@@ -88,6 +88,32 @@ function initApplication(userData) {
     document.getElementById('btn-add-cliente').addEventListener('click', () => ModClienti.openNew());
     document.getElementById('btn-add-trasferta').addEventListener('click', () => ModTrasferte.openNew());
     document.getElementById('btn-add-fattura').addEventListener('click', () => ModContabilita.openNew());
+    
+    // ── PDF Import ──
+    const btnImportPdf = document.getElementById('btn-import-pdf-fatture');
+    const inputImportPdf = document.getElementById('input-pdf-fatture');
+    if (btnImportPdf && inputImportPdf) {
+        btnImportPdf.addEventListener('click', () => inputImportPdf.click());
+        inputImportPdf.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                ModContabilita.importPdf(e.target.files[0]);
+                e.target.value = ''; // Reset
+            }
+        });
+    }
+
+    // ── XML Import ──
+    const btnImportXml = document.getElementById('btn-import-xml-fatture');
+    const inputImportXml = document.getElementById('input-xml-fatture');
+    if (btnImportXml && inputImportXml) {
+        btnImportXml.addEventListener('click', () => inputImportXml.click());
+        inputImportXml.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                ModContabilita.importXml(Array.from(e.target.files));
+                e.target.value = ''; // Reset
+            }
+        });
+    }
 
     // ── Logout ──
     document.getElementById('logout-btn').addEventListener('click', () => {
