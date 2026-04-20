@@ -22,6 +22,13 @@ const ModTrasferte = (() => {
             console.error('[Trasferte] Load error:', err);
             UI.toast('Errore caricamento trasferte', 'error');
         }
+
+        // Controlla URL per success dal callback Google
+        if (window.location.href.includes('google_sync=success')) {
+            UI.toast('Autenticazione Google avvenuta con successo! Clicca Sincronizza per scaricare i viaggi.', 'success');
+            // Pulisci l'URL
+            window.history.replaceState({}, document.title, window.location.pathname + '#view-trasferte');
+        }
     }
 
     function renderKpis() {
@@ -56,7 +63,7 @@ const ModTrasferte = (() => {
             return `
             <tr data-id="${t.id}">
                 <td>${UI.formatDate(t.data_trasferta)}</td>
-                <td class="td-primary">${UI.esc(t.cliente_nome || '—')}${t.sottocliente_nome ? ` <span style="color:var(--text-muted)">/ ${UI.esc(t.sottocliente_nome)}</span>` : ''}</td>
+                <td class="td-primary">${t.sottocliente_nome ? UI.esc(t.sottocliente_nome) : UI.esc(t.cliente_nome || '—')}</td>
                 <td>${UI.esc(t.luogo_arrivo || '—')}</td>
                 <td class="text-right">${UI.formatNumber(kmTot)}</td>
                 <td class="text-right">${UI.formatCurrency(t.pedaggio)}</td>
@@ -64,6 +71,7 @@ const ModTrasferte = (() => {
                 <td class="text-right">${UI.formatCurrency(parseFloat(t.alloggio || 0) + parseFloat(t.altre_spese || 0))}</td>
                 <td>
                     <div class="flex gap-2">
+                        <button class="btn btn-sm btn-ghost" title="Calcola KM per questa giornata" onclick="ModTrasferte.calcolaKm('${t.data_trasferta}')"><i class="ph ph-map-pin-line"></i></button>
                         <button class="btn btn-sm btn-ghost" onclick="ModTrasferte.edit(${t.id})"><i class="ph ph-pencil-simple"></i></button>
                         <button class="btn btn-sm btn-danger" onclick="ModTrasferte.remove(${t.id})"><i class="ph ph-trash"></i></button>
                     </div>
@@ -81,6 +89,14 @@ const ModTrasferte = (() => {
                 <div class="form-group">
                     <label>Data *</label>
                     <input type="date" class="form-control" id="f-t-data" value="${data.data_trasferta || new Date().toISOString().split('T')[0]}">
+                </div>
+                <div class="form-group">
+                    <label>Fascia Oraria</label>
+                    <select class="form-control" id="f-t-fascia">
+                        <option value="intera" ${data.fascia_oraria === 'intera' ? 'selected' : ''}>Intera Giornata</option>
+                        <option value="mattino" ${data.fascia_oraria === 'mattino' ? 'selected' : ''}>Mattino</option>
+                        <option value="pomeriggio" ${data.fascia_oraria === 'pomeriggio' ? 'selected' : ''}>Pomeriggio</option>
+                    </select>
                 </div>
                 <div class="form-group">
                     <label>Cliente</label>
@@ -179,6 +195,7 @@ const ModTrasferte = (() => {
         const payload = {
             id: document.getElementById('f-t-id').value || undefined,
             data_trasferta: document.getElementById('f-t-data').value,
+            fascia_oraria: document.getElementById('f-t-fascia').value,
             cliente_id: document.getElementById('f-t-cliente').value,
             sottocliente_id: document.getElementById('f-t-sottocliente').value,
             luogo_arrivo: document.getElementById('f-t-luogo').value,
@@ -215,9 +232,50 @@ const ModTrasferte = (() => {
         UI.populateYearSelect('trasferte-year');
         document.getElementById('trasferte-year').addEventListener('change', load);
         document.getElementById('trasferte-month').addEventListener('change', load);
+
+        const btnSync = document.getElementById('btn-sync-google');
+        if (btnSync) {
+            btnSync.addEventListener('click', syncGoogle);
+        }
     }
 
-    return { load, openNew, edit, remove, initFilters };
+    async function syncGoogle() {
+        const btnSync = document.getElementById('btn-sync-google');
+        try {
+            if (btnSync) btnSync.classList.add('loading');
+            const data = await Store.api('sync', 'google');
+            
+            if (data.auth_required) {
+                // Auth necessaria, avvio flow oauth
+                const authData = await Store.api('auth', 'google');
+                if (authData && authData.url) {
+                    window.location.href = authData.url;
+                }
+                return;
+            }
+
+            UI.toast(`Sincronizzazione completata: ${data.imported || 0} nuovi eventi importati.`, 'success');
+            load();
+        } catch (err) {
+            UI.toast(err.message || 'Errore durante la sincronizzazione con Google Calendar', 'error');
+        } finally {
+            if (btnSync) btnSync.classList.remove('loading');
+        }
+    }
+
+    async function calcolaKm(date) {
+        if (!confirm('Vuoi calcolare automaticamente i KM per tutte le trasferte in data ' + UI.formatDate(date) + '? Verranno sovrascritti i valori esistenti.')) return;
+        try {
+            // Simuliamo stato di loading 
+            const data = await Store.api('calcolaKmGiorno', 'trasferte', { data: date });
+            UI.toast(data.message || 'Calcolo KM effettuato con successo', 'success');
+            load();
+        } catch (err) {
+            UI.toast(err.message || 'Non è stato possibile calcolare i KM per questa giornata', 'error');
+        }
+    }
+
+    return { load, openNew, edit, remove, initFilters, syncGoogle, calcolaKm };
 })();
 
 window.ModTrasferte = ModTrasferte;

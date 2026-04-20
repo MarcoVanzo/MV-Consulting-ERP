@@ -76,6 +76,7 @@ $queries = [
         cliente_id INT DEFAULT NULL,
         sottocliente_id INT DEFAULT NULL,
         data_trasferta DATE NOT NULL,
+        fascia_oraria ENUM('intera', 'mattino', 'pomeriggio') DEFAULT 'intera',
         descrizione TEXT DEFAULT NULL,
         luogo_partenza VARCHAR(255) DEFAULT 'Padova',
         luogo_arrivo VARCHAR(255) DEFAULT NULL,
@@ -94,6 +95,8 @@ $queries = [
         FOREIGN KEY (sottocliente_id) REFERENCES {$prefix}sottoclienti(id) ON DELETE SET NULL,
         UNIQUE KEY uk_google_event (google_event_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    "ALTER TABLE {$prefix}trasferte ADD COLUMN IF NOT EXISTS fascia_oraria ENUM('intera', 'mattino', 'pomeriggio') DEFAULT 'intera' AFTER data_trasferta",
 
     // ── Fatture / Contabilità ────────────────────────────
     "CREATE TABLE IF NOT EXISTS {$prefix}fatture (

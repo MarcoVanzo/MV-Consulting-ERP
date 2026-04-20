@@ -337,7 +337,7 @@ const ModAdmin = (() => {
         }
 
         try {
-            const res = await Store.api(`listLogs&limit=100&offset=${logsOffset}`, 'admin', {}, 'GET');
+            const res = await Store.api('listLogs', 'admin', { limit: 100, offset: logsOffset });
             const data = Array.isArray(res) ? res : (res.data?.logs || []);
             const tableWrap = document.getElementById('logs-table-container');
 

@@ -21,16 +21,20 @@ class SottoclientiController {
     public function save($data) {
         $id = $data['id'] ?? null;
         $fields = [
-            'cliente_id'  => (int)($data['cliente_id'] ?? 0),
-            'nome'        => trim($data['nome'] ?? ''),
-            'riferimento' => trim($data['riferimento'] ?? ''),
-            'indirizzo'   => trim($data['indirizzo'] ?? ''),
-            'citta'       => trim($data['citta'] ?? ''),
-            'cap'         => trim($data['cap'] ?? ''),
-            'provincia'   => trim($data['provincia'] ?? ''),
-            'telefono'    => trim($data['telefono'] ?? ''),
-            'email'       => trim($data['email'] ?? ''),
-            'note'        => trim($data['note'] ?? '')
+            'cliente_id'     => (int)($data['cliente_id'] ?? 0),
+            'nome'           => trim($data['nome'] ?? ''),
+            'partita_iva'    => trim($data['partita_iva'] ?? ''),
+            'codice_fiscale' => trim($data['codice_fiscale'] ?? ''),
+            'riferimento'    => trim($data['riferimento'] ?? ''),
+            'indirizzo'      => trim($data['indirizzo'] ?? ''),
+            'citta'          => trim($data['citta'] ?? ''),
+            'cap'            => trim($data['cap'] ?? ''),
+            'provincia'      => trim($data['provincia'] ?? ''),
+            'pec'            => trim($data['pec'] ?? ''),
+            'sdi'            => trim($data['sdi'] ?? ''),
+            'telefono'       => trim($data['telefono'] ?? ''),
+            'email'          => trim($data['email'] ?? ''),
+            'note'           => trim($data['note'] ?? '')
         ];
 
         if (empty($fields['nome'])) {

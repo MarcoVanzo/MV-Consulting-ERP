@@ -26,7 +26,8 @@ const Store = (() => {
             try {
                 result = JSON.parse(text);
             } catch (parseErr) {
-                throw new Error('Risposta server non valida');
+                console.error("Raw response:", text);
+                throw new Error('Risposta server non valida: ' + text.substring(0, 150));
             }
 
             if (!result.success) {
