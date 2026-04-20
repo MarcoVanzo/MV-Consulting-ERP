@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Store - API wrapper
+ * Store — API wrapper con supporto FormData e GET params
  */
 const Store = (() => {
     async function api(action, module = 'auth', payload = {}) {
@@ -10,30 +10,32 @@ const Store = (() => {
             formData.append('module', module);
             formData.append('action', action);
             
-            // Append payload
             for (const key in payload) {
-                formData.append(key, payload[key]);
+                if (payload[key] !== undefined && payload[key] !== null) {
+                    formData.append(key, payload[key]);
+                }
             }
 
-            const response = await fetch(`api/router.php`, {
+            const response = await fetch('api/router.php', {
                 method: 'POST',
                 body: formData
             });
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(errorText || 'Server error');
+            const text = await response.text();
+            let result;
+            try {
+                result = JSON.parse(text);
+            } catch (parseErr) {
+                throw new Error('Risposta server non valida');
             }
 
-            const result = await response.json();
-            
             if (!result.success) {
-                throw new Error(result.error || result.message || 'Unknown error');
+                throw new Error(result.error || result.message || 'Errore sconosciuto');
             }
 
             return result.data;
         } catch (error) {
-            console.error('[API Error]', error);
+            console.error('[API Error]', module + '/' + action, error);
             throw error;
         }
     }
