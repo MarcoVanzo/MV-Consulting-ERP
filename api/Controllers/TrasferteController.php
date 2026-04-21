@@ -90,7 +90,6 @@ class TrasferteController {
             $sql = "UPDATE {$this->prefix}trasferte SET " . implode(', ', $sets) . " WHERE id = ?";
             $this->pdo->prepare($sql)->execute($vals);
             Logger::logAction('UPDATE', 'trasferte', $id, ['data_trasferta' => $fields['data_trasferta'], 'cliente_id' => $fields['cliente_id']]);
-            Response::json(true, 'Trasferta aggiornata', ['id' => $id]);
         } else {
             $cols = implode(', ', array_keys($fields));
             $placeholders = implode(', ', array_fill(0, count($fields), '?'));

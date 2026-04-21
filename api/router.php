@@ -59,6 +59,12 @@ if (file_exists($envPath)) {
     }
 }
 
+// Validazione DB_PREFIX: solo caratteri sicuri (alfanumerici + underscore)
+$dbPrefix = getenv('DB_PREFIX') ?: 'mv_';
+if (!preg_match('/^[a-zA-Z0-9_]+$/', $dbPrefix)) {
+    die(json_encode(['success' => false, 'message' => 'Configurazione DB_PREFIX non valida']));
+}
+
 $module = $_POST['module'] ?? $_GET['module'] ?? '';
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
@@ -127,11 +133,37 @@ try {
                 if (empty($email) || empty($password)) {
                     Response::json(false, 'Credenziali non valide');
                 }
+
+                // ── Rate Limiting: max 10 tentativi per IP in 15 minuti ──
+                $rateLimitDir = __DIR__ . '/../storage/rate_limit';
+                if (!is_dir($rateLimitDir)) @mkdir($rateLimitDir, 0755, true);
+                $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+                $rateLimitFile = $rateLimitDir . '/' . md5($ip) . '.json';
+                $maxAttempts = 10;
+                $windowSeconds = 900; // 15 minuti
+
+                $attempts = [];
+                if (file_exists($rateLimitFile)) {
+                    $attempts = json_decode(file_get_contents($rateLimitFile), true) ?: [];
+                    // Rimuovi tentativi fuori dalla finestra temporale
+                    $attempts = array_filter($attempts, fn($t) => $t > time() - $windowSeconds);
+                }
+
+                if (count($attempts) >= $maxAttempts) {
+                    Logger::logAction('RATE_LIMIT', 'auth', null, ['ip' => $ip, 'email' => $email]);
+                    Response::json(false, 'Troppi tentativi di accesso. Riprovare tra qualche minuto.', null, 429);
+                }
+
                 $auth = new Auth();
                 $user = $auth->login($email, $password);
                 if ($user) {
+                    // Login riuscito: azzera i tentativi
+                    if (file_exists($rateLimitFile)) @unlink($rateLimitFile);
                     Response::json(true, 'Login effettuato', $user);
                 } else {
+                    // Login fallito: registra il tentativo
+                    $attempts[] = time();
+                    file_put_contents($rateLimitFile, json_encode(array_values($attempts)));
                     Response::json(false, 'Email o password errati');
                 }
             }
@@ -173,11 +205,8 @@ try {
             switch ($action) {
                 case 'list':             $ctrl->list(); break;
                 case 'save':             $ctrl->save($data); break;
-                case 'saveGiornata':     $ctrl->saveGiornata($data); break;
                 case 'delete':           $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
-                case 'deleteGiornata':   $ctrl->deleteGiornata(); break;
                 case 'rendiconto':       $ctrl->rendiconto(); break;
-                case 'exportPdf':        $ctrl->exportPdf(); break;
                 case 'calcolaKmGiorno':  $ctrl->calcolaKmGiorno(); break;
                 case 'calcolaTuttiKm':   $ctrl->calcolaTuttiKm(); break;
                 case 'togglePernottamento': $ctrl->togglePernottamento(); break;

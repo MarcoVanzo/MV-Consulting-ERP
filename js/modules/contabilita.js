@@ -479,7 +479,7 @@ const ModContabilita = (() => {
                     </div>
                 </div>
                 <div style="max-height: 300px; overflow-y: auto; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; font-size: 0.85rem; line-height: 1.8;">
-                    ${allMessages.map(m => `<div>${m}</div>`).join('')}
+                    ${allMessages.map(m => `<div>${m.startsWith('<strong') || m.startsWith('<span') ? m : UI.esc(m)}</div>`).join('')}
                 </div>
             `;
 

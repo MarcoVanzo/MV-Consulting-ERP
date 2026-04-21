@@ -268,8 +268,30 @@ const ModAdmin = (() => {
                 `;
 
                 tableWrap.querySelectorAll('.bkp-download').forEach(btn => {
-                    btn.addEventListener('click', () => {
-                        window.location.href = `api/router.php?module=admin&action=downloadBackup&id=${btn.dataset.id}&token=${localStorage.getItem('erp_token')}`;
+                    btn.addEventListener('click', async () => {
+                        const token = localStorage.getItem('erp_token');
+                        try {
+                            btn.disabled = true;
+                            btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Scarica...';
+                            const response = await fetch(`api/router.php?module=admin&action=downloadBackup&id=${btn.dataset.id}`, {
+                                headers: { 'Authorization': 'Bearer ' + token }
+                            });
+                            if (!response.ok) throw new Error('Download fallito');
+                            const blob = await response.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `backup_${btn.dataset.id}.sql`;
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            URL.revokeObjectURL(url);
+                        } catch (err) {
+                            UI.toast('Errore download: ' + err.message, 'error');
+                        } finally {
+                            btn.disabled = false;
+                            btn.innerHTML = '<i class="ph ph-download-simple"></i> Scarica';
+                        }
                     });
                 });
 
