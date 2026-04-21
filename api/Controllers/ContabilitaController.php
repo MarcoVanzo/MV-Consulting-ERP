@@ -580,58 +580,73 @@ class ContabilitaController {
             return;
         }
 
-        // 5. Per ogni riga, cerca la fattura in DB e aggiornala
+        // 5. Per ogni riga del PDF, cerca TUTTE le righe in DB con quel numero fattura
+        //    (la stessa fattura può avere più righe, una per sottocliente)
+        //    Confronta la SOMMA degli importi con l'importo del PDF
         foreach ($righe as $riga) {
             $numFattura = $riga['numero'];
             $importo = $riga['importo'];
 
-            // Cerca per numero fattura (match esatto o con padding)
-            $stmt = $this->pdo->prepare("SELECT id, numero_fattura, importo_totale, stato 
+            // Cerca TUTTE le righe con questo numero fattura (match esatto, padding, suffisso)
+            $numPadded = str_pad($numFattura, 3, '0', STR_PAD_LEFT);
+            $stmt = $this->pdo->prepare("SELECT id, numero_fattura, importo_totale, stato, sottocliente_id
                 FROM {$this->prefix}fatture 
                 WHERE numero_fattura = ? OR numero_fattura = ? OR numero_fattura LIKE ?
-                ORDER BY ABS(importo_totale - ?) ASC
-                LIMIT 1");
-            
-            // Prova match con il numero tal quale, con zero-padding, e con LIKE per prefisso/suffisso
-            $numPadded = str_pad($numFattura, 3, '0', STR_PAD_LEFT);
-            $stmt->execute([$numFattura, $numPadded, "%/$numFattura", $importo]);
-            $fattura = $stmt->fetch();
+                ORDER BY id ASC");
+            $stmt->execute([$numFattura, $numPadded, "%/$numFattura"]);
+            $righeDb = $stmt->fetchAll();
 
-            if (!$fattura) {
+            if (empty($righeDb)) {
                 $notFound[] = "Fattura n. $numFattura (€" . number_format($importo, 2, ',', '.') . "): non trovata in archivio.";
                 continue;
             }
 
-            // Verifica che l'importo corrisponda (tolleranza ±1€)
-            $diff = abs(floatval($fattura['importo_totale']) - $importo);
-            if ($diff > 1.0) {
+            // Calcola la somma totale di tutte le righe con questo numero fattura
+            $sommaTotaleDb = 0;
+            $numRigheDb = count($righeDb);
+            $tutteGiaPagate = true;
+            foreach ($righeDb as $r) {
+                $sommaTotaleDb += floatval($r['importo_totale']);
+                if ($r['stato'] !== 'pagata') $tutteGiaPagate = false;
+            }
+
+            // Se sono tutte già pagate
+            if ($tutteGiaPagate) {
+                $alreadyPaid[] = "Fattura n. $numFattura ({$numRigheDb} righe, €" . number_format($sommaTotaleDb, 2, ',', '.') . "): tutte già segnate come pagate.";
+                continue;
+            }
+
+            // Verifica che la somma corrisponda (tolleranza ±2€ per arrotondamenti)
+            $diff = abs($sommaTotaleDb - $importo);
+            if ($diff > 2.0) {
                 $notFound[] = "Fattura n. $numFattura: importo PDF €" . number_format($importo, 2, ',', '.') . 
-                    " ≠ DB €" . number_format($fattura['importo_totale'], 2, ',', '.') . " (diff: €" . number_format($diff, 2, ',', '.') . ").";
+                    " ≠ somma DB €" . number_format($sommaTotaleDb, 2, ',', '.') . 
+                    " ({$numRigheDb} righe, diff: €" . number_format($diff, 2, ',', '.') . ").";
                 continue;
             }
 
-            // Se è già pagata, segnala ma non aggiornare
-            if ($fattura['stato'] === 'pagata') {
-                $alreadyPaid[] = "Fattura n. {$fattura['numero_fattura']} (€" . number_format($importo, 2, ',', '.') . "): già segnata come pagata.";
-                continue;
+            // Match trovato! Aggiorna TUTTE le righe di questa fattura come pagate
+            $idsAggiornati = [];
+            foreach ($righeDb as $r) {
+                if ($r['stato'] !== 'pagata') {
+                    $stmtUpd = $this->pdo->prepare("UPDATE {$this->prefix}fatture 
+                        SET stato = 'pagata', 
+                            data_pagamento = ?, 
+                            metodo_pagamento = 'bonifico'
+                        WHERE id = ?");
+                    $stmtUpd->execute([$dataPagamento, $r['id']]);
+                    Logger::logAction('UPDATE', 'fatture', $r['id'], [
+                        'azione' => 'pagamento_da_pdf',
+                        'stato' => 'pagata',
+                        'data_pagamento' => $dataPagamento,
+                        'importo_riga' => $r['importo_totale']
+                    ]);
+                    $idsAggiornati[] = $r['id'];
+                }
             }
 
-            // Aggiorna come pagata
-            $stmtUpd = $this->pdo->prepare("UPDATE {$this->prefix}fatture 
-                SET stato = 'pagata', 
-                    data_pagamento = ?, 
-                    metodo_pagamento = 'bonifico'
-                WHERE id = ?");
-            $stmtUpd->execute([$dataPagamento, $fattura['id']]);
-            Logger::logAction('UPDATE', 'fatture', $fattura['id'], [
-                'azione' => 'pagamento_da_pdf',
-                'stato' => 'pagata',
-                'data_pagamento' => $dataPagamento,
-                'importo' => $importo
-            ]);
-
-            $matched++;
-            $details[] = "✅ Fattura n. {$fattura['numero_fattura']} — €" . number_format($importo, 2, ',', '.') . " → Pagata ({$dataPagamento})";
+            $matched += count($idsAggiornati);
+            $details[] = "✅ Fattura n. {$numFattura} — €" . number_format($importo, 2, ',', '.') . " → {$numRigheDb} righe aggiornate come Pagate ({$dataPagamento})";
         }
 
         $messages = array_merge($details, $alreadyPaid, $notFound);
