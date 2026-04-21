@@ -955,3 +955,48 @@ textarea.form-control {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Custom Tooltip for Chart Columns */
+.chart-column-container {
+    cursor: pointer;
+}
+.custom-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background: var(--bg-dark);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-subtle);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 50;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    text-align: left;
+    line-height: 1.5;
+}
+.chart-column-container:hover .custom-tooltip {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-8px);
+}
+.tooltip-title {
+    font-weight: 600;
+    color: var(--accent-primary);
+    margin-bottom: 4px;
+    display: block;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 2px;
+}
+.tooltip-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+}
+.tooltip-val {
+    font-weight: 600;
+}

@@ -115,6 +115,19 @@ function initApplication(userData) {
         });
     }
 
+    // ── Payment PDF Import ──
+    const btnImportPayment = document.getElementById('btn-import-payment-pdf');
+    const inputImportPayment = document.getElementById('input-payment-pdf');
+    if (btnImportPayment && inputImportPayment) {
+        btnImportPayment.addEventListener('click', () => inputImportPayment.click());
+        inputImportPayment.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                ModContabilita.importPaymentPdf(Array.from(e.target.files));
+                e.target.value = ''; // Reset
+            }
+        });
+    }
+
     // ── Logout ──
     document.getElementById('logout-btn').addEventListener('click', () => {
         localStorage.removeItem('erp_token');
