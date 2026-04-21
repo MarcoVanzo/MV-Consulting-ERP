@@ -91,9 +91,9 @@ if (!$isPublic) {
     $jwt = '';
     if (preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
         $jwt = $matches[1];
-    } elseif (isset($_GET['token'])) {
-        $jwt = $_GET['token'];
     }
+    // SECURITY: JWT accettato SOLO via header Authorization: Bearer
+    // Mai tramite query parameter (espone il token nei log server e referrer)
 
     if ($jwt) {
         $secret = getenv('JWT_SECRET');

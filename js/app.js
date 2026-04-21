@@ -86,7 +86,7 @@ function initApplication(userData) {
 
     // ── Action Buttons ──
     document.getElementById('btn-add-cliente').addEventListener('click', () => ModClienti.openNew());
-    document.getElementById('btn-add-trasferta').addEventListener('click', () => ModTrasferte.openNew());
+    document.getElementById('btn-add-giornata').addEventListener('click', () => ModTrasferte.openNew());
     document.getElementById('btn-add-fattura').addEventListener('click', () => ModContabilita.openNew());
     
     // ── PDF Import ──
