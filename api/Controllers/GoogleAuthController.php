@@ -128,7 +128,7 @@ class GoogleAuthController {
 
         // Modificato come richiesto per importare tutti i dati dal primo gennaio 2026
         $timeMin = '2026-01-01T00:00:00Z';
-        $timeMax = date('Y-12-31T23:59:59\Z', strtotime('+1 year')); 
+        $timeMax = date('Y-12-31\T23:59:59\Z', strtotime('+1 year')); 
 
         // Recuperiamo tutti i clienti e sottoclienti per l'auto-matching
         $stmtClienti = $this->pdo->query("SELECT id, ragione_sociale FROM {$this->prefix}clienti WHERE ragione_sociale != ''");
