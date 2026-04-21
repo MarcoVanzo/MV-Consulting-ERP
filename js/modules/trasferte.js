@@ -91,9 +91,12 @@ const ModTrasferte = (() => {
                     pomeriggio: { nome: '', id: null },
                     extra: [], // Per eventi aggiuntivi oltre 2 nella stessa giornata
                     km_totali: 0,
-                    has_client: false
+                    has_client: false,
+                    pernottamento: false
                 };
             }
+            if (t.pernottamento == 1 || t.pernottamento == true) grouped[t.data_trasferta].pernottamento = true;
+            
             const nome = t.sottocliente_nome ? UI.esc(t.sottocliente_nome) : (t.cliente_nome ? UI.esc(t.cliente_nome) : '');
             if (nome) grouped[t.data_trasferta].has_client = true;
             
@@ -163,7 +166,10 @@ const ModTrasferte = (() => {
                 <td class="text-right">${UI.formatCurrency(indennita)}</td>
                 <td class="text-right fw-600">${UI.formatCurrency(rimborsoTotale)}</td>
                 <td>
-                    <div class="flex gap-2 justify-end">
+                    <div class="flex gap-2 justify-end" style="align-items: center;">
+                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; margin-right: 10px; font-size: 0.85rem; user-select: none;">
+                            <input type="checkbox" onchange="ModTrasferte.togglePernottamento('${g.data}', this.checked)" ${g.pernottamento ? 'checked' : ''}> Dormo fuori
+                        </label>
                         <button class="btn btn-sm btn-ghost" title="Calcola KM per questa giornata" onclick="ModTrasferte.calcolaKm('${g.data}')"><i class="ph ph-map-pin-line"></i></button>
                     </div>
                 </td>
@@ -224,9 +230,7 @@ const ModTrasferte = (() => {
                     <input type="number" class="form-control" id="f-t-alloggio" value="${data.alloggio || 0}" step="0.01">
                 </div>
                 <div class="form-group full-width" style="display: flex; gap: 20px; align-items: center; margin-top: 10px;">
-                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input type="checkbox" id="f-t-pernottamento" ${data.pernottamento == 1 ? 'checked' : ''}> Pernottamento (dormo fuori)
-                    </label>
+                    <input type="hidden" id="f-t-pernottamento" value="${data.pernottamento || 0}">
                     <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                         <input type="checkbox" id="f-t-km-bloccati" ${data.km_bloccati == 1 ? 'checked' : ''}> Blocca Ricalcolo KM (valori manuali)
                     </label>
@@ -312,7 +316,7 @@ const ModTrasferte = (() => {
             vitto: document.getElementById('f-t-vitto').value,
             alloggio: document.getElementById('f-t-alloggio').value,
             descrizione: document.getElementById('f-t-desc').value,
-            pernottamento: document.getElementById('f-t-pernottamento').checked ? 1 : 0,
+            pernottamento: parseInt(document.getElementById('f-t-pernottamento').value) || 0,
             km_bloccati: document.getElementById('f-t-km-bloccati').checked ? 1 : 0
         };
         try {
@@ -338,9 +342,8 @@ const ModTrasferte = (() => {
 
     function initFilters() {
         UI.populateYearSelect('trasferte-year');
-        // Seleziona il mese corrente di default anziché "Tutti i mesi"
-        const currentMonth = new Date().getMonth() + 1;
-        document.getElementById('trasferte-month').value = currentMonth;
+        // Seleziona "Tutti i mesi" di default per vedere l'intero anno come richiesto
+        document.getElementById('trasferte-month').value = '';
 
         document.getElementById('trasferte-year').addEventListener('change', load);
         document.getElementById('trasferte-month').addEventListener('change', load);
@@ -400,6 +403,17 @@ const ModTrasferte = (() => {
         }
     }
 
+    async function togglePernottamento(date, state) {
+        try {
+            const data = await Store.api('togglePernottamento', 'trasferte', { data: date, state: state ? 1 : 0 });
+            UI.toast(data.message || 'Stato pernottamento aggiornato', 'success');
+            load();
+        } catch (err) {
+            UI.toast(err.message || 'Errore aggiornamento', 'error');
+            load();
+        }
+    }
+
     async function calcolaTuttiKm() {
         const year = document.getElementById('trasferte-year').value;
         const month = document.getElementById('trasferte-month').value;
@@ -422,7 +436,7 @@ const ModTrasferte = (() => {
         }
     }
 
-    return { load, openNew, edit, remove, initFilters, syncGoogle, calcolaKm, calcolaTuttiKm };
+    return { load, openNew, edit, remove, initFilters, syncGoogle, calcolaKm, calcolaTuttiKm, togglePernottamento };
 })();
 
 window.ModTrasferte = ModTrasferte;
