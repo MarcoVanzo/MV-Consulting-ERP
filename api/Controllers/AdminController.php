@@ -10,15 +10,17 @@ class AdminController {
     public function __construct() {
         $this->pdo = Database::getConnection();
         $this->prefix = getenv('DB_PREFIX') ?: 'mv_';
-        $this->initTables();
     }
 
     /**
-     * Assicura che le tabelle per i log e backup esistano prima di procedere
+     * Inizializza le tabelle necessarie. Chiamare solo durante il setup iniziale,
+     * NON ad ogni richiesta (evita DDL overhead).
      */
-    private function initTables() {
-        // Tabella Logs
-        $sqlLogs = "CREATE TABLE IF NOT EXISTS `{$this->prefix}audit_logs` (
+    public static function ensureTables() {
+        $pdo = Database::getConnection();
+        $prefix = getenv('DB_PREFIX') ?: 'mv_';
+
+        $sqlLogs = "CREATE TABLE IF NOT EXISTS `{$prefix}audit_logs` (
             `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
             `user_id` INT NULL,
             `user_name` VARCHAR(100) NULL,
@@ -29,10 +31,9 @@ class AdminController {
             `ip_address` VARCHAR(45) NULL,
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
-        $this->pdo->exec($sqlLogs);
+        $pdo->exec($sqlLogs);
 
-        // Tabella Backup
-        $sqlBackups = "CREATE TABLE IF NOT EXISTS `{$this->prefix}db_backups` (
+        $sqlBackups = "CREATE TABLE IF NOT EXISTS `{$prefix}db_backups` (
             `id` VARCHAR(50) PRIMARY KEY,
             `filename` VARCHAR(255) NOT NULL,
             `filesize` BIGINT NOT NULL DEFAULT 0,
@@ -41,8 +42,10 @@ class AdminController {
             `created_by` INT NULL,
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
-        $this->pdo->exec($sqlBackups);
+        $pdo->exec($sqlBackups);
     }
+
+
 
 
 
@@ -55,8 +58,8 @@ class AdminController {
         Response::json(true, '', $users);
     }
 
-    public function createUser() {
-        $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    public function createUser($data = null) {
+        if (!$data) $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
         if (empty($data['email']) || empty($data['full_name'])) {
             Response::json(false, 'Email e Nome completi sono obbligatori');
         }
@@ -84,8 +87,8 @@ class AdminController {
         Response::json(true, 'Utente creato', ['tempPassword' => $tempPassword, 'id' => $id]);
     }
 
-    public function deleteUser() {
-        $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    public function deleteUser($data = null) {
+        if (!$data) $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
         $id = $data['id'] ?? null;
         if (!$id) Response::json(false, 'ID utente mancante');
         
@@ -94,8 +97,8 @@ class AdminController {
         Response::json(true, 'Utente eliminato');
     }
 
-    public function resetPassword() {
-        $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    public function resetPassword($data = null) {
+        if (!$data) $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
         $id = $data['id'] ?? null;
         if (!$id) Response::json(false, 'ID utente mancante');
 
@@ -142,7 +145,14 @@ class AdminController {
             
             $return_var = 1;
             if (function_exists('exec')) {
-                $cmd = "mysqldump -h {$host} -u {$user} -p{$pass} {$name} > {$filepath} 2>/dev/null";
+                $cmd = sprintf(
+                    'mysqldump -h %s -u %s -p%s %s > %s 2>/dev/null',
+                    escapeshellarg($host),
+                    escapeshellarg($user),
+                    escapeshellarg($pass),
+                    escapeshellarg($name),
+                    escapeshellarg($filepath)
+                );
                 @exec($cmd, $output, $return_var);
             }
 
@@ -200,13 +210,17 @@ class AdminController {
 
     public function downloadBackup() {
         $id = $_GET['id'] ?? null;
-        if (!$id) die("ID backup non fornito.");
+        if (!$id) {
+            Response::json(false, 'ID backup non fornito.', null, 400);
+        }
 
         $stmt = $this->pdo->prepare("SELECT filename FROM {$this->prefix}db_backups WHERE id = ?");
         $stmt->execute([$id]);
         $filename = $stmt->fetchColumn();
         
-        if (!$filename) die("Backup non trovato nel DB.");
+        if (!$filename) {
+            Response::json(false, 'Backup non trovato nel DB.', null, 404);
+        }
         
         $filepath = dirname(__DIR__, 2) . '/storage/backups/' . basename($filename);
         if (file_exists($filepath)) {
@@ -216,12 +230,12 @@ class AdminController {
             readfile($filepath);
             exit;
         } else {
-            die("File fisico non trovato sul disco.");
+            Response::json(false, 'File fisico non trovato sul disco.', null, 404);
         }
     }
 
-    public function deleteBackup() {
-        $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    public function deleteBackup($data = null) {
+        if (!$data) $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
         $id = $data['id'] ?? null;
         
         $stmt = $this->pdo->prepare("SELECT filename FROM {$this->prefix}db_backups WHERE id = ?");
@@ -242,13 +256,14 @@ class AdminController {
 
     // ─── LOGS ─────────────────────────────────────────────────────────────
 
-    public function listLogs() {
-        $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    public function listLogs($data = null) {
+        if (!$data) $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
         $limit = max(1, min(500, (int)($data['limit'] ?? $_GET['limit'] ?? 100)));
         $offset = max(0, (int)($data['offset'] ?? $_GET['offset'] ?? 0));
         
-        $sql = "SELECT * FROM {$this->prefix}audit_logs ORDER BY created_at DESC LIMIT $limit OFFSET $offset";
-        $logs = $this->pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+        $stmt = $this->pdo->prepare("SELECT * FROM {$this->prefix}audit_logs ORDER BY created_at DESC LIMIT ? OFFSET ?");
+        $stmt->execute([$limit, $offset]);
+        $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         Response::json(true, '', ['logs' => $logs]);
     }

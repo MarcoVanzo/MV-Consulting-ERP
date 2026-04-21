@@ -18,13 +18,17 @@ class Logger {
             
             if (preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
                 $token = $matches[1];
-                $secret = getenv('JWT_SECRET') ?: 'mv_fallback_secret_secure_2026';
-                try {
-                    $payload = JWT::decode($token, $secret, ['HS256']);
-                    $userName = $payload->email ?? 'Token User';
-                    $userId = $payload->id ?? null;
-                } catch (Exception $e) {
-                    $userName = 'Unknown User';
+                $secret = getenv('JWT_SECRET');
+                if ($secret) {
+                    try {
+                        $payload = JWT::decode($token, $secret);
+                        if (is_array($payload)) {
+                            $userName = $payload['email'] ?? 'Token User';
+                            $userId = $payload['id'] ?? null;
+                        }
+                    } catch (Exception $e) {
+                        $userName = 'Unknown User';
+                    }
                 }
             } else {
                 // Try session or default

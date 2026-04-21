@@ -16,7 +16,7 @@
     <script src="https://unpkg.com/@phosphor-icons/web" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
-    <link rel="stylesheet" href="css/style.css?v=1776723546">
+    <link rel="stylesheet" href="css/style.css?v=1776865700">
 
     <style>
         /* ── Auth Screen (inline for instant render) ── */
@@ -225,14 +225,17 @@
                             <label for="trasferte-costo-km" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">€/KM</label>
                             <input type="number" id="trasferte-costo-km" class="form-control" value="0.45" step="0.01" style="width: 80px;" title="Costo per KM">
                         </div>
+                        <button class="btn btn-secondary" id="btn-export-pdf-trasferte" title="Esporta il mese selezionato in PDF">
+                            <i class="ph ph-file-pdf"></i> Esporta PDF
+                        </button>
                         <button class="btn btn-secondary" id="btn-calcola-viaggi" title="Calcola KM per tutte le date del mese selezionato">
                             <i class="ph ph-map-trifold"></i> Calcola Viaggi
                         </button>
                         <button class="btn btn-ghost" id="btn-sync-google" title="Sincronizza da Google Calendar">
                             <i class="ph ph-arrows-clockwise"></i> Sincronizza
                         </button>
-                        <button class="btn btn-primary" id="btn-add-trasferta">
-                            <i class="ph ph-plus"></i> Nuova Trasferta
+                        <button class="btn btn-primary" id="btn-add-giornata">
+                            <i class="ph ph-plus"></i> Nuova Giornata
                         </button>
                     </div>
                 </div>
@@ -241,17 +244,18 @@
                     <table class="data-table" id="table-trasferte">
                         <thead>
                             <tr>
-                                <th>Data</th>
-                                <th>Cliente Mattina</th>
-                                <th>Cliente Pomeriggio</th>
+                                <th style="min-width:130px">Data</th>
+                                <th>Clienti Mattina</th>
+                                <th>Clienti Pomeriggio</th>
                                 <th class="text-right">KM Tot.</th>
+                                <th class="text-right">Spese</th>
                                 <th class="text-right">Indennità</th>
                                 <th class="text-right">Rimborso Tot.</th>
-                                <th style="width:100px"></th>
+                                <th style="width:120px"></th>
                             </tr>
                         </thead>
                         <tbody id="tbody-trasferte">
-                            <tr><td colspan="7" class="empty-state"><i class="ph ph-car-profile"></i><h3>Nessuna trasferta</h3></td></tr>
+                            <tr><td colspan="8"><div class="empty-state"><i class="ph ph-car-profile"></i><h3>Nessuna trasferta</h3><p>Aggiungi una giornata o sincronizza da Google Calendar</p></div></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -352,14 +356,14 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- Core Scripts -->
-    <script src="js/core/store.js"></script>
-    <script src="js/core/auth.js"></script>
-    <script src="js/core/ui.js"></script>
-    <script src="js/modules/clienti.js"></script>
-    <script src="js/modules/trasferte.js"></script>
-    <script src="js/modules/contabilita.js?v=1776723510"></script>
-    <script src="js/modules/admin.js"></script>
-    <script src="js/app.js"></script>
+    <script src="js/core/store.js" defer></script>
+    <script src="js/core/auth.js" defer></script>
+    <script src="js/core/ui.js" defer></script>
+    <script src="js/modules/clienti.js" defer></script>
+    <script src="js/modules/trasferte.js?v=1776865700" defer></script>
+    <script src="js/modules/contabilita.js?v=1776723510" defer></script>
+    <script src="js/modules/admin.js" defer></script>
+    <script src="js/app.js?v=1776865700" defer></script>
 
 </body>
 </html>
