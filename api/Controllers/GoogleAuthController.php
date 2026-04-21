@@ -126,9 +126,10 @@ class GoogleAuthController {
             Response::json(false, "Nessun Calendar ID configurato in GOOGLE_CALENDAR_IDS nel file .env.");
         }
 
-        // Modificato come richiesto per importare tutti i dati dal primo gennaio 2026
-        $timeMin = '2026-01-01T00:00:00Z';
-        $timeMax = '2026-12-31T23:59:59Z'; // Tutti i 12 mesi del 2026
+        // Periodo di sincronizzazione: intero anno corrente (dinamico)
+        $syncYear = date('Y');
+        $timeMin = "{$syncYear}-01-01T00:00:00Z";
+        $timeMax = "{$syncYear}-12-31T23:59:59Z";
 
         // Recuperiamo tutti i clienti e sottoclienti per l'auto-matching
         $stmtClienti = $this->pdo->query("SELECT id, ragione_sociale FROM {$this->prefix}clienti WHERE ragione_sociale != ''");
