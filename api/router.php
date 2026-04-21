@@ -17,9 +17,27 @@ require_once __DIR__ . '/Controllers/AdminController.php'; // Nuovo: Admin Contr
 require_once __DIR__ . '/Controllers/GoogleAuthController.php';
 
 header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');
+
+// CORS — Restrittivo: solo dal dominio di produzione
+$allowedOrigins = ['https://www.mv-consulting.it', 'https://mv-consulting.it'];
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if (in_array($origin, $allowedOrigins)) {
+    header('Access-Control-Allow-Origin: ' . $origin);
+} elseif (getenv('APP_ENV') !== 'production') {
+    // In locale, permetti tutto per sviluppo
+    header('Access-Control-Allow-Origin: *');
+}
 header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
+
+// Security Headers
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('X-XSS-Protection: 1; mode=block');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') {
+    header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
@@ -63,8 +81,13 @@ $data = array_merge($_POST, $input);
 // GLOBAL AUTHENTICATION MIDDLEWARE
 // ═══════════════════════════════════════════
 $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-$public_modules = ['auth', 'google']; // Whitelist public entry points
-if (!in_array($module, $public_modules)) {
+// Solo auth e callback OAuth sono pubblici. La sync richiede autenticazione.
+$public_actions = [
+    'auth' => ['login'],
+    'google' => ['auth', 'callback']
+];
+$isPublic = isset($public_actions[$module]) && in_array($action, $public_actions[$module]);
+if (!$isPublic) {
     $jwt = '';
     if (preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
         $jwt = $matches[1];
@@ -73,7 +96,12 @@ if (!in_array($module, $public_modules)) {
     }
 
     if ($jwt) {
-        $secret = getenv('JWT_SECRET') ?: 'mv_fallback_secret_secure_2026';
+        $secret = getenv('JWT_SECRET');
+        if (!$secret) {
+            error_log('CRITICAL: JWT_SECRET non configurato nel .env');
+            Response::json(false, 'Errore di configurazione server', null, 500);
+            exit;
+        }
         $decoded = JWT::decode($jwt, $secret);
         if (!$decoded) {
             Response::json(false, 'Token non valido o scaduto', null, 401);
@@ -145,8 +173,11 @@ try {
             switch ($action) {
                 case 'list':             $ctrl->list(); break;
                 case 'save':             $ctrl->save($data); break;
+                case 'saveGiornata':     $ctrl->saveGiornata($data); break;
                 case 'delete':           $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
+                case 'deleteGiornata':   $ctrl->deleteGiornata(); break;
                 case 'rendiconto':       $ctrl->rendiconto(); break;
+                case 'exportPdf':        $ctrl->exportPdf(); break;
                 case 'calcolaKmGiorno':  $ctrl->calcolaKmGiorno(); break;
                 case 'calcolaTuttiKm':   $ctrl->calcolaTuttiKm(); break;
                 default:                 Response::json(false, "Azione trasferte non supportata: $action");
@@ -214,5 +245,9 @@ try {
     }
 } catch (Exception $e) {
     error_log("MV Consulting ERP API Error: " . $e->getMessage());
-    Response::json(false, 'Errore server: ' . $e->getMessage());
+    // Non esporre i dettagli dell'errore al client in produzione
+    $msg = (getenv('APP_DEBUG') === 'true') 
+        ? 'Errore server: ' . $e->getMessage() 
+        : 'Errore interno del server. Contattare l\'amministratore.';
+    Response::json(false, $msg, null, 500);
 }

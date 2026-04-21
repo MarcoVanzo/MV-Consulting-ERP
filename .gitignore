@@ -1,0 +1,40 @@
+# Environment & Secrets
+.env
+.env.local
+.env.production
+
+# Storage & Uploads
+storage/
+uploads/
+
+# Temporary & Debug
+tmp_*/
+PDF Pagamenti/
+*.sql
+
+# Debug & Test scripts (root level)
+debug_*.php
+test_*.php
+scratch_*.php
+fix_*.php
+fix_*.js
+cleanup.php
+db_dump.php
+delete_token.php
+list_tables.php
+deploy_debug.php
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python venv
+tmp_venv/
+__pycache__/
+*.pyc
