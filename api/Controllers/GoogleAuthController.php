@@ -137,6 +137,19 @@ class GoogleAuthController {
         $stmtSottoclienti = $this->pdo->query("SELECT id, nome, cliente_id FROM {$this->prefix}sottoclienti WHERE nome != ''");
         $sottoclienti = $stmtSottoclienti->fetchAll();
 
+        // Alias espliciti: nomi abbreviati nel calendario → sottocliente_id
+        // Questi gestiscono casi impossibili da matchare algoritmicamente (acronimi ambigui, umlaut, ecc.)
+        $aliasMap = [];
+        foreach ($sottoclienti as $sc) {
+            $nLow = mb_strtolower(trim($sc['nome']), 'UTF-8');
+            // CDM -> Centro di Medicina
+            if (mb_strpos($nLow, 'centro di medicina') !== false) $aliasMap['cdm'] = $sc;
+            // LUVE -> Gruppo Lu-Ve
+            if (mb_strpos($nLow, 'lu-ve') !== false || mb_strpos($nLow, 'luve') !== false || mb_strpos($nLow, 'lu ve') !== false) $aliasMap['luve'] = $sc;
+            // ITA -> Itagency
+            if (mb_strpos($nLow, 'itagency') !== false) $aliasMap['ita'] = $sc;
+        }
+
         $countImported = 0;
         $affectedDates = [];
 
@@ -230,6 +243,29 @@ class GoogleAuthController {
                         }
 
                         if (!$skipEvent) {
+
+                        // === ALIAS MAP: controlla prima le mappature esplicite ===
+                        $summaryTokens = preg_split('/[\s\-]+/', $summaryLower);
+                        foreach ($summaryTokens as $token) {
+                            $token = trim(str_replace(['.', ','], '', $token));
+                            if (isset($aliasMap[$token])) {
+                                $matchedSottoclienteId = $aliasMap[$token]['id'];
+                                $matchedClienteId = $aliasMap[$token]['cliente_id'];
+                                break;
+                            }
+                        }
+                        // Se tutta la stringa è un alias
+                        if (!$matchedClienteId) {
+                            $cleanSummary = trim(str_replace(['.', ',', '-'], '', $summaryLower));
+                            $cleanSummary = preg_replace('/\s+/', '', $cleanSummary);
+                            if (isset($aliasMap[$cleanSummary])) {
+                                $matchedSottoclienteId = $aliasMap[$cleanSummary]['id'];
+                                $matchedClienteId = $aliasMap[$cleanSummary]['cliente_id'];
+                            }
+                        }
+
+                        // Se non trovato via alias, procediamo col matching algoritmico
+                        if (!$matchedClienteId) {
                         
                         // Prep search strings da event
                         $searchStrings = [];
@@ -393,6 +429,8 @@ class GoogleAuthController {
                                 }
                             }
                         }
+
+                        } // fine if (!$matchedClienteId) — matching algoritmico
 
                         } // fine if (!$skipEvent)
 
