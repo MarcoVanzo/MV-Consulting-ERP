@@ -1,0 +1,50 @@
+name: Deploy to Aruba FTP
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/deploy-ftp.yml']
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ftp.mv-consulting.it
+          username: 17774606@aruba.it
+          password: '$21hSP5$SxJg'
+          server-dir: www.mv-consulting.it/ERP/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/dist/**
+            **/.github/**
+            **/.gemini/**
+            **/tmp_pdf_parse/**
+            **/tmp_venv/**
+            **/PDF Pagamenti/**
+            deploy
+            deploy.py
+            .env.deploy
+            .env
+            .env.example
+            .DS_Store
+            .gitignore
+            test_*
+            debug_*
+            scratch_*
+            fix_*
+            reset_*
+            setup_db*
+            check_db*
+            migrate_*
+            list_tables*
+            cleanup*
+            db_dump*
+            delete_token*
+            _autodeploy.php
