@@ -429,9 +429,24 @@ const ModContabilita = (() => {
 
                 btn.innerHTML = `<i class="ph ph-spinner ph-spin"></i> Analisi pagamenti (${i+1}/${validFiles.length})...`;
 
-                const req = await Store.api('import_payment_pdf', 'contabilita', { pages: pagesText });
+                // Invio diretto con JSON (Store.api usa FormData che non supporta array)
+                const token = localStorage.getItem('erp_token');
+                const fetchHeaders = { 'Content-Type': 'application/json' };
+                if (token) fetchHeaders['Authorization'] = 'Bearer ' + token;
 
-                if (req && req.success) {
+                const response = await fetch('api/router.php', {
+                    method: 'POST',
+                    headers: fetchHeaders,
+                    body: JSON.stringify({
+                        module: 'contabilita',
+                        action: 'import_payment_pdf',
+                        pages: pagesText
+                    })
+                });
+                const result = await response.json();
+                const req = result.success ? result.data : result;
+
+                if (result.success) {
                     totalMatched += req.num_matched || 0;
                     totalAlreadyPaid += req.num_already_paid || 0;
                     totalNotFound += req.num_not_found || 0;
