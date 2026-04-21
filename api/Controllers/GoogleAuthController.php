@@ -217,15 +217,33 @@ class GoogleAuthController {
                         // Logica di auto-matching del cliente e sottocliente
                         $matchedClienteId = null;
                         $matchedSottoclienteId = null;
+
+                        // Skip eventi inutili per il matching
+                        $summaryLower = mb_strtolower(trim($summary), 'UTF-8');
+                        $skipPatterns = ['non disponibile', 'evento senza titolo', 'annullato', 'cancelled'];
+                        $skipEvent = false;
+                        foreach ($skipPatterns as $sp) {
+                            if ($summaryLower === $sp || mb_strpos($summaryLower, $sp) !== false) {
+                                $skipEvent = true;
+                                break;
+                            }
+                        }
+
+                        if (!$skipEvent) {
                         
                         // Prep search strings da event
                         $searchStrings = [];
                         if (!empty($summary)) {
-                            // Filter out common tiny words and split loosely
                             $parts = preg_split('/[\s\-]+/', $summary);
                             foreach ($parts as $p) {
                                 $p = trim($p);
-                                if (mb_strlen($p, 'UTF-8') >= 3) $searchStrings[] = mb_strtolower($p, 'UTF-8');
+                                if (mb_strlen($p, 'UTF-8') >= 2) {
+                                    $searchStrings[] = mb_strtolower($p, 'UTF-8');
+                                    $pClean = str_replace(['.', ',', ';', ':'], '', $p);
+                                    if ($p !== $pClean && mb_strlen($pClean, 'UTF-8') >= 2) {
+                                        $searchStrings[] = mb_strtolower($pClean, 'UTF-8');
+                                    }
+                                }
                             }
                             $searchStrings[] = mb_strtolower(trim($summary), 'UTF-8');
                         }
@@ -233,33 +251,103 @@ class GoogleAuthController {
                             $locParts = preg_split('/[\s\-]+/', $location);
                             foreach ($locParts as $p) {
                                 $p = trim($p);
-                                if (mb_strlen($p, 'UTF-8') >= 3) $searchStrings[] = mb_strtolower($p, 'UTF-8');
+                                if (mb_strlen($p, 'UTF-8') >= 2) {
+                                    $searchStrings[] = mb_strtolower($p, 'UTF-8');
+                                    $pClean = str_replace(['.', ',', ';', ':'], '', $p);
+                                    if ($p !== $pClean && mb_strlen($pClean, 'UTF-8') >= 2) {
+                                        $searchStrings[] = mb_strtolower($pClean, 'UTF-8');
+                                    }
+                                }
                             }
                             $searchStrings[] = mb_strtolower(trim($location), 'UTF-8');
                         }
 
-                        // Funzione di match sicura
-                        $isMatch = function($dbName, $str, $fullDescription = '') {
+                        // Pre-calcola acronimi e nomi puliti per tutti i sottoclienti e clienti
+                        $forbidden = ['spa', 'srl', 'snc', 'sas', 'per', 'con', 'del', 'dal', 'all', 'una',
+                                      'ita', 'titolo', 'non', 'disponibile', 'the', 'group', 'gruppo',
+                                      'formazione', 'originario', 'descrizione', 'dpo', 'mkt', 'commerciale',
+                                      'societa', 'società', 'responsabilita', 'limitata', 'consortile', 'il',
+                                      'lo', 'la', 'di', 'de', 'da', 'in', 'su', 'tra', 'fra', 'ed', 'zaggia'];
+                        $stopWords = ['di', 'de', 'da', 'in', 'con', 'su', 'per', 'tra', 'fra', 'il', 'lo',
+                                      'la', 'i', 'gli', 'le', 'un', 'uno', 'una', 'ed', 'e', 'o', 'a', '&', 'and'];
+
+                        // Funzione di match migliorata
+                        $isMatch = function($dbName, $str, $fullDescription = '') use ($forbidden, $stopWords) {
                             $dbName = mb_strtolower(trim($dbName), 'UTF-8');
+                            
+                            // Rimuovi suffissi tipo società
+                            $dbName = preg_replace('/\b(s\.r\.l\.|s\.p\.a\.|srl|spa|snc|sas|s\.r\.l|s\.p\.a)\b/iu', '', $dbName);
+                            // Rimuovi contenuti tra parentesi (es. numeri P.IVA)
+                            $dbName = preg_replace('/\([^)]*\)/', '', $dbName);
+                            $dbName = trim($dbName);
+
+                            // Se il dbName è vuoto o troppo generico, skip
+                            if (mb_strlen($dbName, 'UTF-8') < 2) return false;
+
+                            // Exact match
                             if ($dbName === $str && mb_strlen($dbName, 'UTF-8') > 0) return true;
                             
-                            // Prevent short generic matches
-                            $forbidden = ['spa', 'srl', 'snc', 'sas', 'per', 'con', 'del', 'dal', 'all', 'una', 'ita', 'titolo'];
+                            // Prevent short/generic matches
                             if (in_array($dbName, $forbidden) || in_array($str, $forbidden)) return false;
+                            // Skip se la stringa è troppo corta per word boundary (meno di 3 char)
+                            if (mb_strlen($str, 'UTF-8') < 3 && mb_strlen($dbName, 'UTF-8') < 3) return false;
 
-                            // Verifica nelle short string
-                            $escapedDb = preg_quote($dbName, '/');
-                            if (mb_strlen($dbName, 'UTF-8') >= 3 && preg_match('/\b' . $escapedDb . '\b/iu', $str)) return true;
+                            // === ACRONYM MATCHING ===
+                            $words = preg_split('/[\s\-]+/', $dbName);
+                            $words = array_filter($words, function($w) { return mb_strlen($w, 'UTF-8') > 0; });
+                            $words = array_values($words);
                             
-                            $escapedStr = preg_quote($str, '/');
-                            if (mb_strlen($str, 'UTF-8') >= 3 && preg_match('/\b' . $escapedStr . '\b/iu', $dbName)) return true;
+                            $acronymAll = '';
+                            $acronymNoStop = '';
+                            foreach ($words as $w) {
+                                $acronymAll .= mb_substr($w, 0, 1, 'UTF-8');
+                                if (!in_array($w, $stopWords)) {
+                                    $acronymNoStop .= mb_substr($w, 0, 1, 'UTF-8');
+                                }
+                            }
+                            
+                            if (mb_strlen($str, 'UTF-8') >= 2 && mb_strlen($str, 'UTF-8') <= 5) {
+                                if ($str === $acronymAll || $str === $acronymNoStop) return true;
+                            }
 
-                            // Verifica nella descrizione completa del calendario (se fornita)
+                            // === WORD BOUNDARY MATCHING (soglia minima 3 caratteri) ===
+                            if (mb_strlen($dbName, 'UTF-8') >= 3 && mb_strlen($str, 'UTF-8') >= 3) {
+                                $escapedDb = preg_quote($dbName, '/');
+                                if (preg_match('/\b' . $escapedDb . '\b/iu', $str)) return true;
+                                
+                                $escapedStr = preg_quote($str, '/');
+                                if (preg_match('/\b' . $escapedStr . '\b/iu', $dbName)) return true;
+                            }
+
+                            // === FUZZY MATCHING (Levenshtein per gestire typo) ===
+                            if (mb_strlen($str, 'UTF-8') >= 5) {
+                                // Confronta la stringa di ricerca con ogni parola del nome DB
+                                foreach ($words as $w) {
+                                    if (mb_strlen($w, 'UTF-8') >= 4) {
+                                        $distance = levenshtein($str, $w);
+                                        $maxLen = max(mb_strlen($str, 'UTF-8'), mb_strlen($w, 'UTF-8'));
+                                        // Tollera 1 errore per parole 5-8 char, 2 errori per parole 9+ char
+                                        $threshold = ($maxLen >= 9) ? 2 : 1;
+                                        if ($distance <= $threshold && $distance > 0) return true;
+                                    }
+                                }
+                                // Confronta anche con il nome DB intero (senza tipo società)
+                                $dbNameNoSpaces = str_replace(' ', '', $dbName);
+                                if (mb_strlen($dbNameNoSpaces, 'UTF-8') >= 5) {
+                                    $distance = levenshtein($str, $dbNameNoSpaces);
+                                    $maxLen = max(mb_strlen($str, 'UTF-8'), mb_strlen($dbNameNoSpaces, 'UTF-8'));
+                                    $threshold = ($maxLen >= 9) ? 2 : 1;
+                                    if ($distance <= $threshold && $distance > 0) return true;
+                                }
+                            }
+
+                            // === DESCRIZIONE COMPLETA DEL CALENDARIO ===
                             if (mb_strlen($dbName, 'UTF-8') > 4 && !empty($fullDescription)) {
+                                $escapedDb = preg_quote($dbName, '/');
                                 if (preg_match('/\b' . $escapedDb . '\b/iu', $fullDescription)) return true;
                             }
                             
-                            // Extra fallback: se il dbName inizia con la str o viceversa (matches parziali senza word boundary se sono lunghe)
+                            // === PARTIAL MATCH per stringhe lunghe ===
                             if (mb_strlen($str, 'UTF-8') >= 5 && mb_strpos($dbName, $str) !== false) return true;
                             if (mb_strlen($dbName, 'UTF-8') >= 5 && mb_strpos($str, $dbName) !== false) return true;
 
@@ -269,6 +357,12 @@ class GoogleAuthController {
                         // Scorriamo le search string e testiamo contro sottoclienti prima (più specifici)
                         foreach ($sottoclienti as $sc) {
                             $nomeSc = $sc['nome'];
+                            // Skip sottoclienti con nomi troppo generici
+                            $scClean = preg_replace('/\([^)]*\)/', '', $nomeSc);
+                            $scClean = trim($scClean);
+                            if (mb_strlen($scClean, 'UTF-8') < 3) continue;
+                            if (mb_strtolower($scClean, 'UTF-8') === 'azienda non trovata') continue;
+
                             if ($isMatch($nomeSc, '', $description)) {
                                 $matchedSottoclienteId = $sc['id'];
                                 $matchedClienteId = $sc['cliente_id'];
@@ -298,6 +392,13 @@ class GoogleAuthController {
                                     }
                                 }
                             }
+                        }
+
+                        } // fine if (!$skipEvent)
+
+                        if (!isset($debugUnmatched)) $debugUnmatched = [];
+                        if (!$matchedClienteId && count($debugUnmatched) < 8) {
+                            $debugUnmatched[] = $summary . " [" . implode(',', $searchStrings) . "]";
                         }
 
                         // Per ogni giorno attraversato da questo evento (da data Inizo a data Fine)
@@ -382,7 +483,11 @@ class GoogleAuthController {
             }
         }
 
-        Response::json(true, "Sincronizzazione completata", ['imported' => $countImported]);
+        $debugMsg = !empty($debugUnmatched) ? "Debug: " . implode(" | ", $debugUnmatched) : "";
+        Response::json(true, "Sincronizzazione completata $debugMsg", [
+            'imported' => $countImported,
+            'message' => "Sincronizzazione completata. Aggiornati $countImported. $debugMsg"
+        ]);
     }
 
     private function refreshToken($tokenRow) {

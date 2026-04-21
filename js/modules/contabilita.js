@@ -82,8 +82,13 @@ const ModContabilita = (() => {
             const hFatt = Math.max((m.fatturato / maxVal) * 100, 4);
             const hPag = Math.max((m.pagato / maxVal) * 100, 0);
             return `
-                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative;height:100%"
-                     title="Mese: ${mesi[m.mese]}\nSomma Fatturato: ${UI.formatCurrency(m.fatturato)}\nSomma Pagato: ${UI.formatCurrency(m.pagato)}\nN. Fatture: ${m.num_fatture}">
+                <div class="chart-column-container" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative;height:100%">
+                    <div class="custom-tooltip">
+                        <span class="tooltip-title">${mesi[m.mese]}</span>
+                        <div class="tooltip-row"><span>Fatturato:</span> <span class="tooltip-val">${UI.formatCurrency(m.fatturato)}</span></div>
+                        <div class="tooltip-row"><span>Incassato:</span> <span class="tooltip-val" style="color:var(--accent-green)">${UI.formatCurrency(m.pagato)}</span></div>
+                        <div class="tooltip-row" style="margin-top:4px;border-top:1px solid var(--border-subtle);padding-top:4px"><span>N. Fatture:</span> <span class="tooltip-val">${m.num_fatture}</span></div>
+                    </div>
                     <div style="flex:1;width:100%;display:flex;align-items:flex-end;gap:2px">
                         <div class="chart-bar" style="height:${hFatt}%;opacity:0.4"></div>
                         <div class="chart-bar" style="height:${hPag > 0 ? hPag + '%' : '0%'};background:var(--accent-green)"></div>
@@ -384,7 +389,106 @@ const ModContabilita = (() => {
         }
     }
 
-    return { load, openNew, edit, remove, initFilters, importPdf, importXml };
+    /**
+     * Importa PDF di pagamento (es. "Pagamento Fornitore")
+     * Legge il testo, lo invia al backend che cerca le fatture e le segna come pagate
+     */
+    async function importPaymentPdf(files) {
+        if (!Array.isArray(files)) files = [files];
+
+        const validFiles = files.filter(f => f.type === 'application/pdf' || f.name.endsWith('.pdf'));
+        if (validFiles.length === 0) {
+            UI.toast('Seleziona almeno un file PDF valido', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('btn-import-payment-pdf');
+        const prevHtml = btn.innerHTML;
+        btn.disabled = true;
+
+        let totalMatched = 0;
+        let totalAlreadyPaid = 0;
+        let totalNotFound = 0;
+        let allMessages = [];
+
+        try {
+            for (let i = 0; i < validFiles.length; i++) {
+                const file = validFiles[i];
+                btn.innerHTML = `<i class="ph ph-spinner ph-spin"></i> Lettura PDF (${i+1}/${validFiles.length})...`;
+
+                // Estrai testo dal PDF con pdf.js
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                const pagesText = [];
+
+                for (let p = 1; p <= pdf.numPages; p++) {
+                    const page = await pdf.getPage(p);
+                    const textContent = await page.getTextContent();
+                    pagesText.push(textContent.items.map(item => item.str).join(' '));
+                }
+
+                btn.innerHTML = `<i class="ph ph-spinner ph-spin"></i> Analisi pagamenti (${i+1}/${validFiles.length})...`;
+
+                const req = await Store.api('import_payment_pdf', 'contabilita', { pages: pagesText });
+
+                if (req && req.success) {
+                    totalMatched += req.num_matched || 0;
+                    totalAlreadyPaid += req.num_already_paid || 0;
+                    totalNotFound += req.num_not_found || 0;
+
+                    if (req.messages && req.messages.length > 0) {
+                        allMessages.push(`<strong style="color:var(--text-primary)">📄 ${file.name}</strong>`);
+                        allMessages.push(`<span style="color:var(--text-muted);font-size:0.8rem">Data pagamento: ${req.data_pagamento || '—'} · Totale bonifico: €${(req.totale_pagamento || 0).toLocaleString('it-IT', {minimumFractionDigits: 2})}</span>`);
+                        allMessages.push(...req.messages);
+                        allMessages.push(''); // spacer
+                    }
+                } else {
+                    allMessages.push(`<strong style="color:var(--danger)">❌ ${file.name}</strong>: ${req?.message || 'Errore di parsing'}`);
+                }
+            }
+
+            // Mostra risultato dettagliato in un modal
+            const summaryHtml = `
+                <div style="margin-bottom: 16px; display: flex; gap: 12px; flex-wrap: wrap;">
+                    <div style="flex:1; min-width: 120px; padding: 12px 16px; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); border-radius: 8px; text-align: center;">
+                        <div style="font-size: 1.8rem; font-weight: 700; color: #10b981;">${totalMatched}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">Pagate ora</div>
+                    </div>
+                    <div style="flex:1; min-width: 120px; padding: 12px 16px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); border-radius: 8px; text-align: center;">
+                        <div style="font-size: 1.8rem; font-weight: 700; color: #6366f1;">${totalAlreadyPaid}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">Già pagate</div>
+                    </div>
+                    <div style="flex:1; min-width: 120px; padding: 12px 16px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); border-radius: 8px; text-align: center;">
+                        <div style="font-size: 1.8rem; font-weight: 700; color: #ef4444;">${totalNotFound}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">Non trovate</div>
+                    </div>
+                </div>
+                <div style="max-height: 300px; overflow-y: auto; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; font-size: 0.85rem; line-height: 1.8;">
+                    ${allMessages.map(m => `<div>${m}</div>`).join('')}
+                </div>
+            `;
+
+            UI.openModal('Risultato Importazione Pagamenti', summaryHtml, null);
+            // Nascondi il pulsante "Salva" del modal, è solo informativo
+            const saveBtn = document.getElementById('modal-save');
+            if (saveBtn) saveBtn.style.display = 'none';
+            const cancelBtn = document.getElementById('modal-cancel');
+            if (cancelBtn) cancelBtn.textContent = 'Chiudi';
+
+            if (totalMatched > 0) {
+                UI.toast(`${totalMatched} fatture aggiornate come pagate!`);
+                load(); // Reload table
+            }
+        } catch (err) {
+            console.error('[Contabilita Payment Import] Error:', err);
+            UI.toast('Errore durante l\'importazione pagamenti: ' + err.message, 'error');
+        } finally {
+            btn.innerHTML = prevHtml;
+            btn.disabled = false;
+        }
+    }
+
+    return { load, openNew, edit, remove, initFilters, importPdf, importXml, importPaymentPdf };
 })();
 
 window.ModContabilita = ModContabilita;
