@@ -103,9 +103,13 @@ class TrasferteController {
         // Auto-calcula rotta solo se la trasferta non è bloccata
         // Ma per ricalcolare tutta la giornata potremmo volerlo comunque,
         // la logica dentro calcolaKmPerData salterà quelle bloccate.
-        $this->calcolaKmPerData($fields['data_trasferta']);
+        $kmResult = $this->calcolaKmPerData($fields['data_trasferta']);
 
-        Response::json(true, $id ? 'Trasferta aggiornata' : 'Trasferta creata', ['id' => $id]);
+        $msg = $id ? 'Trasferta aggiornata' : 'Trasferta creata';
+        if (!empty($kmResult['message'])) {
+            $msg .= ' — KM: ' . $kmResult['message'];
+        }
+        Response::json(true, $msg, ['id' => $id, 'km_result' => $kmResult]);
     }
 
     public function delete($id) {
@@ -256,10 +260,10 @@ class TrasferteController {
             // Rispetta il rate limit di Nominatim (max 1 req/sec)
             usleep(1100000); // 1.1 secondi
 
-            $url = "https://nominatim.openstreetmap.org/search?q=" . urlencode($address) . "&format=json&limit=1";
+            $url = "https://nominatim.openstreetmap.org/search?q=" . urlencode($address) . "&format=json&limit=1&countrycodes=it";
             $ch = curl_init($url);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_USERAGENT, "MVC-ERP/1.0");
+            curl_setopt($ch, CURLOPT_USERAGENT, "MV-Consulting-ERP/1.0 (marco@mv-consulting.it)");
             curl_setopt($ch, CURLOPT_TIMEOUT, 10);
             curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
             $res = curl_exec($ch);
@@ -328,10 +332,17 @@ class TrasferteController {
             $ind = !empty($t['sc_indirizzo']) ? $t['sc_indirizzo'] : $t['indirizzo'];
             $cit = !empty($t['sc_citta']) ? $t['sc_citta'] : $t['citta'];
             $addr = trim(($ind ?? '') . ' ' . ($cit ?? ''));
-            if (empty($addr)) continue;
+            error_log("[Trasferte] Data $date, Trasferta ID {$t['id']}: indirizzo=[$ind] citta=[$cit] addr_completo=[$addr]");
+            if (empty($addr)) {
+                error_log("[Trasferte] Data $date, Trasferta ID {$t['id']}: SKIP - indirizzo vuoto");
+                continue;
+            }
             
             $coord = $geocode($addr);
-            if (!$coord) continue;
+            if (!$coord) {
+                error_log("[Trasferte] Data $date, Trasferta ID {$t['id']}: SKIP - geocoding fallito per '$addr'");
+                continue;
+            }
 
             $item = ['id' => $t['id'], 'coord' => $coord];
             if ($t['fascia_oraria'] === 'mattino') {
@@ -342,6 +353,8 @@ class TrasferteController {
                 $fallback[] = $item;
             }
         }
+        
+        error_log("[Trasferte] Data $date: mattino=" . ($mattino ? "SI (ID {$mattino['id']})" : "NO") . " pomeriggio=" . ($pomeriggio ? "SI (ID {$pomeriggio['id']})" : "NO") . " fallback=" . count($fallback));
 
         // Verifica se OGGI c'è un pernottamento
         $oggiPernotta = false;
@@ -353,16 +366,19 @@ class TrasferteController {
         }
 
         $waypoints = [$startCoord];
+        $hasClientWaypoint = false;
 
-        if ($mattino) $waypoints[] = $mattino['coord'];
+        if ($mattino) { $waypoints[] = $mattino['coord']; $hasClientWaypoint = true; }
         if (empty($mattino) && !empty($fallback)) {
             $waypoints[] = $fallback[0]['coord'];
+            $hasClientWaypoint = true;
             array_shift($fallback);
         }
         
-        if ($pomeriggio) $waypoints[] = $pomeriggio['coord'];
+        if ($pomeriggio) { $waypoints[] = $pomeriggio['coord']; $hasClientWaypoint = true; }
         if (empty($pomeriggio) && !empty($fallback)) {
             $waypoints[] = $fallback[0]['coord'];
+            $hasClientWaypoint = true;
             array_shift($fallback);
         }
         
@@ -370,8 +386,8 @@ class TrasferteController {
             $waypoints[] = $baseCoord;
         }
 
-        // Se l'unico waypoint è la base (es. nessun cliente con indirizzo valido) -> azzeriamo i km e terminiamo
-        if (count($waypoints) <= 2) {
+        // Se non abbiamo nessuna tappa cliente (solo partenza/rientro senza destinazioni) -> azzeriamo i km
+        if (!$hasClientWaypoint) {
             $sqlUpd = "UPDATE {$this->prefix}trasferte SET km_andata = 0, km_ritorno = 0 WHERE data_trasferta = ? AND km_bloccati = 0";
             $this->pdo->prepare($sqlUpd)->execute([$date]);
             error_log("[Trasferte] Data $date: clienti privi di indirizzo valido, KM azzerati per le non-bloccate.");
@@ -385,7 +401,7 @@ class TrasferteController {
         }
         $coordStr = implode(";", $points);
 
-        $osrmUrl = "http://router.project-osrm.org/route/v1/driving/$coordStr?overview=false";
+        $osrmUrl = "https://router.project-osrm.org/route/v1/driving/$coordStr?overview=false";
         
         $ch = curl_init($osrmUrl);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -402,9 +418,10 @@ class TrasferteController {
         }
         
         $osrmData = json_decode($osrmRes, true);
+        error_log("[Trasferte] OSRM response for date $date (HTTP $osrmHttpCode): " . substr($osrmRes, 0, 300));
         
         if (!isset($osrmData['routes'][0])) {
-            error_log("[Trasferte] OSRM nessun percorso per data $date (HTTP $osrmHttpCode). Response: " . substr($osrmRes, 0, 500));
+            error_log("[Trasferte] OSRM nessun percorso per data $date (HTTP $osrmHttpCode). URL: $osrmUrl Response: " . substr($osrmRes, 0, 500));
             return ['success' => false, 'message' => "Impossibile calcolare il percorso su strada."];
         }
 
