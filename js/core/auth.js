@@ -8,11 +8,15 @@ const AuthFlow = (() => {
         document.getElementById('auth-screen').classList.remove('hidden');
         document.getElementById('app-shell').classList.add('hidden');
 
-        const form = document.getElementById('login-form');
-        const emailInput = document.getElementById('login-email');
-        const passwordInput = document.getElementById('login-password');
-        const btn = document.getElementById('login-submit-btn');
-        const errEl = document.getElementById('login-error');
+        const oldForm = document.getElementById('login-form');
+        // Clona il form per rimuovere eventuali listener precedenti (previene memory leak)
+        const form = oldForm.cloneNode(true);
+        oldForm.parentNode.replaceChild(form, oldForm);
+
+        const emailInput = form.querySelector('#login-email');
+        const passwordInput = form.querySelector('#login-password');
+        const btn = form.querySelector('#login-submit-btn');
+        const errEl = form.querySelector('#login-error');
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();

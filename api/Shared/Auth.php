@@ -22,7 +22,11 @@ class Auth {
 
             if ($user && $dbPassword && password_verify($password, $dbPassword)) {
                 // Generate a secure JWT Token
-                $secret = getenv('JWT_SECRET') ?: 'mv_fallback_secret_secure_2026';
+                $secret = getenv('JWT_SECRET');
+                if (!$secret) {
+                    error_log('CRITICAL: JWT_SECRET non configurato nel .env');
+                    return false;
+                }
                 
                 $payload = [
                     'id' => $user['id'],
