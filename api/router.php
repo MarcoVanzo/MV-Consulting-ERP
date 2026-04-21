@@ -77,9 +77,57 @@ if ($rawInput) {
 // Merge POST + JSON input
 $data = array_merge($_POST, $input);
 
-// ═══════════════════════════════════════════
+// ═════════════════════════════════════════════
+// TEMPORARY DIAGNOSTIC ROUTE (remove after fix)
+// ═════════════════════════════════════════════
+if ($module === 'diag' && $action === 'login') {
+    try {
+        $pdo = Database::getConnection();
+        $prefix = getenv('DB_PREFIX') ?: 'mv_';
+        
+        $stmt = $pdo->query("SHOW TABLES LIKE '{$prefix}users'");
+        $tableExists = $stmt->fetch();
+        
+        if (!$tableExists) {
+            $stmt2 = $pdo->query("SHOW TABLES");
+            $allTables = $stmt2->fetchAll(PDO::FETCH_COLUMN);
+            echo json_encode(['error' => "Tabella {$prefix}users NON ESISTE!", 'available_tables' => $allTables]);
+            exit;
+        }
+        
+        $stmt = $pdo->query("DESCRIBE {$prefix}users");
+        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $columnNames = array_column($columns, 'Field');
+        
+        $stmt = $pdo->query("SELECT id, email, 
+            CASE WHEN password IS NOT NULL AND password != '' THEN 'SET' ELSE 'EMPTY' END as pwd_status,
+            LEFT(password, 7) as pwd_prefix,
+            LENGTH(password) as pwd_length,
+            role, created_at
+            FROM {$prefix}users");
+        $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        echo json_encode([
+            'success' => true,
+            'table' => "{$prefix}users",
+            'column_names' => $columnNames,
+            'has_name' => in_array('name', $columnNames),
+            'has_full_name' => in_array('full_name', $columnNames),
+            'has_username' => in_array('username', $columnNames),
+            'has_pwd_hash' => in_array('pwd_hash', $columnNames),
+            'user_count' => count($users),
+            'users' => $users,
+            'jwt_secret_set' => !empty(getenv('JWT_SECRET')),
+        ], JSON_PRETTY_PRINT);
+    } catch (Exception $e) {
+        echo json_encode(['error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ═════════════════════════════════════════════
 // GLOBAL AUTHENTICATION MIDDLEWARE
-// ═══════════════════════════════════════════
+// ═════════════════════════════════════════════
 $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
 // Solo auth e callback OAuth sono pubblici. La sync richiede autenticazione.
 $public_actions = [
@@ -117,9 +165,9 @@ if (!$isPublic) {
 try {
     switch ($module) {
 
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         // AUTH
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         case 'auth':
             if ($action === 'login') {
                 $email = $data['email'] ?? '';
@@ -137,9 +185,9 @@ try {
             }
             break;
 
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         // CLIENTI
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         case 'clienti':
             $ctrl = new ClientiController();
             switch ($action) {
@@ -152,9 +200,9 @@ try {
             }
             break;
 
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         // SOTTOCLIENTI
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         case 'sottoclienti':
             $ctrl = new SottoclientiController();
             switch ($action) {
@@ -165,9 +213,9 @@ try {
             }
             break;
 
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         // TRASFERTE
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         case 'trasferte':
             $ctrl = new TrasferteController();
             switch ($action) {
@@ -180,13 +228,14 @@ try {
                 case 'exportPdf':        $ctrl->exportPdf(); break;
                 case 'calcolaKmGiorno':  $ctrl->calcolaKmGiorno(); break;
                 case 'calcolaTuttiKm':   $ctrl->calcolaTuttiKm(); break;
+                case 'togglePernottamento': $ctrl->togglePernottamento(); break;
                 default:                 Response::json(false, "Azione trasferte non supportata: $action");
             }
             break;
 
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         // GOOGLE CALENDAR
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         case 'google':
             $ctrl = new GoogleAuthController();
             switch ($action) {
@@ -197,9 +246,9 @@ try {
             }
             break;
 
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         // CONTABILITÀ
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         case 'contabilita':
             $ctrl = new ContabilitaController();
             switch ($action) {
@@ -210,13 +259,13 @@ try {
                 case 'import_pdf': $ctrl->importPdfData($data); break;
                 case 'import_xml': $ctrl->importXmlData($data); break;
                 case 'import_payment_pdf': $ctrl->importPaymentPdf($data); break;
-                default:           Response::json(false, "Azione contabilità non supportata: $action");
+                default:           Response::json(false, "Azione contabilit\u00e0 non supportata: $action");
             }
             break;
 
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         // ADMIN (Utenti, Backup, Logs)
-        // ═══════════════════════════════════════════
+        // ═════════════════════════════════════════════
         case 'admin':
             $ctrl = new AdminController();
             switch ($action) {
