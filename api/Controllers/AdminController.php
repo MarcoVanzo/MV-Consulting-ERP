@@ -261,8 +261,10 @@ class AdminController {
         $limit = max(1, min(500, (int)($data['limit'] ?? $_GET['limit'] ?? 100)));
         $offset = max(0, (int)($data['offset'] ?? $_GET['offset'] ?? 0));
         
-        $stmt = $this->pdo->prepare("SELECT * FROM {$this->prefix}audit_logs ORDER BY created_at DESC LIMIT ? OFFSET ?");
-        $stmt->execute([$limit, $offset]);
+        $stmt = $this->pdo->prepare("SELECT * FROM {$this->prefix}audit_logs ORDER BY created_at DESC LIMIT :limit OFFSET :offset");
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $stmt->execute();
         $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         Response::json(true, '', ['logs' => $logs]);
