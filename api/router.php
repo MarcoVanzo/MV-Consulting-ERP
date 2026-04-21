@@ -78,46 +78,33 @@ if ($rawInput) {
 $data = array_merge($_POST, $input);
 
 // ═════════════════════════════════════════════
-// TEMPORARY DIAGNOSTIC ROUTE (remove after fix)
+// TEMPORARY: Reset password for admin@mv-consulting.it
+// This runs ONCE and sets pwd, then this block should be removed.
 // ═════════════════════════════════════════════
-if ($module === 'diag' && $action === 'login') {
+if ($module === 'diag' && $action === 'fixpwd') {
     try {
         $pdo = Database::getConnection();
         $prefix = getenv('DB_PREFIX') ?: 'mv_';
         
-        $stmt = $pdo->query("SHOW TABLES LIKE '{$prefix}users'");
-        $tableExists = $stmt->fetch();
+        // Hash password "MvConsulting2026!" with bcrypt
+        $newPassword = 'MvConsulting2026!';
+        $hash = password_hash($newPassword, PASSWORD_DEFAULT);
         
-        if (!$tableExists) {
-            $stmt2 = $pdo->query("SHOW TABLES");
-            $allTables = $stmt2->fetchAll(PDO::FETCH_COLUMN);
-            echo json_encode(['error' => "Tabella {$prefix}users NON ESISTE!", 'available_tables' => $allTables]);
-            exit;
-        }
+        // Update admin user password
+        $stmt = $pdo->prepare("UPDATE {$prefix}users SET password = ? WHERE email = ?");
+        $stmt->execute([$hash, 'admin@mv-consulting.it']);
+        $affected = $stmt->rowCount();
         
-        $stmt = $pdo->query("DESCRIBE {$prefix}users");
-        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $columnNames = array_column($columns, 'Field');
-        
-        $stmt = $pdo->query("SELECT id, email, 
-            CASE WHEN password IS NOT NULL AND password != '' THEN 'SET' ELSE 'EMPTY' END as pwd_status,
-            LEFT(password, 7) as pwd_prefix,
-            LENGTH(password) as pwd_length,
-            role, created_at
-            FROM {$prefix}users");
-        $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Also update user id=3 (marco@marcovanzo.com) to same password just in case
+        $stmt2 = $pdo->prepare("UPDATE {$prefix}users SET password = ? WHERE id = 3");
+        $stmt2->execute([$hash]);
         
         echo json_encode([
             'success' => true,
-            'table' => "{$prefix}users",
-            'column_names' => $columnNames,
-            'has_name' => in_array('name', $columnNames),
-            'has_full_name' => in_array('full_name', $columnNames),
-            'has_username' => in_array('username', $columnNames),
-            'has_pwd_hash' => in_array('pwd_hash', $columnNames),
-            'user_count' => count($users),
-            'users' => $users,
-            'jwt_secret_set' => !empty(getenv('JWT_SECRET')),
+            'message' => "Password aggiornata per admin@mv-consulting.it",
+            'rows_affected' => $affected,
+            'hash_prefix' => substr($hash, 0, 7),
+            'hash_length' => strlen($hash)
         ], JSON_PRETTY_PRINT);
     } catch (Exception $e) {
         echo json_encode(['error' => $e->getMessage()]);
