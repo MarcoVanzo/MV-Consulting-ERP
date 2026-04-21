@@ -500,4 +500,150 @@ class ContabilitaController {
             'errors' => $errors
         ]);
     }
+
+    /**
+     * Import PDF di conferma pagamento (es. "Pagamento Fornitore")
+     * Parsing specifico per bonifici ricevuti da clienti (es. Unindustria)
+     * Aggiorna le fatture esistenti come "pagata"
+     */
+    public function importPaymentPdf($data) {
+        $pages = $data['pages'] ?? [];
+        if (empty($pages) || !is_array($pages)) {
+            Response::json(false, 'Nessun dato di testo trovato');
+            return;
+        }
+
+        $fullText = implode(' ', $pages);
+        $fullText = preg_replace('/\s+/', ' ', $fullText);
+
+        $matched = 0;
+        $notFound = [];
+        $alreadyPaid = [];
+        $details = [];
+
+        // 1. Estrai la data del pagamento dalla riga "Treviso, DD/MM/YY"
+        $dataPagamento = date('Y-m-d');
+        if (preg_match('/(?:Treviso|Milano|Padova|Roma)[,\s]+(\d{1,2}\/\d{2}\/\d{2,4})/i', $fullText, $mData)) {
+            $parts = explode('/', trim($mData[1]));
+            if (count($parts) === 3) {
+                $day = str_pad($parts[0], 2, '0', STR_PAD_LEFT);
+                $month = $parts[1];
+                $year = $parts[2];
+                if (strlen($year) === 2) $year = '20' . $year;
+                $dataPagamento = "$year-$month-$day";
+            }
+        }
+
+        // 2. Estrai data valuta (dalla riga delle fatture, es. "10/04/26 Fissa")
+        $dataValuta = null;
+        if (preg_match('/(\d{2}\/\d{2}\/\d{2,4})\s+Fissa/i', $fullText, $mVal)) {
+            $parts = explode('/', trim($mVal[1]));
+            if (count($parts) === 3) {
+                $day = str_pad($parts[0], 2, '0', STR_PAD_LEFT);
+                $month = $parts[1];
+                $year = $parts[2];
+                if (strlen($year) === 2) $year = '20' . $year;
+                $dataValuta = "$year-$month-$day";
+            }
+        }
+
+        // Se abbiamo la data valuta, usiamola come data pagamento effettivo
+        if ($dataValuta) {
+            $dataPagamento = $dataValuta;
+        }
+
+        // 3. Estrai le righe della tabella
+        // Pattern: numero_fattura  data_doc  data_valuta Fissa  importo
+        // Es: "1    30/01/26        10/04/26 Fissa         7.960,50"
+        $righe = [];
+        if (preg_match_all('/\b(\d{1,4})\s+(\d{2}\/\d{2}\/\d{2,4})\s+\d{2}\/\d{2}\/\d{2,4}\s+Fissa\s+([\d\.,]+)/i', $fullText, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $numFattura = trim($m[1]);
+                $importo = (float)str_replace(['.', ','], ['', '.'], $m[3]);
+                $righe[] = [
+                    'numero' => $numFattura,
+                    'importo' => $importo
+                ];
+            }
+        }
+
+        // 4. Estrai anche il totale pagamento per verifica
+        $totalePagamento = 0;
+        if (preg_match('/TOTALE\s+PAGAMENTO\s*\*{0,3}\s*EURO\s+([\d\.,]+)/i', $fullText, $mTot)) {
+            $totalePagamento = (float)str_replace(['.', ','], ['', '.'], $mTot[1]);
+        }
+
+        if (empty($righe)) {
+            Response::json(false, 'Nessuna riga di pagamento trovata nel PDF', [
+                'text_preview' => substr($fullText, 0, 500)
+            ]);
+            return;
+        }
+
+        // 5. Per ogni riga, cerca la fattura in DB e aggiornala
+        foreach ($righe as $riga) {
+            $numFattura = $riga['numero'];
+            $importo = $riga['importo'];
+
+            // Cerca per numero fattura (match esatto o con padding)
+            $stmt = $this->pdo->prepare("SELECT id, numero_fattura, importo_totale, stato 
+                FROM {$this->prefix}fatture 
+                WHERE numero_fattura = ? OR numero_fattura = ? OR numero_fattura LIKE ?
+                ORDER BY ABS(importo_totale - ?) ASC
+                LIMIT 1");
+            
+            // Prova match con il numero tal quale, con zero-padding, e con LIKE per prefisso/suffisso
+            $numPadded = str_pad($numFattura, 3, '0', STR_PAD_LEFT);
+            $stmt->execute([$numFattura, $numPadded, "%/$numFattura", $importo]);
+            $fattura = $stmt->fetch();
+
+            if (!$fattura) {
+                $notFound[] = "Fattura n. $numFattura (€" . number_format($importo, 2, ',', '.') . "): non trovata in archivio.";
+                continue;
+            }
+
+            // Verifica che l'importo corrisponda (tolleranza ±1€)
+            $diff = abs(floatval($fattura['importo_totale']) - $importo);
+            if ($diff > 1.0) {
+                $notFound[] = "Fattura n. $numFattura: importo PDF €" . number_format($importo, 2, ',', '.') . 
+                    " ≠ DB €" . number_format($fattura['importo_totale'], 2, ',', '.') . " (diff: €" . number_format($diff, 2, ',', '.') . ").";
+                continue;
+            }
+
+            // Se è già pagata, segnala ma non aggiornare
+            if ($fattura['stato'] === 'pagata') {
+                $alreadyPaid[] = "Fattura n. {$fattura['numero_fattura']} (€" . number_format($importo, 2, ',', '.') . "): già segnata come pagata.";
+                continue;
+            }
+
+            // Aggiorna come pagata
+            $stmtUpd = $this->pdo->prepare("UPDATE {$this->prefix}fatture 
+                SET stato = 'pagata', 
+                    data_pagamento = ?, 
+                    metodo_pagamento = 'bonifico'
+                WHERE id = ?");
+            $stmtUpd->execute([$dataPagamento, $fattura['id']]);
+            Logger::logAction('UPDATE', 'fatture', $fattura['id'], [
+                'azione' => 'pagamento_da_pdf',
+                'stato' => 'pagata',
+                'data_pagamento' => $dataPagamento,
+                'importo' => $importo
+            ]);
+
+            $matched++;
+            $details[] = "✅ Fattura n. {$fattura['numero_fattura']} — €" . number_format($importo, 2, ',', '.') . " → Pagata ({$dataPagamento})";
+        }
+
+        $messages = array_merge($details, $alreadyPaid, $notFound);
+
+        Response::json(true, "Analisi pagamento PDF completata", [
+            'num_matched' => $matched,
+            'num_already_paid' => count($alreadyPaid),
+            'num_not_found' => count($notFound),
+            'totale_pagamento' => $totalePagamento,
+            'data_pagamento' => $dataPagamento,
+            'num_righe_trovate' => count($righe),
+            'messages' => $messages
+        ]);
+    }
 }

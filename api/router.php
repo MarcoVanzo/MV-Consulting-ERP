@@ -178,6 +178,7 @@ try {
                 case 'overview':   $ctrl->overview(); break;
                 case 'import_pdf': $ctrl->importPdfData($data); break;
                 case 'import_xml': $ctrl->importXmlData($data); break;
+                case 'import_payment_pdf': $ctrl->importPaymentPdf($data); break;
                 default:           Response::json(false, "Azione contabilità non supportata: $action");
             }
             break;

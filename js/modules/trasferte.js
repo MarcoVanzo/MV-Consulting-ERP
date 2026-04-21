@@ -363,7 +363,7 @@ const ModTrasferte = (() => {
                 return;
             }
 
-            UI.toast(`Sincronizzazione completata: ${data.imported || 0} nuovi eventi importati.`, 'success');
+            UI.toast(data.message || `Sincronizzazione completata: ${data.imported || 0} aggiornati.`, 'success');
             load();
         } catch (err) {
             UI.toast(err.message || 'Errore durante la sincronizzazione con Google Calendar', 'error');
