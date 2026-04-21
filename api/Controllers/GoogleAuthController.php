@@ -126,8 +126,8 @@ class GoogleAuthController {
             Response::json(false, "Nessun Calendar ID configurato in GOOGLE_CALENDAR_IDS nel file .env.");
         }
 
-        // Troviamo un range temporale molto più ampio (-1 anno fino a fine anno prossimo)
-        $timeMin = date('Y-01-01T00:00:00\Z', strtotime('-1 year'));
+        // Modificato come richiesto per importare tutti i dati dal primo gennaio 2026
+        $timeMin = '2026-01-01T00:00:00Z';
         $timeMax = date('Y-12-31T23:59:59\Z', strtotime('+1 year')); 
 
         // Recuperiamo tutti i clienti e sottoclienti per l'auto-matching
