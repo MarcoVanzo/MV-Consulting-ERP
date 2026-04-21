@@ -78,41 +78,6 @@ if ($rawInput) {
 $data = array_merge($_POST, $input);
 
 // ═════════════════════════════════════════════
-// TEMPORARY: Reset password for admin@mv-consulting.it
-// This runs ONCE and sets pwd, then this block should be removed.
-// ═════════════════════════════════════════════
-if ($module === 'diag' && $action === 'fixpwd') {
-    try {
-        $pdo = Database::getConnection();
-        $prefix = getenv('DB_PREFIX') ?: 'mv_';
-        
-        // Hash password "MvConsulting2026!" with bcrypt
-        $newPassword = 'MvConsulting2026!';
-        $hash = password_hash($newPassword, PASSWORD_DEFAULT);
-        
-        // Update admin user password
-        $stmt = $pdo->prepare("UPDATE {$prefix}users SET password = ? WHERE email = ?");
-        $stmt->execute([$hash, 'admin@mv-consulting.it']);
-        $affected = $stmt->rowCount();
-        
-        // Also update user id=3 (marco@marcovanzo.com) to same password just in case
-        $stmt2 = $pdo->prepare("UPDATE {$prefix}users SET password = ? WHERE id = 3");
-        $stmt2->execute([$hash]);
-        
-        echo json_encode([
-            'success' => true,
-            'message' => "Password aggiornata per admin@mv-consulting.it",
-            'rows_affected' => $affected,
-            'hash_prefix' => substr($hash, 0, 7),
-            'hash_length' => strlen($hash)
-        ], JSON_PRETTY_PRINT);
-    } catch (Exception $e) {
-        echo json_encode(['error' => $e->getMessage()]);
-    }
-    exit;
-}
-
-// ═════════════════════════════════════════════
 // GLOBAL AUTHENTICATION MIDDLEWARE
 // ═════════════════════════════════════════════
 $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
