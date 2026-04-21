@@ -25,7 +25,7 @@ else
     
     # 3. PUSH TO GITHUB
     echo "🌍 2/3 - Invio codice su GitHub..."
-    git push origin main
+    git push origin main || echo "⚠️ Git push limitato/fallito (magari manca auth). Procedo col deploy FTP..."
 fi
 
 # 4. RUN FTP UPLOAD

@@ -27,6 +27,11 @@ FTP_USERNAME = os.environ.get("FTP_USERNAME")
 FTP_PASSWORD = os.environ.get("FTP_PASSWORD")
 FTP_PATH = os.environ.get("FTP_PATH", "")
 
+def get_ftp_connection():
+    ftp = ftplib.FTP(FTP_SERVER)
+    ftp.login(FTP_USERNAME, FTP_PASSWORD)
+    return ftp
+
 def upload_ftp():
     EXCLUDE_DIRS = ['.git', 'node_modules', 'dist', '.github', '.gemini', 'tmp_pdf_parse', 'tmp_venv', 'PDF Pagamenti']
     EXCLUDE_FILES = ['deploy', '.env.deploy', '.env', '.DS_Store', 'task.md', 'walkthrough.md', 'implementation_plan.md']
@@ -35,8 +40,7 @@ def upload_ftp():
 
     print(f"🚀 Connessione a {FTP_SERVER} come {FTP_USERNAME}...")
     try:
-        ftp = ftplib.FTP(FTP_SERVER)
-        ftp.login(FTP_USERNAME, FTP_PASSWORD)
+        ftp = get_ftp_connection()
         
         if FTP_PATH and FTP_PATH.strip() and FTP_PATH != '/':
              try:
@@ -70,24 +74,38 @@ def upload_ftp():
                 
                 dirs_to_make = os.path.dirname(rel_path).split(os.sep)
                 
-                if FTP_PATH and FTP_PATH.strip() and FTP_PATH != '/':
-                    ftp.cwd('/' + FTP_PATH)
-                else:
-                    ftp.cwd('/')
-
-                if dirs_to_make and dirs_to_make[0] != '':
-                    for d in dirs_to_make:
-                        try:
-                            ftp.cwd(d)
-                        except:
-                            ftp.mkd(d)
-                            ftp.cwd(d)
-                            
-                with open(local_path, 'rb') as f:
+                max_retries = 3
+                for attempt in range(max_retries):
                     try:
-                        ftp.storbinary(f'STOR {file}', f)
-                    except:
-                         pass
+                        if FTP_PATH and FTP_PATH.strip() and FTP_PATH != '/':
+                            ftp.cwd('/' + FTP_PATH)
+                        else:
+                            ftp.cwd('/')
+
+                        if dirs_to_make and dirs_to_make[0] != '':
+                            for d in dirs_to_make:
+                                try:
+                                    ftp.cwd(d)
+                                except Exception:
+                                    try:
+                                        ftp.mkd(d)
+                                    except Exception:
+                                        pass
+                                    ftp.cwd(d)
+                                    
+                        with open(local_path, 'rb') as f:
+                            ftp.storbinary(f'STOR {file}', f)
+                        break  # Upload and directory navigating succeeded
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            print(f"⚠️ Connessione instabile su '{file}'. Riconnetto... ({attempt+2}/{max_retries})")
+                            try:
+                                ftp.quit()
+                            except:
+                                pass
+                            ftp = get_ftp_connection()
+                        else:
+                            print(f"❌ Impossibile caricare '{file}': {e}")
 
         elapsed = (datetime.now() - start_time).total_seconds()
         print(f"✅ Deploy completato in {elapsed:.1f} secondi.")
