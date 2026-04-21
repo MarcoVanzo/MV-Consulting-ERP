@@ -13,18 +13,17 @@ require_once __DIR__ . '/Controllers/ClientiController.php';
 require_once __DIR__ . '/Controllers/SottoclientiController.php';
 require_once __DIR__ . '/Controllers/TrasferteController.php';
 require_once __DIR__ . '/Controllers/ContabilitaController.php';
-require_once __DIR__ . '/Controllers/AdminController.php'; // Nuovo: Admin Controller
+require_once __DIR__ . '/Controllers/AdminController.php';
 require_once __DIR__ . '/Controllers/GoogleAuthController.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
-// CORS — Restrittivo: solo dal dominio di produzione
+// CORS
 $allowedOrigins = ['https://www.mv-consulting.it', 'https://mv-consulting.it'];
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if (in_array($origin, $allowedOrigins)) {
     header('Access-Control-Allow-Origin: ' . $origin);
 } elseif (getenv('APP_ENV') !== 'production') {
-    // In locale, permetti tutto per sviluppo
     header('Access-Control-Allow-Origin: *');
 }
 header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
@@ -77,11 +76,49 @@ if ($rawInput) {
 // Merge POST + JSON input
 $data = array_merge($_POST, $input);
 
-// ═════════════════════════════════════════════
+// =============================================
+// TEMPORARY DEBUG: Deep login diagnostics
+// =============================================
+if ($module === 'diag' && $action === 'testlogin') {
+    try {
+        $pdo = Database::getConnection();
+        $prefix = getenv('DB_PREFIX') ?: 'mv_';
+        
+        // Get admin user
+        $stmt = $pdo->prepare("SELECT id, email, password, pwd_hash FROM {$prefix}users WHERE email = :email LIMIT 1");
+        $stmt->execute(['email' => 'admin@mv-consulting.it']);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        $testPassword = 'MvConsulting2026!';
+        $dbPassword = !empty($user['password']) ? $user['password'] : (!empty($user['pwd_hash']) ? $user['pwd_hash'] : null);
+        
+        $verifyResult = $dbPassword ? password_verify($testPassword, $dbPassword) : false;
+        
+        echo json_encode([
+            'user_found' => !empty($user),
+            'email' => $user['email'] ?? 'N/A',
+            'password_field_empty' => empty($user['password']),
+            'pwd_hash_field_empty' => empty($user['pwd_hash']),
+            'password_length' => strlen($user['password'] ?? ''),
+            'pwd_hash_length' => strlen($user['pwd_hash'] ?? ''),
+            'password_prefix' => substr($user['password'] ?? '', 0, 7),
+            'pwd_hash_prefix' => substr($user['pwd_hash'] ?? '', 0, 7),
+            'dbPassword_used' => substr($dbPassword ?? '', 0, 7),
+            'password_verify_result' => $verifyResult,
+            'test_password' => $testPassword,
+            'php_version' => PHP_VERSION,
+            'jwt_secret_set' => !empty(getenv('JWT_SECRET')),
+        ], JSON_PRETTY_PRINT);
+    } catch (Exception $e) {
+        echo json_encode(['error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// =============================================
 // GLOBAL AUTHENTICATION MIDDLEWARE
-// ═════════════════════════════════════════════
+// =============================================
 $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-// Solo auth e callback OAuth sono pubblici. La sync richiede autenticazione.
 $public_actions = [
     'auth' => ['login'],
     'google' => ['auth', 'callback']
@@ -92,8 +129,6 @@ if (!$isPublic) {
     if (preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
         $jwt = $matches[1];
     }
-    // SECURITY: JWT accettato SOLO via header Authorization: Bearer
-    // Mai tramite query parameter (espone il token nei log server e referrer)
 
     if ($jwt) {
         $secret = getenv('JWT_SECRET');
@@ -117,9 +152,6 @@ if (!$isPublic) {
 try {
     switch ($module) {
 
-        // ═════════════════════════════════════════════
-        // AUTH
-        // ═════════════════════════════════════════════
         case 'auth':
             if ($action === 'login') {
                 $email = $data['email'] ?? '';
@@ -137,9 +169,6 @@ try {
             }
             break;
 
-        // ═════════════════════════════════════════════
-        // CLIENTI
-        // ═════════════════════════════════════════════
         case 'clienti':
             $ctrl = new ClientiController();
             switch ($action) {
@@ -152,9 +181,6 @@ try {
             }
             break;
 
-        // ═════════════════════════════════════════════
-        // SOTTOCLIENTI
-        // ═════════════════════════════════════════════
         case 'sottoclienti':
             $ctrl = new SottoclientiController();
             switch ($action) {
@@ -165,9 +191,6 @@ try {
             }
             break;
 
-        // ═════════════════════════════════════════════
-        // TRASFERTE
-        // ═════════════════════════════════════════════
         case 'trasferte':
             $ctrl = new TrasferteController();
             switch ($action) {
@@ -185,9 +208,6 @@ try {
             }
             break;
 
-        // ═════════════════════════════════════════════
-        // GOOGLE CALENDAR
-        // ═════════════════════════════════════════════
         case 'google':
             $ctrl = new GoogleAuthController();
             switch ($action) {
@@ -198,9 +218,6 @@ try {
             }
             break;
 
-        // ═════════════════════════════════════════════
-        // CONTABILITÀ
-        // ═════════════════════════════════════════════
         case 'contabilita':
             $ctrl = new ContabilitaController();
             switch ($action) {
@@ -215,27 +232,18 @@ try {
             }
             break;
 
-        // ═════════════════════════════════════════════
-        // ADMIN (Utenti, Backup, Logs)
-        // ═════════════════════════════════════════════
         case 'admin':
             $ctrl = new AdminController();
             switch ($action) {
-                // Utenti
                 case 'listUsers': $ctrl->listUsers(); break;
                 case 'createUser': $ctrl->createUser(); break;
                 case 'deleteUser': $ctrl->deleteUser(); break;
                 case 'resetPassword': $ctrl->resetPassword(); break;
-                
-                // Backup
                 case 'listBackups': $ctrl->listBackups(); break;
                 case 'createBackup': $ctrl->createBackup(); break;
                 case 'downloadBackup': $ctrl->downloadBackup(); break;
                 case 'deleteBackup': $ctrl->deleteBackup(); break;
-                
-                // Logs
                 case 'listLogs': $ctrl->listLogs(); break;
-                
                 default:
                     Response::json(false, 'Azione admin non valida');
             }
@@ -246,7 +254,6 @@ try {
     }
 } catch (Exception $e) {
     error_log("MV Consulting ERP API Error: " . $e->getMessage());
-    // Non esporre i dettagli dell'errore al client in produzione
     $msg = (getenv('APP_DEBUG') === 'true') 
         ? 'Errore server: ' . $e->getMessage() 
         : 'Errore interno del server. Contattare l\'amministratore.';
