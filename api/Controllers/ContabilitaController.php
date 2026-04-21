@@ -13,8 +13,8 @@ class ContabilitaController {
     }
 
     public function list() {
-        $year = $_GET['year'] ?? date('Y');
-        $stato = $_GET['stato'] ?? null;
+        $year = $_POST['year'] ?? $_GET['year'] ?? date('Y');
+        $stato = $_POST['stato'] ?? $_GET['stato'] ?? null;
 
         $sql = "SELECT f.*, 
                 c.ragione_sociale as cliente_nome,
@@ -98,7 +98,7 @@ class ContabilitaController {
      * Overview finanziaria — KPI e aggregazioni
      */
     public function overview() {
-        $year = $_GET['year'] ?? date('Y');
+        $year = $_POST['year'] ?? $_GET['year'] ?? date('Y');
         $p = $this->prefix;
 
         // Fatturato totale
