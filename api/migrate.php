@@ -26,10 +26,14 @@ $queries = [
     // ── Users table (if not exists) ──────────────────────
     "CREATE TABLE IF NOT EXISTS {$prefix}users (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
+        name VARCHAR(100) DEFAULT NULL,
+        username VARCHAR(100) DEFAULT NULL,
+        full_name VARCHAR(150) DEFAULT NULL,
         email VARCHAR(150) NOT NULL UNIQUE,
         password VARCHAR(255) NOT NULL,
         role VARCHAR(30) DEFAULT 'admin',
+        is_active TINYINT(1) DEFAULT 1,
+        last_login_at DATETIME DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
@@ -145,7 +149,13 @@ $queries = [
     "ALTER TABLE {$prefix}sottoclienti ADD COLUMN partita_iva VARCHAR(16) DEFAULT NULL AFTER nome",
     "ALTER TABLE {$prefix}sottoclienti ADD COLUMN codice_fiscale VARCHAR(20) DEFAULT NULL AFTER partita_iva",
     "ALTER TABLE {$prefix}sottoclienti ADD COLUMN sdi VARCHAR(10) DEFAULT NULL AFTER email",
-    "ALTER TABLE {$prefix}sottoclienti ADD COLUMN pec VARCHAR(150) DEFAULT NULL AFTER sdi"
+    "ALTER TABLE {$prefix}sottoclienti ADD COLUMN pec VARCHAR(150) DEFAULT NULL AFTER sdi",
+
+    // ── Allineamento schema users (per DB esistenti) ──
+    "ALTER TABLE {$prefix}users ADD COLUMN username VARCHAR(100) DEFAULT NULL AFTER name",
+    "ALTER TABLE {$prefix}users ADD COLUMN full_name VARCHAR(150) DEFAULT NULL AFTER username",
+    "ALTER TABLE {$prefix}users ADD COLUMN is_active TINYINT(1) DEFAULT 1 AFTER role",
+    "ALTER TABLE {$prefix}users ADD COLUMN last_login_at DATETIME DEFAULT NULL AFTER is_active"
 ];
 
 $results = [];
