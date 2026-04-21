@@ -587,13 +587,17 @@ class ContabilitaController {
             $numFattura = $riga['numero'];
             $importo = $riga['importo'];
 
-            // Cerca TUTTE le righe con questo numero fattura (match esatto, padding, suffisso)
+            // Cerca TUTTE le righe con questo numero fattura (match esatto, padding, suffisso, prefisso/001)
             $numPadded = str_pad($numFattura, 3, '0', STR_PAD_LEFT);
             $stmt = $this->pdo->prepare("SELECT id, numero_fattura, importo_totale, stato, sottocliente_id
                 FROM {$this->prefix}fatture 
-                WHERE numero_fattura = ? OR numero_fattura = ? OR numero_fattura LIKE ?
+                WHERE numero_fattura = ? 
+                   OR numero_fattura = ? 
+                   OR numero_fattura LIKE ? 
+                   OR numero_fattura LIKE ?
+                   OR numero_fattura LIKE ?
                 ORDER BY id ASC");
-            $stmt->execute([$numFattura, $numPadded, "%/$numFattura"]);
+            $stmt->execute([$numFattura, $numPadded, "%/$numFattura", "$numFattura/%", "$numPadded/%"]);
             $righeDb = $stmt->fetchAll();
 
             if (empty($righeDb)) {
