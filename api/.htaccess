@@ -1,0 +1,23 @@
+# MV Consulting ERP — API Protection
+# Solo router.php è accessibile direttamente
+
+RewriteEngine On
+
+# Se il file richiesto è router.php, lascialo passare
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^router\.php$ - [L]
+
+# Blocca accesso diretto a tutti gli altri file PHP
+<FilesMatch "^(?!router\.php$).*\.php$">
+    Require all denied
+</FilesMatch>
+
+# Blocca accesso alla directory Shared e Controllers
+<IfModule mod_rewrite.c>
+    RewriteRule ^(Controllers|Shared)/ - [F,L]
+</IfModule>
+
+# Blocca accesso a file di migrazione e setup
+<FilesMatch "\.(sql|log|bak|env|example)$">
+    Require all denied
+</FilesMatch>
