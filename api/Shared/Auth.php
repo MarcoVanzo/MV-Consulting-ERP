@@ -28,11 +28,12 @@ class Auth {
                     return false;
                 }
                 
+                $jwtExpiration = (int)(getenv('JWT_EXPIRATION') ?: 86400); // Default: 1 giorno
                 $payload = [
                     'id' => $user['id'],
                     'email' => $user['email'],
                     'role' => $user['role'] ?? 'admin',
-                    'exp' => time() + (86400 * 7) // expires in 7 days
+                    'exp' => time() + $jwtExpiration
                 ];
                 $token = JWT::encode($payload, $secret);
                 

@@ -28,8 +28,10 @@ FTP_PASSWORD = os.environ.get("FTP_PASSWORD")
 FTP_PATH = os.environ.get("FTP_PATH", "")
 
 def upload_ftp():
-    EXCLUDE_DIRS = ['.git', 'node_modules', 'dist', '.github', '.gemini']
+    EXCLUDE_DIRS = ['.git', 'node_modules', 'dist', '.github', '.gemini', 'tmp_pdf_parse', 'tmp_venv', 'PDF Pagamenti']
     EXCLUDE_FILES = ['deploy', '.env.deploy', '.env', '.DS_Store', 'task.md', 'walkthrough.md', 'implementation_plan.md']
+    # Pattern di file da escludere (sicurezza: nessuno script di debug/test in produzione)
+    EXCLUDE_PREFIXES = ('test_', 'debug_', 'scratch_', 'fix_', 'deploy_debug', 'reset_', 'setup_db', 'check_db', 'migrate_', 'list_tables', 'cleanup', 'db_dump', 'delete_token')
 
     print(f"🚀 Connessione a {FTP_SERVER} come {FTP_USERNAME}...")
     try:
@@ -58,6 +60,9 @@ def upload_ftp():
             
             for file in files:
                 if file in EXCLUDE_FILES or file.endswith(".example"):
+                    continue
+                # Escludi file con prefissi pericolosi (debug, test, setup, etc.)
+                if file.startswith(EXCLUDE_PREFIXES):
                     continue
                 
                 local_path = os.path.join(root, file)
