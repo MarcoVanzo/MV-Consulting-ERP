@@ -89,6 +89,7 @@ const ModTrasferte = (() => {
                     data: t.data_trasferta,
                     mattina: { nome: '', id: null },
                     pomeriggio: { nome: '', id: null },
+                    extra: [], // Per eventi aggiuntivi oltre 2 nella stessa giornata
                     km_totali: 0,
                     has_client: false
                 };
@@ -97,13 +98,29 @@ const ModTrasferte = (() => {
             if (nome) grouped[t.data_trasferta].has_client = true;
             
             const displayName = nome || '';
+            const entry = { nome: displayName, id: t.id };
+            
             if (t.fascia_oraria === 'mattino') {
-                grouped[t.data_trasferta].mattina = { nome: displayName, id: t.id };
+                if (!grouped[t.data_trasferta].mattina.id) {
+                    grouped[t.data_trasferta].mattina = entry;
+                } else {
+                    grouped[t.data_trasferta].extra.push({ ...entry, fascia: 'mattino' });
+                }
             } else if (t.fascia_oraria === 'pomeriggio') {
-                grouped[t.data_trasferta].pomeriggio = { nome: displayName, id: t.id };
+                if (!grouped[t.data_trasferta].pomeriggio.id) {
+                    grouped[t.data_trasferta].pomeriggio = entry;
+                } else {
+                    grouped[t.data_trasferta].extra.push({ ...entry, fascia: 'pomeriggio' });
+                }
             } else {
-                grouped[t.data_trasferta].mattina = { nome: displayName, id: t.id };
-                grouped[t.data_trasferta].pomeriggio = { nome: displayName, id: t.id };
+                // "intera" → riempi prima mattina, poi pomeriggio, poi extra
+                if (!grouped[t.data_trasferta].mattina.id) {
+                    grouped[t.data_trasferta].mattina = entry;
+                } else if (!grouped[t.data_trasferta].pomeriggio.id) {
+                    grouped[t.data_trasferta].pomeriggio = entry;
+                } else {
+                    grouped[t.data_trasferta].extra.push({ ...entry, fascia: 'intera' });
+                }
             }
             
             grouped[t.data_trasferta].km_totali += (parseFloat(t.km_andata || 0) + parseFloat(t.km_ritorno || 0));
