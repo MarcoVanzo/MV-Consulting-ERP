@@ -1,7 +1,14 @@
 # MV Consulting ERP — API Protection
 # Solo router.php è accessibile direttamente
 
+# Abilita il passaggio dell'header Authorization per FastCGI/PHP-FPM
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+
 RewriteEngine On
+
+# Forza l'header Authorization a passare alle variabili d'ambiente di PHP
+RewriteCond %{HTTP:Authorization} ^(.*)
+RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
 
 # Se il file richiesto è router.php, lascialo passare
 RewriteCond %{REQUEST_FILENAME} -f
