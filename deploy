@@ -1,8 +1,8 @@
 #!/bin/bash
 
-echo "====================================="
-echo "   MV Consulting ERP - Deploy Tool   "
-echo "====================================="
+echo "======================================"
+echo "   MV Consulting ERP - Deploy Tool    "
+echo "======================================"
 echo ""
 
 # 1. ADD ALL FILES TO GIT
@@ -28,15 +28,14 @@ else
     git push origin main || echo "⚠️ Git push limitato/fallito (magari manca auth). Procedo col deploy FTP..."
 fi
 
-# 4. RUN FTP UPLOAD
+# 4. RUN FTP UPLOAD (--no-git perché git è già gestito sopra)
 echo "🚀 3/3 - Caricamento su Aruba (FTP)..."
-# Check if python3 is available in PATH
 if command -v python3 &>/dev/null; then
-    python3 deploy.py
+    python3 deploy.py --no-git "$@"
 else
-    python deploy.py
+    python deploy.py --no-git "$@"
 fi
 
 echo ""
 echo "✨ Finito! Il sistema ha gestito tutto."
-echo "====================================="
+echo "======================================"
