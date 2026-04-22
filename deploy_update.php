@@ -448,9 +448,13 @@ function downloadFileFromGitHub(string $repo, string $sha, string $path): string
     ]);
     $content = curl_exec($ch);
     $code    = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $error   = curl_error($ch);
     curl_close($ch);
 
     if ($code !== 200 || $content === false) {
+        // Log the failure for debugging
+        $logMessage = "[" . date('Y-m-d H:i:s') . "] Failed to download {$path}. HTTP Code: {$code}. cURL Error: {$error}. URL: {$url}\n";
+        file_put_contents(__DIR__ . '/deploy_debug.log', $logMessage, FILE_APPEND);
         return false;
     }
 
