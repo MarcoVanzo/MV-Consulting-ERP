@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-04-22T10:40:06.900Z",
+  "generated_at": "2026-04-22T10:43:03.385Z",
   "file_count": 27,
   "files": [
     {
@@ -73,11 +73,11 @@
     },
     {
       "path": "deploy_update.php",
-      "hash": "af4d968e47b996d140b3bd75e987c3db0c4ac82af720b4481ce3e792fbf613e9"
+      "hash": "6768d4ebd52b2c996ce844e008f1a9609b0f12d645f960e5ec4437714964aaa5"
     },
     {
       "path": "index.html",
-      "hash": "a34b3dd3f50de2ff76afe8ec15f1ab0c26a16cc56210662c0c1b0fdc821a1c7b"
+      "hash": "7b9657435d98ab979337329ebda66b79d2c7550b792e2c5a5548ec4ecd758433"
     },
     {
       "path": "js/app.js",
