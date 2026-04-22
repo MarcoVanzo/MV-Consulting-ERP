@@ -7,7 +7,13 @@
 # Deploy artifacts
 .deploy_cache.json
 .deploy_manifest.json
+.deploy.lock
+.deploy_history.log
 deploy_*.log
+deploy_state.json
+deploy_log.json
+deploy_tmp/
+deploy_backup/
 
 # Storage & Uploads
 storage/
