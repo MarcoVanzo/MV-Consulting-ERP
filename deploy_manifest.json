@@ -1,0 +1,115 @@
+{
+  "version": 3,
+  "generated_at": "2026-04-22T09:54:36.741Z",
+  "file_count": 27,
+  "files": [
+    {
+      "path": "api/.htaccess",
+      "hash": "d91b0823e9e670f24ad12d06e370295491ebb1a23d714d014b7010c1e379bc0b"
+    },
+    {
+      "path": "api/Controllers/AdminController.php",
+      "hash": "dd8c6d332cf8edd5c95a76f503c6756db509fce092eeecc83d7a27253e8dc264"
+    },
+    {
+      "path": "api/Controllers/ClientiController.php",
+      "hash": "1e69d25bd0479bc2af0752cc80fc91b8d47cd5a37496d3016ca23fca1475d48c"
+    },
+    {
+      "path": "api/Controllers/ContabilitaController.php",
+      "hash": "906d644799acaeece1ac564c5077dc0a74d49ba44db02692542ec2997bfbe80b"
+    },
+    {
+      "path": "api/Controllers/GoogleAuthController.php",
+      "hash": "0ab9ba2a6b03a6a30bbdce7a5e575142beb9471fc13c7b45b9e292fd74b4527b"
+    },
+    {
+      "path": "api/Controllers/SottoclientiController.php",
+      "hash": "9045635ceb74fdd3a68d1907009e0b960f4e7db627d39c9c02ff2f368fc5ed2b"
+    },
+    {
+      "path": "api/Controllers/TrasferteController.php",
+      "hash": "6bd4cc0a69f5eb589a0190ddef6ce64ae95043f3135aa9e3451e9c75c16f6a3a"
+    },
+    {
+      "path": "api/health.php",
+      "hash": "6907f156f8557c1c9386d5c9d485336feb65d6be4c7bf4b5cdb49362d8c676a8"
+    },
+    {
+      "path": "api/migrate.php",
+      "hash": "c369742f8a246fe3cbeecab288916990721770dc37ba51d1fa0c1047eb040fcb"
+    },
+    {
+      "path": "api/router.php",
+      "hash": "f32756344829b458fb2ed1936efd848a6566731be22cab6e0f4472db7af85937"
+    },
+    {
+      "path": "api/Shared/Auth.php",
+      "hash": "4adedcd9aa0e0def4f03baa06745a39d17cfb2d4ed2368d16b211fc5fffcc95a"
+    },
+    {
+      "path": "api/Shared/Database.php",
+      "hash": "9e11ec185b28e442d0e14a823896118415b63acdc3fe589bd4f50b62c58a8edf"
+    },
+    {
+      "path": "api/Shared/JWT.php",
+      "hash": "51a585fafdd82a7aa0c3f9e912a9a34eac040a0aa9cec55d3d86173c634512bf"
+    },
+    {
+      "path": "api/Shared/Logger.php",
+      "hash": "e3d5a5313ae9988b639ce6ca3ab8fbb6508352d76dd9478c3d902966b3327f28"
+    },
+    {
+      "path": "api/Shared/Response.php",
+      "hash": "d1d5403fee73675554238b7f1bcfc4857cd35ba18b24359a1e0fc6c9cd678125"
+    },
+    {
+      "path": "assets/logo.png",
+      "hash": "dd35d97098ca3a92b9d38e7679ce8b99e8b8d429b116bf311bc3b41bc8e2ea12"
+    },
+    {
+      "path": "css/style.css",
+      "hash": "d499fda9b70216706093ab240fca01c3a5bc142a1d2951defb680b240944b029"
+    },
+    {
+      "path": "deploy_update.php",
+      "hash": "af4d968e47b996d140b3bd75e987c3db0c4ac82af720b4481ce3e792fbf613e9"
+    },
+    {
+      "path": "index.html",
+      "hash": "f582471b8567a85c083bd1388b58d5be64863e316e221285502be5df355f2ad1"
+    },
+    {
+      "path": "js/app.js",
+      "hash": "91322c2b92fd33b2e6f735a826630ee1e17d76bc9482536c375409b1c7777b59"
+    },
+    {
+      "path": "js/core/auth.js",
+      "hash": "b315b5e7637a356f7674e21548134795bf53599064345b10de47fd0f6abc6b42"
+    },
+    {
+      "path": "js/core/store.js",
+      "hash": "9c5796bc692ac75da659bb540954e85cd71f08481a1414164c1842c0be0e4af3"
+    },
+    {
+      "path": "js/core/ui.js",
+      "hash": "976761b6799bfa918c04bf292e7b6e2c6d9dcc66baab3309a957f15d6bb81ca6"
+    },
+    {
+      "path": "js/modules/admin.js",
+      "hash": "2aca6036bff51d4c8045fce7c0ca49ad0749094fdde2a0d378a44577730178b0"
+    },
+    {
+      "path": "js/modules/clienti.js",
+      "hash": "0bf27e3c14d79075544430d33eea83d1e3a8c6a1e0954bd972543f6c58ce045d"
+    },
+    {
+      "path": "js/modules/contabilita.js",
+      "hash": "3382c8e1ca807b540d7a0cb3018c547f03851add4110b5d9ead4726efc70255c"
+    },
+    {
+      "path": "js/modules/trasferte.js",
+      "hash": "e127a0eb364c954ee464fa2dfa2124c98c4785785209f66e1fc34d9f14100555"
+    }
+  ]
+}
