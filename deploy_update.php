@@ -366,6 +366,16 @@ function elapsed(float $start): int
     return (int) round((microtime(true) - $start) * 1000);
 }
 
+function getGitHubHeaders(): array
+{
+    $headers = ['User-Agent: MV-Consulting-Deploy/3.0'];
+    $token = getenv('GITHUB_TOKEN') ?: ($_ENV['GITHUB_TOKEN'] ?? '');
+    if ($token) {
+        $headers[] = 'Authorization: token ' . $token;
+    }
+    return $headers;
+}
+
 function fetchLatestCommitSha(string $repo, string $branch): string
 {
     $url = "https://api.github.com/repos/{$repo}/commits/{$branch}";
@@ -373,6 +383,7 @@ function fetchLatestCommitSha(string $repo, string $branch): string
     curl_setopt_array($ch, [
         CURLOPT_URL            => $url,
         CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER     => getGitHubHeaders(),
         CURLOPT_USERAGENT      => 'MV-Consulting-Deploy/3.0',
         CURLOPT_TIMEOUT        => 10,
     ]);
@@ -400,6 +411,7 @@ function fetchManifest(string $repo, string $sha): array
         CURLOPT_URL            => $url,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTPHEADER     => getGitHubHeaders(),
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_TIMEOUT        => 15,
     ]);
@@ -429,6 +441,7 @@ function downloadFileFromGitHub(string $repo, string $sha, string $path): string
         CURLOPT_URL            => $url,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTPHEADER     => getGitHubHeaders(),
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_USERAGENT      => 'MV-Consulting-Deploy/3.0',
         CURLOPT_TIMEOUT        => 30,
