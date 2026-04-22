@@ -292,17 +292,24 @@ class TrasferteController {
             return null;
         };
 
-        // Controlla se la data precedente aveva pernottamento
-        $prevDate = date('Y-m-d', strtotime($date . ' - 1 day'));
+        // Controlla se la data precedente aveva pernottamento (fino a 4 giorni prima per gestire i weekend)
         $sqlPrev = "SELECT t.*, c.indirizzo, c.citta, sc.indirizzo as sc_indirizzo, sc.citta as sc_citta 
                 FROM {$this->prefix}trasferte t
                 LEFT JOIN {$this->prefix}clienti c ON c.id = t.cliente_id
                 LEFT JOIN {$this->prefix}sottoclienti sc ON sc.id = t.sottocliente_id
-                WHERE data_trasferta = ? AND (t.pernottamento = 1 OR t.alloggio > 0)
-                ORDER BY t.fascia_oraria DESC LIMIT 1";
+                WHERE data_trasferta < ?
+                ORDER BY data_trasferta DESC, t.fascia_oraria DESC LIMIT 1";
         $stmtPrev = $this->pdo->prepare($sqlPrev);
-        $stmtPrev->execute([$prevDate]);
-        $prevPernottamento = $stmtPrev->fetch();
+        $stmtPrev->execute([$date]);
+        $lastTrasferta = $stmtPrev->fetch();
+
+        $prevPernottamento = false;
+        if ($lastTrasferta && ($lastTrasferta['pernottamento'] == 1 || floatval($lastTrasferta['alloggio'] ?? 0) > 0)) {
+            $diffDays = round((strtotime($date) - strtotime($lastTrasferta['data_trasferta'])) / 86400);
+            if ($diffDays <= 4) {
+                $prevPernottamento = $lastTrasferta;
+            }
+        }
 
         // Indirizzo base (Partenza e Rientro)
         $baseAddr = "Via Manzoni 5, Zero Branco, TV";
@@ -444,8 +451,24 @@ class TrasferteController {
             return ['success' => false, 'message' => "Nessun cliente valido geocodificato per il calcolo."];
         }
 
-        $kmPerTappaAndata = round(($totKm / 2) / $count, 1);
-        $kmPerTappaRitorno = round(($totKm / 2) / $count, 1);
+        // Ripartizione km su Andata / Ritorno in base ai pernottamenti
+        if ($oggiPernotta && !$prevPernottamento) {
+            // Giorno 1 (Partenza da casa, niente ritorno) -> tutto in andata
+            $kmPerTappaAndata = round($totKm / $count, 1);
+            $kmPerTappaRitorno = 0;
+        } else if (!$oggiPernotta && $prevPernottamento) {
+            // Giorno Finale (Partenza dal cliente precedente, ritorno a casa) -> tutto in ritorno
+            $kmPerTappaAndata = 0;
+            $kmPerTappaRitorno = round($totKm / $count, 1);
+        } else if ($oggiPernotta && $prevPernottamento) {
+            // Giorno Intermedio (Partenza dal cliente, no ritorno) -> tutto in andata
+            $kmPerTappaAndata = round($totKm / $count, 1);
+            $kmPerTappaRitorno = 0;
+        } else {
+            // Giorno Singolo Normale (Casa -> Clienti -> Casa)
+            $kmPerTappaAndata = round(($totKm / 2) / $count, 1);
+            $kmPerTappaRitorno = round(($totKm / 2) / $count, 1);
+        }
 
         // Update in DB solo delle tappe valide E non bloccate (le altre a zero se non bloccate)
         $sqlZero = "UPDATE {$this->prefix}trasferte SET km_andata = 0, km_ritorno = 0 WHERE data_trasferta = ? AND km_bloccati = 0";
