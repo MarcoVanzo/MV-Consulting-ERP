@@ -401,7 +401,7 @@ if $DRY_RUN; then
     step_info "Skippato (dry-run)"
 elif $USE_FTP; then
     step_info "Modalità FTP-TLS..."
-    $PYTHON_BIN "$PROJECT_DIR/deploy.py" --ftp-only
+    $PYTHON_BIN "$PROJECT_DIR/deploy.py" --no-git --skip-checks
     if [[ $? -ne 0 ]]; then
         ERRORS=$((ERRORS + 1))
     fi
@@ -431,7 +431,7 @@ else
 
             # Fallback automatico a FTP-TLS
             step_warn "Tentativo fallback FTP-TLS..."
-            $PYTHON_BIN "$PROJECT_DIR/deploy.py" --ftp-only
+            $PYTHON_BIN "$PROJECT_DIR/deploy.py" --no-git --skip-checks
             if [[ $? -eq 0 ]]; then
                 DEPLOY_OK=true
                 step_ok "Deploy completato via FTP-TLS (fallback)"
