@@ -2,6 +2,12 @@
 .env
 .env.local
 .env.production
+.env.deploy
+
+# Deploy artifacts
+.deploy_cache.json
+.deploy_manifest.json
+deploy_*.log
 
 # Storage & Uploads
 storage/
