@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-MV Consulting ERP — Fast Smart Auto-Deploy
+MV Consulting ERP — Fast Smart Auto-Deploy v2.0
 
-Upload incrementale (solo file modificati), FTP parallelo, cache busting,
-e health check post-deploy. Pattern identico a Fusion ERP.
+Upload incrementale (solo file modificati), FTP-TLS parallelo, cache busting,
+security scan, pre-flight checks e health check post-deploy.
 
 Usage:
     python3 deploy.py                # Deploy completo
@@ -11,6 +11,7 @@ Usage:
     python3 deploy.py --force        # Ignora cache, carica tutto
     python3 deploy.py --no-git       # Salta git (usato dallo shell script)
     python3 deploy.py --skip-health  # Salta health check finale
+    python3 deploy.py --skip-checks  # Salta pre-flight checks
 """
 import os
 import sys
@@ -26,12 +27,15 @@ import argparse
 import http.client
 import urllib.parse
 import ssl
+import atexit
 from datetime import datetime
 from typing import Optional
 
 # ── Configuration ────────────────────────────────────────────────────────────
 CACHE_FILE = '.deploy_cache.json'
-MAX_WORKERS = 4           # Connessioni FTP parallele (MV ERP è piccolo, 4 bastano)
+LOCK_FILE = '.deploy.lock'
+DEPLOY_LOG = '.deploy_history.log'
+MAX_WORKERS = 4           # Connessioni FTP parallele
 FTP_CONNECT_TIMEOUT = 30  # Timeout connessione FTP (secondi)
 FTP_OP_TIMEOUT = 30       # Timeout operazioni FTP (secondi)
 GIT_TIMEOUT = 30
@@ -49,9 +53,12 @@ EXCLUDE_DIRS = [
 EXCLUDE_FILES = [
     'deploy', 'deploy.py', '.env.deploy', '.env', '.env.local',
     '.env.production', '.DS_Store', CACHE_FILE,
-    '.deploy_manifest.json',  # vecchio manifest
+    '.deploy_manifest.json',
     # Antigravity/planning artifacts
     'task.md', 'walkthrough.md', 'implementation_plan.md',
+    # Security: file con credenziali o diagnostici — MAI in produzione
+    'query.php', 'test_sync.php', '.env.example',
+    LOCK_FILE, DEPLOY_LOG,
 ]
 
 # Pattern prefissi da escludere (sicurezza: niente debug/test in produzione)
@@ -60,6 +67,7 @@ EXCLUDE_PREFIXES = (
     'deploy_debug', 'reset_', 'setup_db',
     'check_db', 'migrate_', 'list_tables',
     'cleanup', 'db_dump', 'delete_token',
+    'query_', 'query.',
 )
 
 
@@ -78,6 +86,20 @@ def load_env(filepath='.env.deploy'):
                 key, val = line.split('=', 1)
                 os.environ.setdefault(key.strip(), val.strip().strip("'").strip('"'))
     return True
+
+
+def file_changed_fast(filepath, cache):
+    """Quick check via mtime+size before expensive SHA-256."""
+    try:
+        stat = os.stat(filepath)
+        key = f"__stat_{filepath}"
+        current = f"{stat.st_mtime_ns}:{stat.st_size}"
+        cached = cache.get(key, '')
+        if cached == current:
+            return False, None  # Sicuramente invariato
+        return True, current
+    except Exception:
+        return True, None
 
 
 def get_file_hash(filepath):
@@ -109,10 +131,12 @@ def load_cache() -> dict:
 
 
 def save_cache(cache):
-    """Save the file hash cache to disk."""
+    """Save the file hash cache to disk (atomic write)."""
     try:
-        with open(CACHE_FILE, 'w') as f:
+        tmp = CACHE_FILE + '.tmp'
+        with open(tmp, 'w') as f:
             json.dump(cache, f, indent=2)
+        os.replace(tmp, CACHE_FILE)  # Atomico su POSIX
     except Exception as e:
         print(f"⚠️ Error saving cache: {e}")
 
@@ -151,18 +175,12 @@ connection_lock = threading.Lock()
 
 
 def get_ftp_connection(host, user, password):
-    """Get or create a thread-local FTP connection (with TLS fallback)."""
+    """Get or create a thread-local FTP-TLS connection. No plaintext fallback."""
     if not hasattr(thread_local, "ftp"):
-        try:
-            # Try FTP_TLS first
-            ftp = ftplib.FTP_TLS(host, timeout=FTP_CONNECT_TIMEOUT)
-            ftp.login(user, password)
-            ftp.prot_p()  # Switch to secure data connection
-            ftp.set_pasv(True)
-        except Exception:
-            # Fallback to plain FTP if TLS not supported
-            ftp = ftplib.FTP(host, timeout=FTP_CONNECT_TIMEOUT)
-            ftp.login(user, password)
+        ftp = ftplib.FTP_TLS(host, timeout=FTP_CONNECT_TIMEOUT)
+        ftp.login(user, password)
+        ftp.prot_p()  # Switch to secure data connection
+        ftp.set_pasv(True)
 
         if ftp.sock:
             ftp.sock.settimeout(FTP_OP_TIMEOUT)
@@ -305,6 +323,12 @@ def deploy_files_via_ftp(dry_run=False, force=False):
 
                 local_file_path = os.path.join(root, file)
 
+                # Fast rejection: check mtime+size before expensive SHA-256
+                changed, stat_key = file_changed_fast(local_file_path, file_cache)
+                if not changed and not force:
+                    skip_count += 1
+                    continue
+
                 # Calculate file hash
                 file_hash = get_file_hash(local_file_path)
                 if not file_hash:
@@ -313,6 +337,9 @@ def deploy_files_via_ftp(dry_run=False, force=False):
                 # Skip if unchanged (cache hit)
                 cached_hash = file_cache.get(local_file_path, '')
                 if cached_hash and cached_hash == file_hash:
+                    # Update stat cache for future fast rejection
+                    if stat_key:
+                        new_cache[f"__stat_{local_file_path}"] = stat_key
                     skip_count += 1
                     continue
 
@@ -325,6 +352,16 @@ def deploy_files_via_ftp(dry_run=False, force=False):
             return True
 
         print(f"📦 Trovati {len(upload_jobs)} file da caricare.")
+
+        # Security scan: blocca deploy se trova credenziali hardcoded
+        blocked = security_scan(upload_jobs)
+        if blocked:
+            print(f"\n🛑 SECURITY SCAN: {len(blocked)} file con credenziali hardcoded!")
+            for b in blocked:
+                print(f"  ❌ {b}")
+            print("\nRimuovi le credenziali dai file o aggiungili a EXCLUDE_FILES.")
+            return False
+        print("🔒 Security scan superato.")
 
         if dry_run:
             for job in upload_jobs:
@@ -345,6 +382,7 @@ def deploy_files_via_ftp(dry_run=False, force=False):
 
         # Step 2: Parallel upload
         print(f"🚀 Upload via {MAX_WORKERS} connessioni parallele...")
+        t_upload = _time.time()
         upload_count = 0
         failed_jobs = []
 
@@ -364,7 +402,15 @@ def deploy_files_via_ftp(dry_run=False, force=False):
                     if success:
                         upload_count += 1
                         new_cache[completed_local_path] = f_hash
-                        print(f"  ⬆️  [{upload_count}/{len(upload_jobs)}] {local_path}")
+                        # Update stat cache for fast rejection
+                        try:
+                            st = os.stat(completed_local_path)
+                            new_cache[f"__stat_{completed_local_path}"] = f"{st.st_mtime_ns}:{st.st_size}"
+                        except Exception:
+                            pass
+                        elapsed_now = _time.time() - t_upload
+                        eta = (elapsed_now / upload_count) * (len(upload_jobs) - upload_count)
+                        print(f"  ⬆️  [{upload_count}/{len(upload_jobs)}] {local_path} (ETA: {eta:.0f}s)")
                         # Salvataggio intermedio cache ogni 20 file
                         if upload_count % 20 == 0:
                             save_cache(new_cache)
@@ -434,41 +480,195 @@ def git_commit_and_push(skip=False):
 
 
 def verify_deployment():
-    """Health check on the production site."""
+    """Health check avanzato sul sito di produzione."""
     print("\n🩺 Health Check sul sito live...")
     url = os.getenv('APP_URL', '')
     if not url:
         print("  ⚠️ APP_URL non configurato in .env.deploy. Skip health check.")
-        return
+        return True
+
+    checks_passed = 0
+    checks_total = 2
 
     try:
         parsed_url = urllib.parse.urlparse(url)
-        if parsed_url.scheme == 'https':
-            context = ssl._create_unverified_context()
-            conn = http.client.HTTPSConnection(parsed_url.netloc, timeout=10, context=context)
-        else:
-            conn = http.client.HTTPConnection(parsed_url.netloc, timeout=10)
-
+        # SSL verification abilitata (sicurezza MITM)
+        conn = http.client.HTTPSConnection(parsed_url.netloc, timeout=10)
         conn.request("GET", parsed_url.path or "/")
         response = conn.getresponse()
+        body = response.read().decode('utf-8', errors='ignore')
+
+        # Check 1: HTTP 200
         if response.status == 200:
-            print(f"  ✅ Health Check superato! {url} → 200 OK")
+            print(f"  ✅ HTTP 200 OK — {url}")
+            checks_passed += 1
         else:
-            print(f"  ⚠️ Health Check: {url} → {response.status}")
+            print(f"  ❌ HTTP {response.status} — {url}")
+
+        # Check 2: Contenuto valido (index.html contiene il titolo app)
+        if 'MV Consulting' in body or '<div id="app"' in body:
+            print(f"  ✅ Contenuto pagina verificato")
+            checks_passed += 1
+        else:
+            print(f"  ⚠️ Contenuto pagina non riconosciuto")
+
+    except ssl.SSLCertVerificationError as e:
+        print(f"  ❌ Certificato SSL non valido: {e}")
+        print(f"  💡 Se il certificato è self-signed, rinnova il certificato su Aruba.")
     except Exception as e:
         print(f"  ❌ Errore Health Check: {e}")
+
+    print(f"  📊 {checks_passed}/{checks_total} check superati")
+    return checks_passed == checks_total
+
+
+# ── Deploy Lock ──────────────────────────────────────────────────────────────
+
+def acquire_lock():
+    """Impedisce deploy concorrenti."""
+    if os.path.exists(LOCK_FILE):
+        try:
+            with open(LOCK_FILE) as f:
+                info = json.load(f)
+            age = _time.time() - info.get('timestamp', 0)
+            if age < 600:  # Lock valido per 10 minuti
+                print(f"❌ Deploy già in corso (avviato {age:.0f}s fa, PID {info.get('pid')})")
+                print(f"   Se non c'è un deploy attivo, elimina {LOCK_FILE}")
+                sys.exit(1)
+            print(f"⚠️ Lock stale rimosso (età: {age:.0f}s)")
+        except Exception:
+            pass
+
+    with open(LOCK_FILE, 'w') as f:
+        json.dump({'pid': os.getpid(), 'timestamp': _time.time()}, f)
+
+
+def release_lock():
+    """Rilascia il lock di deploy."""
+    try:
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
+    except Exception:
+        pass
+
+
+# ── Deploy Log ───────────────────────────────────────────────────────────────
+
+def get_current_git_sha():
+    """Ottieni SHA del commit corrente."""
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            capture_output=True, text=True, timeout=5
+        )
+        return result.stdout.strip() if result.returncode == 0 else 'unknown'
+    except Exception:
+        return 'unknown'
+
+
+def log_deployment(success, file_count, elapsed):
+    """Registra ogni deploy per audit trail."""
+    entry = {
+        'timestamp': datetime.now().isoformat(),
+        'success': success,
+        'files_uploaded': file_count,
+        'elapsed_seconds': round(elapsed, 1),
+        'git_sha': get_current_git_sha(),
+    }
+    try:
+        with open(DEPLOY_LOG, 'a') as f:
+            f.write(json.dumps(entry) + '\n')
+    except Exception:
+        pass
+
+
+# ── Security Scan ────────────────────────────────────────────────────────────
+
+CREDENTIAL_PATTERNS = [
+    # PDO con credenziali stringa letterali (non variabili $)
+    re.compile(r'new\s+PDO\s*\(\s*["\'].*["\'],\s*["\'][^"\']+["\'],\s*["\'][^"\']+["\']'),
+    # Assegnazioni dirette di password/secret con valori letterali
+    re.compile(r'(DB_PASS|DB_PASSWORD|SECRET_KEY)\s*=\s*["\'][^\$"\']{4,}["\']'),
+    re.compile(r'password\s*=>\s*["\'][^\$"\']{4,}["\']', re.IGNORECASE),
+]
+
+
+def security_scan(upload_jobs):
+    """Scansiona i file per credenziali hardcoded. Blocca il deploy se ne trova."""
+    blocked = []
+    for local_path, _, _, _ in upload_jobs:
+        if not local_path.endswith('.php'):
+            continue
+        try:
+            with open(local_path, 'r', errors='ignore') as f:
+                content = f.read()
+            for pattern in CREDENTIAL_PATTERNS:
+                if pattern.search(content):
+                    blocked.append(local_path)
+                    break
+        except Exception:
+            pass
+    return blocked
+
+
+# ── Pre-flight Checks ────────────────────────────────────────────────────────
+
+def run_preflight():
+    """Controlli pre-deploy: env, FTP-TLS, baseline health."""
+    print("\n📋 Pre-flight checks...")
+    ok = True
+
+    # 1. Chiavi obbligatorie
+    required_keys = ['FTP_SERVER', 'FTP_USERNAME', 'FTP_PASSWORD', 'FTP_PATH']
+    missing = [k for k in required_keys if not os.environ.get(k)]
+    if missing:
+        print(f"  ❌ Chiavi mancanti in .env.deploy: {', '.join(missing)}")
+        return False
+    print("  ✅ Configurazione .env.deploy completa")
+
+    # 2. Test connessione FTP-TLS
+    print("  🔌 Test connessione FTP-TLS...")
+    try:
+        ftp = ftplib.FTP_TLS(os.environ['FTP_SERVER'], timeout=10)
+        ftp.login(os.environ['FTP_USERNAME'], os.environ['FTP_PASSWORD'])
+        ftp.prot_p()
+        ftp.quit()
+        print("  ✅ FTP-TLS OK")
+    except Exception as e:
+        print(f"  ❌ FTP-TLS fallito: {e}")
+        ok = False
+
+    # 3. Git status (warning, non bloccante)
+    try:
+        result = subprocess.run(
+            ['git', 'status', '--porcelain'],
+            capture_output=True, text=True, timeout=10
+        )
+        uncommitted = len(result.stdout.strip().splitlines()) if result.stdout.strip() else 0
+        if uncommitted:
+            print(f"  ⚠️ {uncommitted} file non committati (non bloccante)")
+        else:
+            print("  ✅ Working tree pulito")
+    except Exception:
+        pass
+
+    if ok:
+        print("  ✅ Pre-flight superato!\n")
+    return ok
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
     t0 = _time.time()
+    upload_count = 0
 
-    parser = argparse.ArgumentParser(description="MV Consulting ERP — Smart Auto-Deploy")
+    parser = argparse.ArgumentParser(description="MV Consulting ERP — Smart Auto-Deploy v2")
     parser.add_argument("--dry-run", action="store_true", help="Simula il deploy senza caricare file")
     parser.add_argument("--force", action="store_true", help="Ignora la cache e carica tutti i file")
     parser.add_argument("--no-git", action="store_true", help="Salta il commit e push su GitHub")
     parser.add_argument("--skip-health", action="store_true", help="Salta il health check finale")
+    parser.add_argument("--skip-checks", action="store_true", help="Salta i pre-flight checks")
     args = parser.parse_args()
 
     # Load environment
@@ -482,28 +682,44 @@ def main():
         sys.exit(1)
 
     print("=====================================")
-    print("   MV Consulting ERP - Smart Deploy  ")
+    print("   MV Consulting ERP - Deploy v2.0   ")
     print("=====================================\n")
 
-    # 1. Cache busting (prima del commit git)
+    # 0. Deploy lock
+    if not args.dry_run:
+        acquire_lock()
+        atexit.register(release_lock)
+
+    # 1. Pre-flight checks
+    if not args.dry_run and not args.skip_checks:
+        if not run_preflight():
+            print("❌ Pre-flight fallito. Deploy annullato.")
+            sys.exit(1)
+
+    # 2. Cache busting (prima del commit git)
     if not args.dry_run:
         update_index_version()
 
-    # 2. Git commit & push
+    # 3. Git commit & push
     git_commit_and_push(skip=(args.no_git or args.dry_run))
 
-    # 3. FTP upload
+    # 4. FTP upload
     try:
         success = deploy_files_via_ftp(dry_run=args.dry_run, force=args.force)
     except KeyboardInterrupt:
         print("\n🛑 Deploy interrotto dall'utente. Cache salvata per i file caricati.")
         success = False
 
-    # 4. Health check
+    # 5. Health check
     if success and not args.dry_run and not args.skip_health:
         verify_deployment()
 
     elapsed = _time.time() - t0
+
+    # 6. Log deployment
+    if not args.dry_run:
+        log_deployment(success, upload_count, elapsed)
+
     print()
     if success:
         if args.dry_run:

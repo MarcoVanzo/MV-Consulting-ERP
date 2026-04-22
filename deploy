@@ -1,41 +1,111 @@
 #!/bin/bash
+# ═══════════════════════════════════════════════════════════════
+# MV Consulting ERP — One-Shot Deploy Script v2.0
+# Automatizzato: commit → push → deploy FTP-TLS → health check
+#
+# Usage:
+#   ./deploy                            # Deploy con commit auto
+#   ./deploy "fix: risolto bug clienti" # Deploy con messaggio custom
+#   ./deploy --dry-run                  # Simula senza modifiche
+#   ./deploy --force                    # Ignora cache, carica tutto
+#   ./deploy --skip-checks              # Salta pre-flight checks
+# ═══════════════════════════════════════════════════════════════
+set -euo pipefail
 
-echo "======================================"
-echo "   MV Consulting ERP - Deploy Tool    "
-echo "======================================"
-echo ""
+# ── Colori ──
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
 
-# 1. ADD ALL FILES TO GIT
-echo "📦 1/3 - Verifica modifiche locali..."
-git add .
+# ── Parse argomenti ──
+COMMIT_MSG=""
+DEPLOY_ARGS=()
 
-# Check if there are changes to commit
-if git diff --cached --quiet; then
-    echo "Nessuna modifica da salvare su GitHub."
-else
-    # 2. PROMPT FOR COMMIT MESSAGE (or auto-generate)
-    echo "Trovate modifiche locali pronte per il salvataggio."
-    read -p "Inserisci un messaggio per il commit (oppure premi INVIO per un messaggio automatico): " msg
-    
-    if [ -z "$msg" ]; then
-        msg="Auto-deploy: $(date +'%Y-%m-%d %H:%M:%S')"
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run|--force|--skip-health|--skip-checks)
+            DEPLOY_ARGS+=("$arg")
+            ;;
+        *)
+            COMMIT_MSG="$arg"
+            ;;
+    esac
+done
+
+if [ -z "$COMMIT_MSG" ]; then
+    COMMIT_MSG="deploy: $(date +'%Y-%m-%d %H:%M:%S')"
+fi
+
+# Check dry-run mode
+IS_DRY_RUN=false
+for arg in "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}"; do
+    if [ "$arg" = "--dry-run" ]; then
+        IS_DRY_RUN=true
     fi
-    
-    git commit -m "$msg"
-    
-    # 3. PUSH TO GITHUB
-    echo "🌍 2/3 - Invio codice su GitHub..."
-    git push origin main || echo "⚠️ Git push limitato/fallito (magari manca auth). Procedo col deploy FTP..."
-fi
-
-# 4. RUN FTP UPLOAD (--no-git perché git è già gestito sopra)
-echo "🚀 3/3 - Caricamento su Aruba (FTP)..."
-if command -v python3 &>/dev/null; then
-    python3 deploy.py --no-git "$@"
-else
-    python deploy.py --no-git "$@"
-fi
+done
 
 echo ""
-echo "✨ Finito! Il sistema ha gestito tutto."
-echo "======================================"
+echo -e "${BOLD}${CYAN}══════════════════════════════════════════${NC}"
+echo -e "${BOLD}${CYAN}  🚀 MV Consulting ERP — Deploy v2.0${NC}"
+if $IS_DRY_RUN; then
+    echo -e "${BOLD}${YELLOW}  ⚠️  MODALITÀ DRY RUN — nessuna modifica${NC}"
+fi
+echo -e "${BOLD}${CYAN}══════════════════════════════════════════${NC}"
+
+# ── Step 1: Git commit + push ──
+echo ""
+echo -e "${YELLOW}[1/3]${NC} Git commit + push..."
+
+if $IS_DRY_RUN; then
+    echo -e "  ${CYAN}→ Skippato (dry-run)${NC}"
+else
+    git add .
+
+    if git diff --cached --quiet; then
+        echo -e "  ${CYAN}→ Nessuna modifica da committare${NC}"
+    else
+        git commit -m "$COMMIT_MSG"
+        echo -e "  ${GREEN}✅ Commit: $COMMIT_MSG${NC}"
+    fi
+
+    echo -e "  ${CYAN}→ Push su GitHub...${NC}"
+    if git push origin main 2>&1 | tail -3; then
+        echo -e "  ${GREEN}✅ Push completato${NC}"
+    else
+        echo -e "  ${YELLOW}⚠️  Push fallito (non bloccante). Procedo col deploy FTP...${NC}"
+    fi
+fi
+
+# ── Step 2: Deploy FTP-TLS ──
+echo ""
+echo -e "${YELLOW}[2/3]${NC} Deploy FTP-TLS su Aruba..."
+
+if command -v python3 &>/dev/null; then
+    PYTHON_CMD=python3
+else
+    PYTHON_CMD=python
+fi
+
+$PYTHON_CMD deploy.py --no-git "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}"
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+    echo ""
+    echo -e "${RED}❌ Deploy fallito (exit code: $EXIT_CODE)${NC}"
+    exit $EXIT_CODE
+fi
+
+# ── Step 3: Riepilogo ──
+echo ""
+echo -e "${BOLD}${GREEN}══════════════════════════════════════════${NC}"
+if $IS_DRY_RUN; then
+    echo -e "${BOLD}${YELLOW}  🏁 Dry run completato${NC}"
+else
+    echo -e "${BOLD}${GREEN}  ✅ Deploy completato!${NC}"
+    echo -e "${BOLD}${GREEN}  🌐 https://www.mv-consulting.it/ERP${NC}"
+fi
+echo -e "${BOLD}${GREEN}══════════════════════════════════════════${NC}"
+echo ""
