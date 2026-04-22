@@ -1,11 +1,11 @@
 {
   "version": 3,
-  "generated_at": "2026-04-22T09:54:36.741Z",
+  "generated_at": "2026-04-22T10:39:04.364Z",
   "file_count": 27,
   "files": [
     {
       "path": "api/.htaccess",
-      "hash": "d91b0823e9e670f24ad12d06e370295491ebb1a23d714d014b7010c1e379bc0b"
+      "hash": "17241b76043913ba49c319869ffd6914c4ffeb094ff1736b6a76e5ca160e3e8f"
     },
     {
       "path": "api/Controllers/AdminController.php",
@@ -41,7 +41,7 @@
     },
     {
       "path": "api/router.php",
-      "hash": "f32756344829b458fb2ed1936efd848a6566731be22cab6e0f4472db7af85937"
+      "hash": "61d9d5c5d7b48d76cdd6957ecebcb86e97303e579861b09e2df6378c56716478"
     },
     {
       "path": "api/Shared/Auth.php",
