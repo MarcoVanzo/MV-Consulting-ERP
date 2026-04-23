@@ -16,7 +16,7 @@ class MezziController {
         $this->prefix = getenv('DB_PREFIX') ?: 'mv_';
     }
 
-    public function getAllVehicles() {
+    public function getAllVehicles($data = []) {
         try {
             $stmt = $this->pdo->query("SELECT * FROM {$this->prefix}mezzi ORDER BY nome ASC");
             $mezzi = $stmt->fetchAll();
@@ -38,8 +38,8 @@ class MezziController {
         }
     }
 
-    public function getVehicleById() {
-        $id = $_GET['id'] ?? null;
+    public function getVehicleById($data) {
+        $id = $data['id'] ?? null;
         if (!$id) Response::json(false, "ID mancante");
 
         try {
