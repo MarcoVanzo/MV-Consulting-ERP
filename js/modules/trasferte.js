@@ -366,6 +366,47 @@ const ModTrasferte = (() => {
         if (btnCalcola) {
             btnCalcola.addEventListener('click', calcolaTuttiKm);
         }
+
+        // Setup sub-tabs
+        const viewTrasferte = document.getElementById('view-trasferte');
+        if (viewTrasferte) {
+            const tabs = viewTrasferte.querySelectorAll('.tab');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    // Remove active from all tabs
+                    tabs.forEach(t => {
+                        t.classList.remove('active');
+                        t.style.color = 'var(--text-muted)';
+                        t.style.borderBottom = '2px solid transparent';
+                    });
+                    
+                    // Hide all content
+                    viewTrasferte.querySelectorAll('.tab-content').forEach(c => {
+                        c.classList.remove('active');
+                        c.classList.add('hidden');
+                        c.style.display = 'none';
+                    });
+                    
+                    // Activate clicked tab
+                    tab.classList.add('active');
+                    tab.style.color = 'var(--accent-secondary)';
+                    tab.style.borderBottom = '2px solid var(--accent-secondary)';
+                    
+                    const targetId = tab.getAttribute('data-target');
+                    const targetContent = document.getElementById(targetId);
+                    if (targetContent) {
+                        targetContent.classList.remove('hidden');
+                        targetContent.classList.add('active');
+                        targetContent.style.display = 'block';
+                    }
+
+                    // Trigger initialize for Mezzi if needed
+                    if (targetId === 'trasferte-mezzi' && window.ModMezzi) {
+                        ModMezzi.init();
+                    }
+                });
+            });
+        }
     }
 
     async function syncGoogle() {

@@ -198,7 +198,7 @@ try {
             break;
 
         // ═════════════════════════════════════════════
-        // TRASFERTE
+        // TRASFERTE E MEZZI
         // ═════════════════════════════════════════════
         case 'trasferte':
             $ctrl = new TrasferteController();
@@ -211,6 +211,22 @@ try {
                 case 'calcolaTuttiKm':   $ctrl->calcolaTuttiKm(); break;
                 case 'togglePernottamento': $ctrl->togglePernottamento(); break;
                 default:                 Response::json(false, "Azione trasferte non supportata: $action");
+            }
+            break;
+
+        case 'mezzi':
+            require_once __DIR__ . '/Controllers/MezziController.php';
+            $ctrl = new MezziController();
+            switch ($action) {
+                case 'getAllVehicles':      $ctrl->getAllVehicles(); break;
+                case 'getVehicleById':      $ctrl->getVehicleById(); break;
+                case 'createVehicle':       $ctrl->createVehicle(); break;
+                case 'updateVehicle':       $ctrl->updateVehicle(); break;
+                case 'deleteVehicle':       $ctrl->deleteVehicle(); break;
+                case 'addMaintenance':      $ctrl->addMaintenance(); break;
+                case 'addAnomaly':          $ctrl->addAnomaly(); break;
+                case 'updateAnomalyStatus': $ctrl->updateAnomalyStatus(); break;
+                default:                 Response::json(false, "Azione mezzi non supportata: $action");
             }
             break;
 
