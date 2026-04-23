@@ -388,8 +388,12 @@ const ModMezzi = (() => {
                     ${m.prossima_scadenza_data && m.prossima_scadenza_km ? '<br>' : ''}
                     ${m.prossima_scadenza_km ? m.prossima_scadenza_km + ' km' : ''}
                 </td>
+                <td style="text-align:right; white-space:nowrap;">
+                    <button class="btn btn-ghost" style="padding:4px;" onclick="ModMezzi.editMaintenance(${m.id})" title="Modifica"><i class="ph ph-pencil-simple"></i></button>
+                    <button class="btn btn-ghost" style="padding:4px; color:#FF5252;" onclick="ModMezzi.deleteMaintenance(${m.id})" title="Elimina"><i class="ph ph-trash"></i></button>
+                </td>
             </tr>
-        `).join('') || `<tr><td colspan="6"><div class="empty-state">Nessuna manutenzione registrata</div></td></tr>`;
+        `).join('') || `<tr><td colspan="7"><div class="empty-state">Nessuna manutenzione registrata</div></td></tr>`;
 
         return `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
@@ -399,7 +403,7 @@ const ModMezzi = (() => {
             <div class="table-container">
                 <table class="data-table">
                     <thead>
-                        <tr><th>Data</th><th>Tipo</th><th>Km</th><th>Descrizione</th><th>Costo</th><th>Prossimo Controllo</th></tr>
+                        <tr><th>Data</th><th>Tipo</th><th>Km</th><th>Descrizione</th><th>Costo</th><th>Prossimo Controllo</th><th></th></tr>
                     </thead>
                     <tbody>${rows}</tbody>
                 </table>
@@ -430,12 +434,16 @@ const ModMezzi = (() => {
                 </div>
                 <div>
                     ${a.stato !== 'resolved' ? `
-                        <select class="form-control anomaly-status-update" data-id="${a.id}" style="width:140px; padding:6px;">
+                        <select class="form-control anomaly-status-update" data-id="${a.id}" style="width:140px; padding:6px; margin-bottom:8px;">
                             <option value="open" ${a.stato === 'open' ? 'selected' : ''}>Aperto</option>
                             <option value="in_progress" ${a.stato === 'in_progress' ? 'selected' : ''}>In Lavorazione</option>
                             <option value="resolved">Risolto...</option>
                         </select>
-                    ` : `<div style="font-size:0.75rem; color:var(--text-muted); text-align:right;">Risolto il<br>${UI.formatDate(a.data_risoluzione?.split(' ')[0])}</div>`}
+                    ` : `<div style="font-size:0.75rem; color:var(--text-muted); text-align:right; margin-bottom:8px;">Risolto il<br>${UI.formatDate(a.data_risoluzione?.split(' ')[0])}</div>`}
+                    <div style="display:flex; gap:4px; justify-content: flex-end;">
+                        <button class="btn btn-ghost" style="padding:4px;" onclick="ModMezzi.editAnomaly(${a.id})" title="Modifica"><i class="ph ph-pencil-simple"></i></button>
+                        <button class="btn btn-ghost" style="padding:4px; color:#FF5252;" onclick="ModMezzi.deleteAnomaly(${a.id})" title="Elimina"><i class="ph ph-trash"></i></button>
+                    </div>
                 </div>
             </div>
         `).join('') || `<div class="empty-state">Tutto funziona regolarmente, nessuna anomalia.</div>`;
@@ -451,10 +459,10 @@ const ModMezzi = (() => {
 
     function bindTabEvents() {
         const btnMaint = document.getElementById('btn-add-maint');
-        if (btnMaint) btnMaint.addEventListener('click', openAddMaintenance);
+        if (btnMaint) btnMaint.addEventListener('click', () => openMaintenanceForm());
 
         const btnAnom = document.getElementById('btn-add-anom');
-        if (btnAnom) btnAnom.addEventListener('click', openAddAnomaly);
+        if (btnAnom) btnAnom.addEventListener('click', () => openAnomalyForm());
 
         document.querySelectorAll('.anomaly-status-update').forEach(sel => {
             sel.addEventListener('change', async (e) => {
@@ -488,48 +496,49 @@ const ModMezzi = (() => {
         }
     }
 
-    function openAddMaintenance() {
+    function openMaintenanceForm(id = null) {
+        const m = id ? _currentVehicle.maintenance.find(x => x.id == id) : null;
         const bodyHtml = `
             <div class="form-grid">
                 <div class="form-group">
                     <label>Data *</label>
-                    <input type="date" class="form-control" id="m-data" value="${new Date().toISOString().split('T')[0]}">
+                    <input type="date" class="form-control" id="m-data" value="${m ? m.data_manutenzione : new Date().toISOString().split('T')[0]}">
                 </div>
                 <div class="form-group">
                     <label>Tipo Intervento *</label>
                     <select class="form-control" id="m-tipo">
-                        <option value="tagliando">Tagliando / Service</option>
-                        <option value="gomme_estive">Cambio Gomme (Estive)</option>
-                        <option value="gomme_invernali">Cambio Gomme (Invernali)</option>
-                        <option value="riparazione">Riparazione Straordinaria</option>
-                        <option value="revisione">Revisione Ministeriale</option>
-                        <option value="altro">Altro</option>
+                        <option value="tagliando" ${m?.tipo === 'tagliando' ? 'selected' : ''}>Tagliando / Service</option>
+                        <option value="gomme_estive" ${m?.tipo === 'gomme_estive' ? 'selected' : ''}>Cambio Gomme (Estive)</option>
+                        <option value="gomme_invernali" ${m?.tipo === 'gomme_invernali' ? 'selected' : ''}>Cambio Gomme (Invernali)</option>
+                        <option value="riparazione" ${m?.tipo === 'riparazione' ? 'selected' : ''}>Riparazione Straordinaria</option>
+                        <option value="revisione" ${m?.tipo === 'revisione' ? 'selected' : ''}>Revisione Ministeriale</option>
+                        <option value="altro" ${m?.tipo === 'altro' ? 'selected' : ''}>Altro</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Chilometraggio (Km)</label>
-                    <input type="number" class="form-control" id="m-km" placeholder="Es. 45000">
+                    <input type="number" class="form-control" id="m-km" placeholder="Es. 45000" value="${m?.chilometraggio || ''}">
                 </div>
                 <div class="form-group">
                     <label>Costo (€)</label>
-                    <input type="number" class="form-control" id="m-costo" step="0.01" value="0.00">
+                    <input type="number" class="form-control" id="m-costo" step="0.01" value="${m ? m.costo : '0.00'}">
                 </div>
                 <div class="form-group full-width">
                     <label>Descrizione / Lavori Eseguiti</label>
-                    <textarea class="form-control" id="m-desc"></textarea>
+                    <textarea class="form-control" id="m-desc">${m ? UI.esc(m.descrizione || '') : ''}</textarea>
                 </div>
                 <div class="form-group">
                     <label>Prossima Scadenza (Data)</label>
-                    <input type="date" class="form-control" id="m-next-data">
+                    <input type="date" class="form-control" id="m-next-data" value="${m?.prossima_scadenza_data || ''}">
                 </div>
                 <div class="form-group">
                     <label>Prossima Scadenza (Km)</label>
-                    <input type="number" class="form-control" id="m-next-km">
+                    <input type="number" class="form-control" id="m-next-km" value="${m?.prossima_scadenza_km || ''}">
                 </div>
             </div>
         `;
 
-        UI.openModal('Registra Manutenzione', bodyHtml, async () => {
+        UI.openModal(m ? 'Modifica Manutenzione' : 'Registra Manutenzione', bodyHtml, async () => {
             const date = document.getElementById('m-data').value;
             const type = document.getElementById('m-tipo').value;
             if (!date || !type) {
@@ -537,7 +546,8 @@ const ModMezzi = (() => {
                 throw new Error('Incompleto');
             }
 
-            await Store.api('addMaintenance', 'mezzi', {
+            await Store.api(m ? 'updateMaintenance' : 'addMaintenance', 'mezzi', {
+                id: m?.id,
                 vehicle_id: _currentVehicle.id,
                 maintenance_date: date,
                 type: type,
@@ -549,48 +559,72 @@ const ModMezzi = (() => {
             });
 
             UI.closeModal();
-            UI.toast('Manutenzione salvata');
+            UI.toast(m ? 'Manutenzione aggiornata' : 'Manutenzione salvata');
             viewMezzo(_currentVehicle.id);
         });
     }
 
-    function openAddAnomaly() {
+    async function deleteMaintenance(id) {
+        if (!confirm('Eliminare questa manutenzione?')) return;
+        try {
+            await Store.api('deleteMaintenance', 'mezzi', { id });
+            UI.toast('Manutenzione eliminata');
+            viewMezzo(_currentVehicle.id);
+        } catch (err) {
+            UI.toast(err.message, 'error');
+        }
+    }
+
+    function openAnomalyForm(id = null) {
+        const a = id ? _currentVehicle.anomalies.find(x => x.id == id) : null;
         const bodyHtml = `
             <div class="form-group full-width" style="margin-bottom:16px;">
                 <label>Descrizione Problema / Danno *</label>
-                <textarea class="form-control" id="a-desc" rows="4" placeholder="Descrivi il guasto, l'incidente o il problema..."></textarea>
+                <textarea class="form-control" id="a-desc" rows="4" placeholder="Descrivi il guasto, l'incidente o il problema...">${a ? UI.esc(a.descrizione) : ''}</textarea>
             </div>
             <div class="form-group">
                 <label>Priorità / Gravità</label>
                 <select class="form-control" id="a-sev">
-                    <option value="low">Bassa (Non pregiudica l'utilizzo)</option>
-                    <option value="medium" selected>Media (Da controllare presto)</option>
-                    <option value="high">Alta (Intervento urgente)</option>
-                    <option value="critical">Critica (MEZZO FERMO)</option>
+                    <option value="low" ${a?.gravita === 'low' ? 'selected' : ''}>Bassa (Non pregiudica l'utilizzo)</option>
+                    <option value="medium" ${!a || a.gravita === 'medium' ? 'selected' : ''}>Media (Da controllare presto)</option>
+                    <option value="high" ${a?.gravita === 'high' ? 'selected' : ''}>Alta (Intervento urgente)</option>
+                    <option value="critical" ${a?.gravita === 'critical' ? 'selected' : ''}>Critica (MEZZO FERMO)</option>
                 </select>
             </div>
         `;
 
-        UI.openModal('Segnala Guasto / Anomalia', bodyHtml, async () => {
+        UI.openModal(a ? 'Modifica Guasto' : 'Segnala Guasto', bodyHtml, async () => {
             const desc = document.getElementById('a-desc').value.trim();
             if (!desc) {
                 UI.toast('La descrizione è obbligatoria', 'error');
                 throw new Error('Incompleto');
             }
 
-            await Store.api('addAnomaly', 'mezzi', {
+            await Store.api(a ? 'updateAnomaly' : 'addAnomaly', 'mezzi', {
+                id: a?.id,
                 vehicle_id: _currentVehicle.id,
                 description: desc,
                 severity: document.getElementById('a-sev').value
             });
 
             UI.closeModal();
-            UI.toast('Anomalia segnalata');
+            UI.toast(a ? 'Anomalia aggiornata' : 'Anomalia segnalata');
             viewMezzo(_currentVehicle.id);
         });
     }
 
-    return { init, deleteMezzo };
+    async function deleteAnomaly(id) {
+        if (!confirm('Eliminare questa anomalia?')) return;
+        try {
+            await Store.api('deleteAnomaly', 'mezzi', { id });
+            UI.toast('Anomalia eliminata');
+            viewMezzo(_currentVehicle.id);
+        } catch (err) {
+            UI.toast(err.message, 'error');
+        }
+    }
+
+    return { init, deleteMezzo, editMaintenance: openMaintenanceForm, deleteMaintenance, editAnomaly: openAnomalyForm, deleteAnomaly };
 })();
 
 window.ModMezzi = ModMezzi;

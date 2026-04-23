@@ -224,7 +224,11 @@ try {
                 case 'updateVehicle':       $ctrl->updateVehicle($data); break;
                 case 'deleteVehicle':       $ctrl->deleteVehicle($data); break;
                 case 'addMaintenance':      $ctrl->addMaintenance($data); break;
+                case 'updateMaintenance':   $ctrl->updateMaintenance($data); break;
+                case 'deleteMaintenance':   $ctrl->deleteMaintenance($data); break;
                 case 'addAnomaly':          $ctrl->addAnomaly($data); break;
+                case 'updateAnomaly':       $ctrl->updateAnomaly($data); break;
+                case 'deleteAnomaly':       $ctrl->deleteAnomaly($data); break;
                 case 'updateAnomalyStatus': $ctrl->updateAnomalyStatus($data); break;
                 default:                 Response::json(false, "Azione mezzi non supportata: $action");
             }
