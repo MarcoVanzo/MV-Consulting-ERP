@@ -49,6 +49,9 @@ const UI = (() => {
                 try {
                     const res = _modalSaveCallback();
                     if (res instanceof Promise) await res;
+                } catch (err) {
+                    console.error("Modal save error:", err);
+                    UI.toast(err.message || 'Errore durante il salvataggio', 'error');
                 } finally {
                     saveBtn.disabled = false;
                     saveBtn.innerHTML = prevHtml;
