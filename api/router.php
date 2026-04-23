@@ -218,8 +218,8 @@ try {
             require_once __DIR__ . '/Controllers/MezziController.php';
             $ctrl = new MezziController();
             switch ($action) {
-                case 'getAllVehicles':      $ctrl->getAllVehicles(); break;
-                case 'getVehicleById':      $ctrl->getVehicleById(); break;
+                case 'getAllVehicles':      $ctrl->getAllVehicles($data); break;
+                case 'getVehicleById':      $ctrl->getVehicleById($data); break;
                 case 'createVehicle':       $ctrl->createVehicle($data); break;
                 case 'updateVehicle':       $ctrl->updateVehicle($data); break;
                 case 'deleteVehicle':       $ctrl->deleteVehicle($data); break;
