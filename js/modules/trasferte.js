@@ -167,9 +167,9 @@ const ModTrasferte = (() => {
                 <td class="text-right fw-600">${UI.formatCurrency(rimborsoTotale)}</td>
                 <td>
                     <div class="flex gap-2 justify-end" style="align-items: center;">
-                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; margin-right: 10px; font-size: 0.85rem; user-select: none;">
-                            <input type="checkbox" onchange="ModTrasferte.togglePernottamento('${g.data}', this.checked)" ${g.pernottamento ? 'checked' : ''}> Dormo fuori
-                        </label>
+                        <button class="btn btn-sm ${g.pernottamento ? 'btn-primary' : 'btn-ghost'}" style="margin-right: 10px; display: flex; align-items: center; gap: 6px; ${g.pernottamento ? 'box-shadow: 0 0 8px var(--accent);' : ''}" title="Dormo fuori" onclick="ModTrasferte.togglePernottamento('${g.data}', ${!g.pernottamento})">
+                            <i class="ph ${g.pernottamento ? 'ph-moon-stars' : 'ph-moon'}"></i> Dormo fuori
+                        </button>
                         <button class="btn btn-sm btn-ghost" title="Calcola KM per questa giornata" onclick="ModTrasferte.calcolaKm('${g.data}')"><i class="ph ph-map-pin-line"></i></button>
                     </div>
                 </td>
@@ -415,7 +415,7 @@ const ModTrasferte = (() => {
             if (btnSync) btnSync.classList.add('loading');
             const data = await Store.api('sync', 'google');
             
-            if (data.auth_required) {
+            if (data?.auth_required) {
                 // Auth necessaria, avvio flow oauth
                 const authData = await Store.api('auth', 'google');
                 if (authData && authData.url) {
@@ -424,7 +424,7 @@ const ModTrasferte = (() => {
                 return;
             }
 
-            UI.toast(data.message || `Sincronizzazione completata: ${data.imported || 0} aggiornati.`, 'success');
+            UI.toast(data?.message || `Sincronizzazione completata: ${data?.imported || 0} aggiornati.`, 'success');
             load();
         } catch (err) {
             UI.toast(err.message || 'Errore durante la sincronizzazione con Google Calendar', 'error');
@@ -437,7 +437,7 @@ const ModTrasferte = (() => {
         try {
             // Simuliamo stato di loading 
             const data = await Store.api('calcolaKmGiorno', 'trasferte', { data: date });
-            UI.toast(data.message || 'Calcolo KM effettuato con successo', 'success');
+            UI.toast(data?.message || 'Calcolo KM effettuato con successo', 'success');
             load();
         } catch (err) {
             UI.toast(err.message || 'Non è stato possibile calcolare i KM per questa giornata', 'error');
@@ -447,7 +447,7 @@ const ModTrasferte = (() => {
     async function togglePernottamento(date, state) {
         try {
             const data = await Store.api('togglePernottamento', 'trasferte', { data: date, state: state ? 1 : 0 });
-            UI.toast(data.message || 'Stato pernottamento aggiornato', 'success');
+            UI.toast(data?.message || 'Stato pernottamento aggiornato', 'success');
             load();
         } catch (err) {
             UI.toast(err.message || 'Errore aggiornamento', 'error');
@@ -468,7 +468,7 @@ const ModTrasferte = (() => {
             if (month) params.month = month;
             
             const data = await Store.api('calcolaTuttiKm', 'trasferte', params);
-            UI.toast(data.message || 'Calcolo di tutti i viaggi terminato', 'success');
+            UI.toast(data?.message || 'Calcolo di tutti i viaggi terminato', 'success');
             load();
         } catch (err) {
             UI.toast(err.message || 'Errore nel calcolo viaggi', 'error');
