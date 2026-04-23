@@ -69,8 +69,7 @@ class MezziController {
         }
     }
 
-    public function createVehicle() {
-        $data = json_decode(file_get_contents("php://input"), true);
+    public function createVehicle($data) {
         if (!$data || empty($data['nome']) || empty($data['targa'])) {
             Response::json(false, "Nome e Targa obbligatori");
         }
@@ -96,8 +95,7 @@ class MezziController {
         }
     }
 
-    public function updateVehicle() {
-        $data = json_decode(file_get_contents("php://input"), true);
+    public function updateVehicle($data) {
         if (!$data || empty($data['id']) || empty($data['nome']) || empty($data['targa'])) {
             Response::json(false, "Dati mancanti per l'aggiornamento");
         }
@@ -124,8 +122,7 @@ class MezziController {
         }
     }
 
-    public function deleteVehicle() {
-        $data = json_decode(file_get_contents("php://input"), true);
+    public function deleteVehicle($data) {
         if (!$data || empty($data['id'])) Response::json(false, "ID mezzo mancante");
 
         try {
@@ -137,8 +134,7 @@ class MezziController {
         }
     }
 
-    public function addMaintenance() {
-        $data = json_decode(file_get_contents("php://input"), true);
+    public function addMaintenance($data) {
         if (!$data || empty($data['vehicle_id']) || empty($data['maintenance_date']) || empty($data['type'])) {
             Response::json(false, "Dati manutenzione mancanti");
         }
@@ -162,8 +158,7 @@ class MezziController {
         }
     }
 
-    public function addAnomaly() {
-        $data = json_decode(file_get_contents("php://input"), true);
+    public function addAnomaly($data) {
         if (!$data || empty($data['vehicle_id']) || empty($data['description'])) {
             Response::json(false, "Dati anomalia mancanti");
         }
@@ -186,8 +181,7 @@ class MezziController {
         }
     }
 
-    public function updateAnomalyStatus() {
-        $data = json_decode(file_get_contents("php://input"), true);
+    public function updateAnomalyStatus($data) {
         if (!$data || empty($data['id']) || empty($data['status'])) {
             Response::json(false, "Dati anomalia mancanti per aggiornamento stato");
         }

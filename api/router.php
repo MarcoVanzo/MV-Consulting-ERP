@@ -220,12 +220,12 @@ try {
             switch ($action) {
                 case 'getAllVehicles':      $ctrl->getAllVehicles(); break;
                 case 'getVehicleById':      $ctrl->getVehicleById(); break;
-                case 'createVehicle':       $ctrl->createVehicle(); break;
-                case 'updateVehicle':       $ctrl->updateVehicle(); break;
-                case 'deleteVehicle':       $ctrl->deleteVehicle(); break;
-                case 'addMaintenance':      $ctrl->addMaintenance(); break;
-                case 'addAnomaly':          $ctrl->addAnomaly(); break;
-                case 'updateAnomalyStatus': $ctrl->updateAnomalyStatus(); break;
+                case 'createVehicle':       $ctrl->createVehicle($data); break;
+                case 'updateVehicle':       $ctrl->updateVehicle($data); break;
+                case 'deleteVehicle':       $ctrl->deleteVehicle($data); break;
+                case 'addMaintenance':      $ctrl->addMaintenance($data); break;
+                case 'addAnomaly':          $ctrl->addAnomaly($data); break;
+                case 'updateAnomalyStatus': $ctrl->updateAnomalyStatus($data); break;
                 default:                 Response::json(false, "Azione mezzi non supportata: $action");
             }
             break;
