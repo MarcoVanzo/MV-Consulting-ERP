@@ -182,8 +182,7 @@ $queries = [
         data_risoluzione DATETIME NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        FOREIGN KEY (mezzo_id) REFERENCES {$prefix}mezzi(id) ON DELETE CASCADE,
-        FOREIGN KEY (segnalatore_id) REFERENCES {$prefix}users(id) ON DELETE SET NULL
+        FOREIGN KEY (mezzo_id) REFERENCES {$prefix}mezzi(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
     // ── Settings (chiave-valore) ─────────────────────────
