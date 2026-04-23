@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-04-23T21:38:27.860Z",
+  "generated_at": "2026-04-23T21:43:00.858Z",
   "file_count": 29,
   "files": [
     {
@@ -25,7 +25,7 @@
     },
     {
       "path": "api/Controllers/MezziController.php",
-      "hash": "8a63442baba441ff3fe625869bf797aef3cfe75de18a0d754b6214986e4ee297"
+      "hash": "ae761fded2d1ead43c76545d66a7091ead7150a94b59fbc19afa42a37de94d0f"
     },
     {
       "path": "api/Controllers/SottoclientiController.php",
@@ -41,7 +41,7 @@
     },
     {
       "path": "api/migrate.php",
-      "hash": "d2b116423ea5868780d025b38719285cb485fa1e14ce405a2beccb38891c3f5a"
+      "hash": "06a0ff2f7c6448b96ff1beef86b29463a64ea6391ecbb2a87a1b51a891b7c50f"
     },
     {
       "path": "api/router.php",
@@ -81,7 +81,7 @@
     },
     {
       "path": "index.html",
-      "hash": "adee2f43af051610f5313188bb2ab22f009a2304b40461548d8ce6f65794e268"
+      "hash": "f433a216aae32ba51ceac6a08027654075aa221467d197afa5b745f4fe42782b"
     },
     {
       "path": "js/app.js",
@@ -113,7 +113,7 @@
     },
     {
       "path": "js/modules/mezzi.js",
-      "hash": "c27140e45a30dc591ac0822c1fc8071a0ce60d5699ef418a924dcba5d26ed8c9"
+      "hash": "892aa951131dfa40ee1fb036956f738df8b2b8afa2f1402c56e209c87e2c773b"
     },
     {
       "path": "js/modules/trasferte.js",
