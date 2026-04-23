@@ -135,12 +135,25 @@ class MezziController {
     }
 
     public function addMaintenance($data) {
-        if (!$data || empty($data['vehicle_id']) || empty($data['maintenance_date']) || empty($data['type'])) {
-            Response::json(false, "Dati manutenzione mancanti");
+        if (!$data || empty($data['maintenance_date']) || empty($data['type'])) {
+            Response::json(false, "Data e tipo sono obbligatori");
+        }
+
+        $allegatoUrl = null;
+        if (isset($_FILES['allegato']) && $_FILES['allegato']['error'] === UPLOAD_ERR_OK) {
+            $uploadDir = __DIR__ . '/../../uploads/manutenzioni/';
+            if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+            
+            $ext = pathinfo($_FILES['allegato']['name'], PATHINFO_EXTENSION);
+            $filename = 'maint_' . time() . '_' . uniqid() . '.' . $ext;
+            
+            if (move_uploaded_file($_FILES['allegato']['tmp_name'], $uploadDir . $filename)) {
+                $allegatoUrl = 'uploads/manutenzioni/' . $filename;
+            }
         }
 
         try {
-            $sql = "INSERT INTO {$this->prefix}mezzi_manutenzioni (mezzo_id, data_manutenzione, tipo, descrizione, costo, chilometraggio, prossima_scadenza_data, prossima_scadenza_km) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO {$this->prefix}mezzi_manutenzioni (mezzo_id, data_manutenzione, tipo, descrizione, costo, chilometraggio, prossima_scadenza_data, prossima_scadenza_km, allegato_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute([
                 $data['vehicle_id'],
@@ -150,9 +163,10 @@ class MezziController {
                 $data['cost'] ?? 0,
                 $data['mileage'] ?? null,
                 $data['next_maintenance_date'] ?? null,
-                $data['next_maintenance_mileage'] ?? null
+                $data['next_maintenance_mileage'] ?? null,
+                $allegatoUrl
             ]);
-            Response::json(true, "Manutenzione registrata");
+            Response::json(true, "Manutenzione registrata", ["id" => $this->pdo->lastInsertId(), "allegato_url" => $allegatoUrl]);
         } catch (PDOException $e) {
             Response::json(false, "Errore DB: " . $e->getMessage());
         }
@@ -211,8 +225,22 @@ class MezziController {
         if (!$data || empty($data['id']) || empty($data['maintenance_date']) || empty($data['type'])) {
             Response::json(false, "Dati manutenzione mancanti");
         }
+
+        $allegatoUrl = $data['existing_allegato'] ?? null;
+        if (isset($_FILES['allegato']) && $_FILES['allegato']['error'] === UPLOAD_ERR_OK) {
+            $uploadDir = __DIR__ . '/../../uploads/manutenzioni/';
+            if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+            
+            $ext = pathinfo($_FILES['allegato']['name'], PATHINFO_EXTENSION);
+            $filename = 'maint_' . time() . '_' . uniqid() . '.' . $ext;
+            
+            if (move_uploaded_file($_FILES['allegato']['tmp_name'], $uploadDir . $filename)) {
+                $allegatoUrl = 'uploads/manutenzioni/' . $filename;
+            }
+        }
+
         try {
-            $sql = "UPDATE {$this->prefix}mezzi_manutenzioni SET data_manutenzione=?, tipo=?, descrizione=?, costo=?, chilometraggio=?, prossima_scadenza_data=?, prossima_scadenza_km=? WHERE id=?";
+            $sql = "UPDATE {$this->prefix}mezzi_manutenzioni SET data_manutenzione=?, tipo=?, descrizione=?, costo=?, chilometraggio=?, prossima_scadenza_data=?, prossima_scadenza_km=?, allegato_url=? WHERE id=?";
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute([
                 $data['maintenance_date'],
@@ -222,9 +250,10 @@ class MezziController {
                 $data['mileage'] ?? null,
                 $data['next_maintenance_date'] ?? null,
                 $data['next_maintenance_mileage'] ?? null,
+                $allegatoUrl,
                 $data['id']
             ]);
-            Response::json(true, "Manutenzione aggiornata");
+            Response::json(true, "Manutenzione aggiornata", ["allegato_url" => $allegatoUrl]);
         } catch (PDOException $e) {
             Response::json(false, "Errore DB: " . $e->getMessage());
         }

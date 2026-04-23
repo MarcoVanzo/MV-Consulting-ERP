@@ -384,6 +384,9 @@ const ModMezzi = (() => {
                 <td>${UI.esc(m.descrizione || '—')}</td>
                 <td>${parseFloat(m.costo) > 0 ? UI.formatCurrency(m.costo) : '—'}</td>
                 <td>
+                    ${m.allegato_url ? `<a href="${m.allegato_url}" target="_blank" class="btn btn-ghost" style="padding:4px; font-size:12px;" title="Vedi Allegato"><i class="ph ph-file-pdf"></i> Allegato</a>` : '—'}
+                </td>
+                <td>
                     ${m.prossima_scadenza_data ? UI.formatDate(m.prossima_scadenza_data) : ''}
                     ${m.prossima_scadenza_data && m.prossima_scadenza_km ? '<br>' : ''}
                     ${m.prossima_scadenza_km ? m.prossima_scadenza_km + ' km' : ''}
@@ -403,7 +406,7 @@ const ModMezzi = (() => {
             <div class="table-container">
                 <table class="data-table">
                     <thead>
-                        <tr><th>Data</th><th>Tipo</th><th>Km</th><th>Descrizione</th><th>Costo</th><th>Prossimo Controllo</th><th></th></tr>
+                        <tr><th>Data</th><th>Tipo</th><th>Km</th><th>Descrizione</th><th>Costo</th><th>Allegato</th><th>Prossimo Controllo</th><th></th></tr>
                     </thead>
                     <tbody>${rows}</tbody>
                 </table>
@@ -527,6 +530,11 @@ const ModMezzi = (() => {
                     <label>Descrizione / Lavori Eseguiti</label>
                     <textarea class="form-control" id="m-desc">${m ? UI.esc(m.descrizione || '') : ''}</textarea>
                 </div>
+                <div class="form-group full-width">
+                    <label>Fattura o Allegato (PDF/Immagine)</label>
+                    <input type="file" class="form-control" id="m-allegato" accept=".pdf,.png,.jpg,.jpeg">
+                    ${m && m.allegato_url ? `<small style="display:block; margin-top:4px;"><a href="${m.allegato_url}" target="_blank">Vedi allegato attuale</a> (selezionando un nuovo file, verrà sovrascritto)</small>` : ''}
+                </div>
                 <div class="form-group">
                     <label>Prossima Scadenza (Data)</label>
                     <input type="date" class="form-control" id="m-next-data" value="${m?.prossima_scadenza_data || ''}">
@@ -546,7 +554,7 @@ const ModMezzi = (() => {
                 throw new Error('Incompleto');
             }
 
-            await Store.api(m ? 'updateMaintenance' : 'addMaintenance', 'mezzi', {
+            const payload = {
                 id: m?.id,
                 vehicle_id: _currentVehicle.id,
                 maintenance_date: date,
@@ -556,7 +564,17 @@ const ModMezzi = (() => {
                 description: document.getElementById('m-desc').value || null,
                 next_maintenance_date: document.getElementById('m-next-data').value || null,
                 next_maintenance_mileage: document.getElementById('m-next-km').value || null
-            });
+            };
+
+            const allegatoFile = document.getElementById('m-allegato').files[0];
+            if (allegatoFile) {
+                payload.allegato = allegatoFile;
+            }
+            if (m?.allegato_url) {
+                payload.existing_allegato = m.allegato_url;
+            }
+
+            await Store.api(m ? 'updateMaintenance' : 'addMaintenance', 'mezzi', payload);
 
             UI.closeModal();
             UI.toast(m ? 'Manutenzione aggiornata' : 'Manutenzione salvata');

@@ -164,10 +164,12 @@ $queries = [
         chilometraggio INT NULL,
         prossima_scadenza_data DATE NULL,
         prossima_scadenza_km INT NULL,
+        allegato_url VARCHAR(255) NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (mezzo_id) REFERENCES {$prefix}mezzi(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    "ALTER TABLE {$prefix}mezzi_manutenzioni ADD COLUMN allegato_url VARCHAR(255) DEFAULT NULL AFTER prossima_scadenza_km",
 
     // ── Mezzi - Anomalie/Segnalazioni ────────────────────
     "CREATE TABLE IF NOT EXISTS {$prefix}mezzi_anomalie (
