@@ -16,7 +16,7 @@
     <script src="https://unpkg.com/@phosphor-icons/web" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
-    <link rel="stylesheet" href="css/style.css?v=1776857920">
+    <link rel="stylesheet" href="css/style.css?v=1776943974">
 
     <style>
         /* ── Auth Screen (inline for instant render) ── */
@@ -209,8 +209,17 @@
             <!-- ═══ VIEW: TRASFERTE ═══ -->
             <section class="view-section" id="view-trasferte">
                 <div class="page-header">
-                    <h1 class="page-title"><i class="ph ph-car-profile"></i> Trasferte</h1>
-                    <div class="page-actions">
+                    <h1 class="page-title"><i class="ph ph-car-profile"></i> Trasferte e Mezzi</h1>
+                </div>
+
+                <div class="tabs-container" style="margin: 0 32px 24px 32px; border-bottom: 1px solid var(--border-subtle); display: flex; gap: 24px;">
+                    <div class="tab active" data-target="trasferte-viaggi" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--accent-secondary); border-bottom: 2px solid var(--accent-secondary); transition: var(--transition);">Viaggi</div>
+                    <div class="tab" data-target="trasferte-mezzi" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">Gestione Mezzi</div>
+                </div>
+
+                <!-- ══ SOTTO-VISTA: VIAGGI ══ -->
+                <div id="trasferte-viaggi" class="tab-content active">
+                    <div class="page-actions" style="padding: 0 32px 24px 32px;">
                         <select class="form-control" id="trasferte-year" style="width: auto;"></select>
                         <select class="form-control" id="trasferte-month" style="width: auto;">
                             <option value="">Tutti i mesi</option>
@@ -238,25 +247,30 @@
                             <i class="ph ph-plus"></i> Nuova Giornata
                         </button>
                     </div>
+                    <div class="kpi-grid" id="trasferte-kpis"></div>
+                    <div class="table-container">
+                        <table class="data-table" id="table-trasferte">
+                            <thead>
+                                <tr>
+                                    <th style="min-width:130px">Data</th>
+                                    <th>Clienti Mattina</th>
+                                    <th>Clienti Pomeriggio</th>
+                                    <th class="text-right">KM Tot.</th>
+                                    <th class="text-right">Indennità</th>
+                                    <th class="text-right">Rimborso Tot.</th>
+                                    <th style="width:120px"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-trasferte">
+                                <tr><td colspan="8"><div class="empty-state"><i class="ph ph-car-profile"></i><h3>Nessuna trasferta</h3><p>Aggiungi una giornata o sincronizza da Google Calendar</p></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-                <div class="kpi-grid" id="trasferte-kpis"></div>
-                <div class="table-container">
-                    <table class="data-table" id="table-trasferte">
-                        <thead>
-                            <tr>
-                                <th style="min-width:130px">Data</th>
-                                <th>Clienti Mattina</th>
-                                <th>Clienti Pomeriggio</th>
-                                <th class="text-right">KM Tot.</th>
-                                <th class="text-right">Indennità</th>
-                                <th class="text-right">Rimborso Tot.</th>
-                                <th style="width:120px"></th>
-                            </tr>
-                        </thead>
-                        <tbody id="tbody-trasferte">
-                            <tr><td colspan="8"><div class="empty-state"><i class="ph ph-car-profile"></i><h3>Nessuna trasferta</h3><p>Aggiungi una giornata o sincronizza da Google Calendar</p></div></td></tr>
-                        </tbody>
-                    </table>
+
+                <!-- ══ SOTTO-VISTA: MEZZI ══ -->
+                <div id="trasferte-mezzi" class="tab-content hidden" style="display: none; width: 100%;">
+                    <!-- Il modulo Mezzi renderizzerà qui la sua UI -->
                 </div>
             </section>
 
@@ -359,10 +373,11 @@
     <script src="js/core/auth.js" defer></script>
     <script src="js/core/ui.js" defer></script>
     <script src="js/modules/clienti.js" defer></script>
-    <script src="js/modules/trasferte.js?v=1776857920" defer></script>
-    <script src="js/modules/contabilita.js?v=1776857920" defer></script>
+    <script src="js/modules/trasferte.js?v=1776943974" defer></script>
+    <script src="js/modules/mezzi.js" defer></script>
+    <script src="js/modules/contabilita.js?v=1776943974" defer></script>
     <script src="js/modules/admin.js" defer></script>
-    <script src="js/app.js?v=1776857920" defer></script>
+    <script src="js/app.js?v=1776943974" defer></script>
 
 </body>
 </html>

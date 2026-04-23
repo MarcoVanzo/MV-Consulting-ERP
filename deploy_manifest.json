@@ -1,7 +1,7 @@
 {
   "version": 3,
-  "generated_at": "2026-04-22T11:38:40.293Z",
-  "file_count": 27,
+  "generated_at": "2026-04-23T11:32:54.766Z",
+  "file_count": 29,
   "files": [
     {
       "path": "api/.htaccess",
@@ -24,6 +24,10 @@
       "hash": "0ab9ba2a6b03a6a30bbdce7a5e575142beb9471fc13c7b45b9e292fd74b4527b"
     },
     {
+      "path": "api/Controllers/MezziController.php",
+      "hash": "9c956c7963daa3be105ef5184aa9c123765c7624f7a92203d0f12dc1c494194e"
+    },
+    {
       "path": "api/Controllers/SottoclientiController.php",
       "hash": "9045635ceb74fdd3a68d1907009e0b960f4e7db627d39c9c02ff2f368fc5ed2b"
     },
@@ -37,11 +41,11 @@
     },
     {
       "path": "api/migrate.php",
-      "hash": "c369742f8a246fe3cbeecab288916990721770dc37ba51d1fa0c1047eb040fcb"
+      "hash": "db6342a65aab57eaa24ca98bb36087b158600dbafabe2784ed39e18adfdbfc2e"
     },
     {
       "path": "api/router.php",
-      "hash": "61d9d5c5d7b48d76cdd6957ecebcb86e97303e579861b09e2df6378c56716478"
+      "hash": "65d65c431fcbbdd61bfb208f43ec101ad6abb2550f3e77ad279b269062bebc8d"
     },
     {
       "path": "api/Shared/Auth.php",
@@ -77,7 +81,7 @@
     },
     {
       "path": "index.html",
-      "hash": "44d8597df80a5eebf5c0f8a98f693124dec588b930bbe1daed08e44a82a0d272"
+      "hash": "627fc3e2c638419412b61ad9d3b016d84bb0b75f4759c81ffca3a7c3ff78359d"
     },
     {
       "path": "js/app.js",
@@ -108,8 +112,12 @@
       "hash": "3382c8e1ca807b540d7a0cb3018c547f03851add4110b5d9ead4726efc70255c"
     },
     {
+      "path": "js/modules/mezzi.js",
+      "hash": "d3b3ed8b98ac957f1c6b53ef61b065a3759c7851240f804562f6c118e1a61c92"
+    },
+    {
       "path": "js/modules/trasferte.js",
-      "hash": "e127a0eb364c954ee464fa2dfa2124c98c4785785209f66e1fc34d9f14100555"
+      "hash": "ff8013a858362438db4583139241e47cae9a4470106a620d68cb6a65fe52772b"
     }
   ]
 }

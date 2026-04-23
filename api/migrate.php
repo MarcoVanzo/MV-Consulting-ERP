@@ -139,6 +139,53 @@ $queries = [
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
+    // ── Mezzi (Flotta aziendale) ─────────────────────────
+    "CREATE TABLE IF NOT EXISTS {$prefix}mezzi (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        nome VARCHAR(255) NOT NULL,
+        targa VARCHAR(20) NOT NULL UNIQUE,
+        capacita INT DEFAULT 9,
+        stato ENUM('attivo', 'manutenzione', 'fuori_servizio') DEFAULT 'attivo',
+        scadenza_assicurazione DATE NULL,
+        scadenza_bollo DATE NULL,
+        note TEXT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    // ── Mezzi - Manutenzioni ─────────────────────────────
+    "CREATE TABLE IF NOT EXISTS {$prefix}mezzi_manutenzioni (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        mezzo_id INT NOT NULL,
+        data_manutenzione DATE NOT NULL,
+        tipo ENUM('tagliando', 'gomme_estive', 'gomme_invernali', 'riparazione', 'revisione', 'altro') NOT NULL,
+        descrizione TEXT NULL,
+        costo DECIMAL(10, 2) DEFAULT 0.00,
+        chilometraggio INT NULL,
+        prossima_scadenza_data DATE NULL,
+        prossima_scadenza_km INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (mezzo_id) REFERENCES {$prefix}mezzi(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    // ── Mezzi - Anomalie/Segnalazioni ────────────────────
+    "CREATE TABLE IF NOT EXISTS {$prefix}mezzi_anomalie (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        mezzo_id INT NOT NULL,
+        data_segnalazione DATETIME DEFAULT CURRENT_TIMESTAMP,
+        segnalatore_id INT NULL,
+        descrizione TEXT NOT NULL,
+        gravita ENUM('low', 'medium', 'high', 'critical') DEFAULT 'medium',
+        stato ENUM('open', 'in_progress', 'resolved') DEFAULT 'open',
+        note_risoluzione TEXT NULL,
+        data_risoluzione DATETIME NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (mezzo_id) REFERENCES {$prefix}mezzi(id) ON DELETE CASCADE,
+        FOREIGN KEY (segnalatore_id) REFERENCES {$prefix}users(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
     // ── Settings (chiave-valore) ─────────────────────────
     "CREATE TABLE IF NOT EXISTS {$prefix}settings (
         setting_key VARCHAR(100) PRIMARY KEY,
