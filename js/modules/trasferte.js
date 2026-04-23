@@ -167,7 +167,7 @@ const ModTrasferte = (() => {
                 <td class="text-right fw-600">${UI.formatCurrency(rimborsoTotale)}</td>
                 <td>
                     <div class="flex gap-2 justify-end" style="align-items: center;">
-                        <button class="btn btn-sm ${g.pernottamento ? 'btn-primary' : 'btn-ghost'}" style="margin-right: 10px; display: flex; align-items: center; gap: 6px; ${g.pernottamento ? 'box-shadow: 0 0 8px var(--accent);' : ''}" title="Dormo fuori" onclick="ModTrasferte.togglePernottamento('${g.data}', ${!g.pernottamento})">
+                        <button type="button" class="btn btn-sm ${g.pernottamento ? 'btn-primary' : 'btn-ghost'}" style="margin-right: 10px; display: flex; align-items: center; gap: 6px; ${g.pernottamento ? 'box-shadow: 0 0 8px var(--accent);' : ''}" title="Dormo fuori" onclick="ModTrasferte.togglePernottamento('${g.data}', ${!g.pernottamento}, this)">
                             <i class="ph ${g.pernottamento ? 'ph-moon-stars' : 'ph-moon'}"></i> Dormo fuori
                         </button>
                         <button class="btn btn-sm btn-ghost" title="Calcola KM per questa giornata" onclick="ModTrasferte.calcolaKm('${g.data}')"><i class="ph ph-map-pin-line"></i></button>
@@ -444,7 +444,18 @@ const ModTrasferte = (() => {
         }
     }
 
-    async function togglePernottamento(date, state) {
+    async function togglePernottamento(date, state, btn) {
+        if (btn) {
+            btn.classList.toggle('btn-primary');
+            btn.classList.toggle('btn-ghost');
+            btn.style.pointerEvents = 'none';
+            btn.style.opacity = '0.7';
+            const icon = btn.querySelector('i');
+            if (icon) {
+                icon.classList.toggle('ph-moon-stars');
+                icon.classList.toggle('ph-moon');
+            }
+        }
         try {
             const data = await Store.api('togglePernottamento', 'trasferte', { data: date, state: state ? 1 : 0 });
             UI.toast(data?.message || 'Stato pernottamento aggiornato', 'success');
