@@ -27,7 +27,7 @@ const ModAdmin = (() => {
         `;
 
         try {
-            const res = await Store.api('listUsers', 'admin', {}, 'GET');
+            const res = await Store.api('listUsers', 'admin', {}, { signal: abortCtrl.signal });
             const data = (Array.isArray(res) ? res : res.data) || [];
             const tableWrap = document.getElementById('utenti-table-container');
 
@@ -192,7 +192,7 @@ const ModAdmin = (() => {
         `;
 
         try {
-            const res = await Store.api('listBackups', 'admin', {}, 'GET');
+            const res = await Store.api('listBackups', 'admin', {}, { signal: abortCtrl.signal });
             const data = Array.isArray(res) ? res : (res.backups || res.data?.backups || []);
             const stats = res.db_stats || res.data?.db_stats || {};
             
@@ -359,7 +359,7 @@ const ModAdmin = (() => {
         }
 
         try {
-            const res = await Store.api('listLogs', 'admin', { limit: 100, offset: logsOffset });
+            const res = await Store.api('listLogs', 'admin', { limit: 100, offset: logsOffset }, { signal: abortCtrl.signal });
             const data = Array.isArray(res) ? res : (res.logs || res.data?.logs || []);
             const tableWrap = document.getElementById('logs-table-container');
 
