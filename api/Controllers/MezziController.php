@@ -206,4 +206,67 @@ class MezziController {
             Response::json(false, "Errore DB: " . $e->getMessage());
         }
     }
+
+    public function updateMaintenance($data) {
+        if (!$data || empty($data['id']) || empty($data['maintenance_date']) || empty($data['type'])) {
+            Response::json(false, "Dati manutenzione mancanti");
+        }
+        try {
+            $sql = "UPDATE {$this->prefix}mezzi_manutenzioni SET data_manutenzione=?, tipo=?, descrizione=?, costo=?, chilometraggio=?, prossima_scadenza_data=?, prossima_scadenza_km=? WHERE id=?";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([
+                $data['maintenance_date'],
+                $data['type'],
+                $data['description'] ?? null,
+                $data['cost'] ?? 0,
+                $data['mileage'] ?? null,
+                $data['next_maintenance_date'] ?? null,
+                $data['next_maintenance_mileage'] ?? null,
+                $data['id']
+            ]);
+            Response::json(true, "Manutenzione aggiornata");
+        } catch (PDOException $e) {
+            Response::json(false, "Errore DB: " . $e->getMessage());
+        }
+    }
+
+    public function deleteMaintenance($data) {
+        if (!$data || empty($data['id'])) Response::json(false, "ID mancante");
+        try {
+            $stmt = $this->pdo->prepare("DELETE FROM {$this->prefix}mezzi_manutenzioni WHERE id = ?");
+            $stmt->execute([$data['id']]);
+            Response::json(true, "Manutenzione eliminata");
+        } catch (PDOException $e) {
+            Response::json(false, "Errore DB: " . $e->getMessage());
+        }
+    }
+
+    public function updateAnomaly($data) {
+        if (!$data || empty($data['id']) || empty($data['description'])) {
+            Response::json(false, "Dati anomalia mancanti");
+        }
+        try {
+            $sql = "UPDATE {$this->prefix}mezzi_anomalie SET descrizione=?, gravita=? WHERE id=?";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([
+                $data['description'],
+                $data['severity'] ?? 'medium',
+                $data['id']
+            ]);
+            Response::json(true, "Anomalia aggiornata");
+        } catch (PDOException $e) {
+            Response::json(false, "Errore DB: " . $e->getMessage());
+        }
+    }
+
+    public function deleteAnomaly($data) {
+        if (!$data || empty($data['id'])) Response::json(false, "ID mancante");
+        try {
+            $stmt = $this->pdo->prepare("DELETE FROM {$this->prefix}mezzi_anomalie WHERE id = ?");
+            $stmt->execute([$data['id']]);
+            Response::json(true, "Anomalia eliminata");
+        } catch (PDOException $e) {
+            Response::json(false, "Errore DB: " . $e->getMessage());
+        }
+    }
 }
