@@ -4,7 +4,12 @@
  * Store — API wrapper con supporto FormData e GET params
  */
 const Store = (() => {
-    async function api(action, module = 'auth', payload = {}) {
+    async function api(action, module = 'auth', payload = {}, options = {}) {
+        // Compatibilità con vecchio parametro method passato come stringa
+        if (typeof options === 'string') {
+            options = { method: options };
+        }
+        
         try {
             const formData = new FormData();
             formData.append('module', module);
@@ -22,11 +27,21 @@ const Store = (() => {
                 headers['Authorization'] = 'Bearer ' + token;
             }
 
-            const response = await fetch('api/router.php', {
-                method: 'POST',
-                headers: headers,
-                body: formData
-            });
+            const fetchOptions = {
+                method: options.method || 'POST',
+                headers: headers
+            };
+            
+            // fetch doesn't allow body for GET requests
+            if (fetchOptions.method !== 'GET' && fetchOptions.method !== 'HEAD') {
+                fetchOptions.body = formData;
+            }
+
+            if (options.signal) {
+                fetchOptions.signal = options.signal;
+            }
+
+            const response = await fetch('api/router.php', fetchOptions);
 
             const text = await response.text();
             let result;
