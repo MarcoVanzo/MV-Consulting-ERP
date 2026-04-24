@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-04-24T12:24:10.643Z",
+  "generated_at": "2026-04-24T12:43:20.050Z",
   "file_count": 33,
   "files": [
     {
@@ -45,15 +45,15 @@
     },
     {
       "path": "api/router.php",
-      "hash": "d2efed6e941aadc640335de41cb0c5217f8f169b811749c08e68be109778177b"
+      "hash": "ca0a7acbb65a9649db916b17eb40b00085e885d76ee0596b9014b179bef2ff14"
     },
     {
       "path": "api/Shared/Audit.php",
-      "hash": "8dc34e86a062551490462695ad0444a9c5d31a095b47f54b29ac06851c835719"
+      "hash": "90d3f0c797a1d8bfab496e15bbd76ae30a4a383bb2d56b8a2c3281866483dee1"
     },
     {
       "path": "api/Shared/Auth.php",
-      "hash": "4e3411483f382c363227e7e70903d694454cb9155625e7aa1210d125505e339a"
+      "hash": "73a1f047fad1dbb5111c5baf547745dee28be67de5997e245b1ff2357a4af056"
     },
     {
       "path": "api/Shared/BackupService.php",
@@ -97,7 +97,7 @@
     },
     {
       "path": "index.html",
-      "hash": "9aeddc0ef992f15f9d371ca22d16dcd56c21c4ac6f620205418b6875f2fe503b"
+      "hash": "99d9e85b3462ee5d961a9961c48850a3b51ee52df8f268f118051d94f64eb6f4"
     },
     {
       "path": "js/app.js",
@@ -105,7 +105,7 @@
     },
     {
       "path": "js/core/auth.js",
-      "hash": "b315b5e7637a356f7674e21548134795bf53599064345b10de47fd0f6abc6b42"
+      "hash": "d6db5d9256057b7d60d00d2d1f3fc5ba1da3f2615144cd25f043706205af2a00"
     },
     {
       "path": "js/core/store.js",
