@@ -330,6 +330,14 @@ try {
                 // Logs
                 case 'listLogs': $ctrl->listLogs(); break;
                 
+                // Migrazione DB (triggerable via router)
+                case 'migrate':
+                    ob_start();
+                    require_once __DIR__ . '/migrate.php';
+                    $output = ob_get_clean();
+                    Response::json(true, 'Migrazione eseguita', ['output' => $output]);
+                    break;
+                
                 default:
                     Response::json(false, 'Azione admin non valida');
             }
