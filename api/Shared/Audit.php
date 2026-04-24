@@ -8,9 +8,6 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/Database.php';
 
-use Firebase\JWT\JWT;
-use Firebase\JWT\Key;
-
 class Audit
 {
     /**
@@ -52,15 +49,15 @@ class Audit
                     $secret = getenv('JWT_SECRET');
                     if ($secret) {
                         try {
-                            $payload = JWT::decode($token, new Key($secret, 'HS256'));
-                            // Convert payload to array (JWT::decode returns object by default, but we can cast or access)
-                            $payloadArr = (array)$payload;
-                            $user = [
-                                'id' => $payloadArr['id'] ?? null,
-                                'username' => $payloadArr['name'] ?? $payloadArr['email'] ?? 'Token User',
-                                'role' => $payloadArr['role'] ?? null,
-                            ];
-                        } catch (Exception $e) {}
+                            $payloadArr = \JWT::decode($token, $secret);
+                            if ($payloadArr) {
+                                $user = [
+                                    'id' => $payloadArr['id'] ?? null,
+                                    'username' => $payloadArr['name'] ?? $payloadArr['email'] ?? 'Token User',
+                                    'role' => $payloadArr['role'] ?? null,
+                                ];
+                            }
+                        } catch (Throwable $e) {}
                     }
                 }
             }

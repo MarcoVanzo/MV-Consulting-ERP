@@ -68,7 +68,7 @@ class Auth {
                     
                     // Audit fallback since we don't have the Audit class imported properly
                     if (class_exists('Audit')) {
-                        Audit::log('LOGIN', 'users', $user['id'], null, null, ['email' => $user['email']]);
+                        Audit::log('LOGIN', 'users', (string)$user['id'], null, null, ['email' => $user['email']]);
                     }
                     
                     return [
@@ -88,7 +88,7 @@ class Auth {
             }
         } catch (PDOException $e) {
             error_log("Login DB Error: " . $e->getMessage());
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             error_log("Login Error: " . $e->getMessage());
         }
 
