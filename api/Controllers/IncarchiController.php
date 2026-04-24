@@ -220,6 +220,7 @@ class IncarchiController {
 
         $fullText = implode(' ', $pages);
         $fullText = preg_replace('/\s+/', ' ', $fullText);
+        $textLower = mb_strtolower($fullText, 'UTF-8');
 
         $extracted = [
             'data_incarico' => null,
@@ -228,30 +229,57 @@ class IncarchiController {
             'tipo_commessa' => 'assistenza',
             'cliente_id' => null,
             'sottocliente_id' => null,
-            'descrizione' => ''
+            'descrizione' => '',
+            '_debug_text' => mb_substr(trim($fullText), 0, 800, 'UTF-8') // debug: per vedere il testo estratto
         ];
 
-        // Estrai data (DD/MM/YYYY o YYYY-MM-DD)
-        if (preg_match('/(\d{2}[\/\-]\d{2}[\/\-]\d{4})/i', $fullText, $m)) {
-            $parts = preg_split('/[\/\-]/', trim($m[1]));
+        // ─── Estrai data (DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY o YYYY-MM-DD) ───
+        if (preg_match('/(\d{2}[\/.\\-]\d{2}[\/.\\-]\d{4})/', $fullText, $m)) {
+            $parts = preg_split('/[\\/\\.\\-]/', trim($m[1]));
             if (count($parts) === 3 && strlen($parts[2]) === 4) {
                 $extracted['data_incarico'] = $parts[2] . '-' . $parts[1] . '-' . $parts[0];
             }
+        } elseif (preg_match('/(\d{4}[\-]\d{2}[\-]\d{2})/', $fullText, $m)) {
+            $extracted['data_incarico'] = $m[1];
         }
 
-        // Estrai importo (€ XX.XXX,XX o Euro XX.XXX,XX)
-        if (preg_match('/(?:€|euro|importo|compenso|corrispettivo)[\s:]*([0-9\.\,]+)/i', $fullText, $m)) {
-            $extracted['importo_totale'] = (float)str_replace(['.', ','], ['', '.'], $m[1]);
+        // ─── Estrai importo — strategia multi-pattern ───
+        // 1. Keyword + importo (€, Euro, compenso, importo, corrispettivo, onorario, totale, costo)
+        $importoFound = false;
+        if (preg_match('/(?:€|euro|compenso|importo|corrispettivo|onorario|totale|costo|pari\s+a)[:\s]*€?\s*([0-9]{1,3}(?:[.\s]\d{3})*[,]\d{2})/i', $fullText, $m)) {
+            $extracted['importo_totale'] = (float)str_replace(['.', ' ', ','], ['', '', '.'], $m[1]);
+            $importoFound = true;
+        }
+        // 2. Formato semplice con €: "€ 5.000,00" o "€5000" o "€ 5.000"
+        if (!$importoFound && preg_match('/€\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $m)) {
+            $extracted['importo_totale'] = (float)str_replace(['.', ' ', ','], ['', '', '.'], $m[1]);
+            $importoFound = true;
+        }
+        // 3. Keyword + numero semplice senza formattazione: "compenso 5000"
+        if (!$importoFound && preg_match('/(?:compenso|importo|corrispettivo|onorario|totale|costo|pari\s+a)[:\s]*€?\s*(\d+(?:[.,]\d{1,2})?)/i', $fullText, $m)) {
+            $extracted['importo_totale'] = (float)str_replace(',', '.', $m[1]);
+            $importoFound = true;
+        }
+        // 4. Ultimo tentativo: "euro 5000" o "Euro 5.000"
+        if (!$importoFound && preg_match('/euro\s+([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $m)) {
+            $extracted['importo_totale'] = (float)str_replace(['.', ' ', ','], ['', '', '.'], $m[1]);
         }
 
-        // Estrai numero giornate
-        if (preg_match('/(\d+(?:[\.,]\d+)?)\s*(?:giornat[ae]|giorn[io]|gg)/i', $fullText, $m)) {
+        // ─── Estrai numero giornate / verifiche / audit ───
+        if (preg_match('/(\d+(?:[.,]\d+)?)\s*(?:giornat[ae]|giorn[io]|gg|verifich[ae]|verifica|audit|sopralluogh?[io]|interventi|sessioni|ispezioni)/i', $fullText, $m)) {
             $extracted['num_giornate'] = (float)str_replace(',', '.', $m[1]);
         }
+        // Pattern inverso: "n. 8 verifiche" o "numero 8 verifiche"
+        if ($extracted['num_giornate'] == 0 && preg_match('/(?:n\.?|num\.?|numero|nr\.?)\s*(\d+)\s*(?:verifich[ae]|verifica|giornat[ae]|giorn[io]|audit|sopralluogh?[io]|interventi|sessioni)/i', $fullText, $m)) {
+            $extracted['num_giornate'] = (float)$m[1];
+        }
 
-        // Rileva tipo commessa
-        $textLower = mb_strtolower($fullText, 'UTF-8');
-        if (strpos($textLower, 'dpo') !== false || strpos($textLower, 'data protection') !== false || strpos($textLower, 'protezione dati') !== false) {
+        // ─── Rileva tipo commessa ───
+        if (strpos($textLower, 'dpo') !== false || strpos($textLower, 'data protection') !== false 
+            || strpos($textLower, 'protezione dati') !== false || strpos($textLower, 'privacy') !== false
+            || strpos($textLower, 'verifich') !== false || strpos($textLower, 'audit') !== false
+            || strpos($textLower, 'gdpr') !== false || strpos($textLower, 'reg. ue') !== false
+            || strpos($textLower, 'regolamento') !== false) {
             $extracted['tipo_commessa'] = 'dpo';
         } elseif (strpos($textLower, 'formazione') !== false || strpos($textLower, 'corso') !== false || strpos($textLower, 'training') !== false) {
             $extracted['tipo_commessa'] = 'formazione';
@@ -259,7 +287,8 @@ class IncarchiController {
             $extracted['tipo_commessa'] = 'assistenza';
         }
 
-        // Cerca cliente per P.IVA / CF
+        // ─── Cerca cliente ───
+        // 1. Per P.IVA / CF
         preg_match_all('/\b([A-Z0-9]{11,16})\b/i', $fullText, $vatMatches);
         $stmtClienti = $this->pdo->query("SELECT id, partita_iva, codice_fiscale, ragione_sociale FROM {$this->prefix}clienti");
         $allClienti = $stmtClienti->fetchAll();
@@ -278,25 +307,30 @@ class IncarchiController {
             }
         }
 
-        // Se non trovato per P.IVA, cerca per nome nell testo
+        // 2. Per nome nel testo (soglia: 3 caratteri)
         if (!$extracted['cliente_id']) {
+            // Ordina per lunghezza nome decrescente (match più specifico prima)
+            usort($allClienti, function($a, $b) {
+                return mb_strlen($b['ragione_sociale'], 'UTF-8') - mb_strlen($a['ragione_sociale'], 'UTF-8');
+            });
             foreach ($allClienti as $c) {
                 $nomeCliente = mb_strtolower(trim($c['ragione_sociale']), 'UTF-8');
-                if (mb_strlen($nomeCliente, 'UTF-8') >= 4 && mb_strpos($textLower, $nomeCliente) !== false) {
+                if (mb_strlen($nomeCliente, 'UTF-8') >= 3 && mb_strpos($textLower, $nomeCliente) !== false) {
                     $extracted['cliente_id'] = $c['id'];
                     break;
                 }
             }
         }
 
-        // Cerca sottocliente
+        // ─── Cerca sottocliente ───
         if ($extracted['cliente_id']) {
             $stmtSotto = $this->pdo->prepare("SELECT id, nome FROM {$this->prefix}sottoclienti WHERE cliente_id = ?");
             $stmtSotto->execute([$extracted['cliente_id']]);
             $subs = $stmtSotto->fetchAll();
             foreach ($subs as $sc) {
                 $nomeSotto = mb_strtolower(trim($sc['nome']), 'UTF-8');
-                if (mb_strlen($nomeSotto, 'UTF-8') >= 4 && mb_strpos($textLower, $nomeSotto) !== false) {
+                // Soglia abbassata a 2 caratteri per sigle come "MYG"
+                if (mb_strlen($nomeSotto, 'UTF-8') >= 2 && mb_strpos($textLower, $nomeSotto) !== false) {
                     $extracted['sottocliente_id'] = $sc['id'];
                     break;
                 }
