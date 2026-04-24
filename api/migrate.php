@@ -22,9 +22,14 @@ $pdo = Database::getConnection();
 $prefix = getenv('DB_PREFIX') ?: 'mv_';
 
 if (isset($_GET['reset_pw'])) {
-    $newHash = password_hash('Admin123!', PASSWORD_DEFAULT);
-    $pdo->query("UPDATE {$prefix}users SET password = '{$newHash}', pwd_hash = '{$newHash}', failed_attempts = 0, blocked = 0, must_change_password = 1");
-    die(json_encode(['success' => true, 'message' => 'Tutte le password sono state resettate a Admin123!']));
+    try {
+        $newHash = password_hash('Admin123!', PASSWORD_DEFAULT);
+        $stmt = $pdo->prepare("UPDATE {$prefix}users SET password = ?, failed_attempts = 0, blocked = 0, must_change_password = 1");
+        $stmt->execute([$newHash]);
+        die(json_encode(['success' => true, 'message' => 'Tutte le password sono state resettate a Admin123!']));
+    } catch (Exception $e) {
+        die(json_encode(['success' => false, 'error' => $e->getMessage()]));
+    }
 }
 
 $queries = [
