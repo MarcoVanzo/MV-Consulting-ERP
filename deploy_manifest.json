@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-04-24T12:48:57.471Z",
+  "generated_at": "2026-04-24T12:49:55.799Z",
   "file_count": 33,
   "files": [
     {
@@ -41,7 +41,7 @@
     },
     {
       "path": "api/migrate.php",
-      "hash": "6d731f12402d47d029e46755ce06b764b9c3fbefac942fd6d846b8e35bb330e5"
+      "hash": "118881e3da6c841e969886db1f00f667180ccbdecb8e9a795f43d4e1abdae79f"
     },
     {
       "path": "api/router.php",
@@ -97,7 +97,7 @@
     },
     {
       "path": "index.html",
-      "hash": "71ae1cd99e746ee6b1ef358d72579211ca2181dc7c3474e0d5d0889276dbcc5b"
+      "hash": "1cf44c98a3608e7ab12d77ed6875608cbca1193926afebdd720e9cb06fa2c1b0"
     },
     {
       "path": "js/app.js",
