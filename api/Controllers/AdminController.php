@@ -2,6 +2,7 @@
 /**
  * Admin Controller — Gestione Utenti, Backup, Logs per MV Consulting ERP
  */
+require_once __DIR__ . '/../Shared/Security.php';
 
 class AdminController {
     private $pdo;
@@ -68,7 +69,7 @@ class AdminController {
         $name = trim($data['full_name']);
         $role = $data['role'] ?? 'operatore';
         
-        $tempPassword = bin2hex(random_bytes(4));
+        $tempPassword = Security::generateTempPassword();
         $hash = password_hash($tempPassword, PASSWORD_DEFAULT);
 
         // Check if exists
@@ -78,7 +79,7 @@ class AdminController {
             Response::json(false, 'Email già in uso');
         }
 
-        $sql = "INSERT INTO {$this->prefix}users (email, username, password, full_name, role) VALUES (?, ?, ?, ?, ?)";
+        $sql = "INSERT INTO {$this->prefix}users (email, username, password, full_name, role, must_change_password) VALUES (?, ?, ?, ?, ?, 1)";
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([$email, $email, $hash, $name, $role]);
         $id = $this->pdo->lastInsertId();

@@ -10,7 +10,7 @@ const UI = (() => {
         const el = document.createElement('div');
         el.className = `toast toast-${type}`;
         const icon = type === 'success' ? 'ph-check-circle' : 'ph-warning-circle';
-        el.innerHTML = `<i class="ph ${icon}"></i> <span>${message}</span>`;
+        el.innerHTML = `<i class="ph ${icon}"></i> <span>${UI.esc(message)}</span>`;
         container.appendChild(el);
         setTimeout(() => {
             el.style.opacity = '0';

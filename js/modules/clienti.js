@@ -209,7 +209,7 @@ const ModClienti = (() => {
                 if (data.sdi) document.getElementById(pf + 'sdi').value = data.sdi;
                 if (data.pec) document.getElementById(pf + 'pec').value = data.pec;
             } catch (err) {
-                statusEl.innerHTML = `<div class="vat-status error"><i class="ph ph-warning-circle"></i> ${err.message}</div>`;
+                statusEl.innerHTML = `<div class="vat-status error"><i class="ph ph-warning-circle"></i> ${UI.esc(err.message)}</div>`;
             }
         });
     }
