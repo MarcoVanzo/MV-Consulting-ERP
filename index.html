@@ -16,7 +16,7 @@
     <script src="https://unpkg.com/@phosphor-icons/web" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
-    <link rel="stylesheet" href="css/style.css?v=1777037067">
+    <link rel="stylesheet" href="css/style.css?v=1777063731">
 
     <style>
         /* ── Auth Screen (inline for instant render) ── */
@@ -320,6 +320,68 @@
                     <h1 class="page-title"><i class="ph ph-chart-line-up"></i> Contabilità</h1>
                     <div class="page-actions">
                         <select class="form-control" id="contabilita-year" style="width: auto;"></select>
+                    </div>
+                </div>
+
+                <!-- TAB NAVIGATION -->
+                <div class="tabs-container" id="contabilita-tabs" style="margin: 0 32px 24px 32px; border-bottom: 1px solid var(--border-subtle); display: flex; gap: 24px;">
+                    <div class="tab active" data-target="tab-incarichi" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--accent-secondary); border-bottom: 2px solid var(--accent-secondary); transition: var(--transition);">
+                        <i class="ph ph-clipboard-text"></i> Incarichi
+                    </div>
+                    <div class="tab" data-target="tab-fatture" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">
+                        <i class="ph ph-receipt"></i> Fatture
+                    </div>
+                    <div class="tab" data-target="tab-verifica" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">
+                        <i class="ph ph-check-square"></i> Verifica Pagamenti
+                    </div>
+                </div>
+
+                <!-- ══ TAB: INCARICHI ══ -->
+                <div id="tab-incarichi" class="tab-content active">
+                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn btn-secondary" id="btn-import-pdf-incarico">
+                            <i class="ph ph-file-pdf"></i> Carica Incarico (PDF)
+                        </button>
+                        <input type="file" id="input-pdf-incarico" accept="application/pdf" style="display: none;">
+                        <button class="btn btn-primary" id="btn-add-incarico">
+                            <i class="ph ph-plus"></i> Nuovo Incarico
+                        </button>
+                    </div>
+                    <div class="kpi-grid" id="incarichi-kpis"></div>
+                    <div class="table-container">
+                        <div class="table-toolbar">
+                            <div class="filters-row" style="margin-bottom:0">
+                                <span class="filter-chip active" data-inc-stato="">Tutti</span>
+                                <span class="filter-chip" data-inc-stato="attivo">Attivi</span>
+                                <span class="filter-chip" data-inc-stato="parziale">Parziali</span>
+                                <span class="filter-chip" data-inc-stato="fatturato">Fatturati</span>
+                                <span class="filter-chip" data-inc-stato="pagato">Pagati</span>
+                            </div>
+                        </div>
+                        <table class="data-table" id="table-incarichi">
+                            <thead>
+                                <tr>
+                                    <th style="width:30px"></th>
+                                    <th>Cliente</th>
+                                    <th>Tipo</th>
+                                    <th>Data</th>
+                                    <th class="text-right">GG</th>
+                                    <th class="text-right">Importo</th>
+                                    <th>Progresso</th>
+                                    <th>Stato</th>
+                                    <th style="width:80px"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-incarichi">
+                                <tr><td colspan="9"><div class="empty-state"><i class="ph ph-clipboard-text"></i><h3>Nessun incarico</h3><p>Carica il primo incarico con il pulsante sopra</p></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ══ TAB: FATTURE ══ -->
+                <div id="tab-fatture" class="tab-content" style="display: none;">
+                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
                         <button class="btn btn-secondary" id="btn-import-pdf-fatture">
                             <i class="ph ph-file-pdf"></i> Importa PDF
                         </button>
@@ -336,39 +398,66 @@
                             <i class="ph ph-plus"></i> Nuova Fattura
                         </button>
                     </div>
-                </div>
-                <div class="kpi-grid" id="contabilita-kpis"></div>
-                <div class="chart-card" id="contabilita-chart-card">
-                    <div class="chart-card-title">Andamento Mensile</div>
-                    <div class="chart-bars" id="contabilita-chart"></div>
-                </div>
-                <div class="table-container">
-                    <div class="table-toolbar">
-                        <div class="filters-row" style="margin-bottom:0">
-                            <span class="filter-chip active" data-stato="">Tutte</span>
-                            <span class="filter-chip" data-stato="emessa">Emesse</span>
-                            <span class="filter-chip" data-stato="inviata">Inviate</span>
-                            <span class="filter-chip" data-stato="pagata">Pagate</span>
-                            <span class="filter-chip" data-stato="scaduta">Scadute</span>
-                        </div>
+                    <div class="kpi-grid" id="contabilita-kpis"></div>
+                    <div class="chart-card" id="contabilita-chart-card">
+                        <div class="chart-card-title">Andamento Mensile</div>
+                        <div class="chart-bars" id="contabilita-chart"></div>
                     </div>
-                    <table class="data-table" id="table-fatture">
-                        <thead>
-                            <tr>
-                                <th>N. Fattura</th>
-                                <th>Data</th>
-                                <th>Cliente</th>
-                                <th class="text-right">Imponibile</th>
-                                <th class="text-right">Totale</th>
-                                <th>Stato</th>
-                                <th>Scadenza</th>
-                                <th style="width:80px"></th>
-                            </tr>
-                        </thead>
-                        <tbody id="tbody-fatture">
-                            <tr><td colspan="8" class="empty-state"><i class="ph ph-chart-line-up"></i><h3>Nessuna fattura</h3></td></tr>
-                        </tbody>
-                    </table>
+                    <div class="table-container">
+                        <div class="table-toolbar">
+                            <div class="filters-row" style="margin-bottom:0">
+                                <span class="filter-chip active" data-stato="">Tutte</span>
+                                <span class="filter-chip" data-stato="emessa">Emesse</span>
+                                <span class="filter-chip" data-stato="inviata">Inviate</span>
+                                <span class="filter-chip" data-stato="pagata">Pagate</span>
+                                <span class="filter-chip" data-stato="scaduta">Scadute</span>
+                            </div>
+                        </div>
+                        <table class="data-table" id="table-fatture">
+                            <thead>
+                                <tr>
+                                    <th>N. Fattura</th>
+                                    <th>Data</th>
+                                    <th>Cliente</th>
+                                    <th>Incarico</th>
+                                    <th class="text-right">Imponibile</th>
+                                    <th class="text-right">Totale</th>
+                                    <th>Stato</th>
+                                    <th>Scadenza</th>
+                                    <th style="width:80px"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-fatture">
+                                <tr><td colspan="9" class="empty-state"><i class="ph ph-chart-line-up"></i><h3>Nessuna fattura</h3></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ══ TAB: VERIFICA PAGAMENTI ══ -->
+                <div id="tab-verifica" class="tab-content" style="display: none;">
+                    <div class="kpi-grid" id="verifica-kpis"></div>
+                    <div class="table-container">
+                        <h3 style="padding: 16px 20px 8px; color: var(--text-muted); font-size: 0.9rem; font-weight: 600;">
+                            <i class="ph ph-warning-circle"></i> Fatture emesse non ancora pagate
+                        </h3>
+                        <table class="data-table" id="table-verifica">
+                            <thead>
+                                <tr>
+                                    <th>N. Fattura</th>
+                                    <th>Data Emissione</th>
+                                    <th>Cliente</th>
+                                    <th class="text-right">Importo</th>
+                                    <th>Stato</th>
+                                    <th>Scadenza</th>
+                                    <th>Giorni</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-verifica">
+                                <tr><td colspan="7"><div class="empty-state"><i class="ph ph-check-square"></i><h3>Tutto regolare</h3><p>Nessuna fattura in sospeso</p></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </section>
 
@@ -413,11 +502,12 @@
     <script src="js/core/auth.js" defer></script>
     <script src="js/core/ui.js" defer></script>
     <script src="js/modules/clienti.js" defer></script>
-    <script src="js/modules/trasferte.js?v=1777037067" defer></script>
+    <script src="js/modules/trasferte.js?v=1777063731" defer></script>
     <script src="js/modules/mezzi.js" defer></script>
-    <script src="js/modules/contabilita.js?v=1777037067" defer></script>
+    <script src="js/modules/incarichi.js?v=1777063731" defer></script>
+    <script src="js/modules/contabilita.js?v=1777063731" defer></script>
     <script src="js/modules/admin.js" defer></script>
-    <script src="js/app.js?v=1777037067" defer></script>
+    <script src="js/app.js?v=1777063731" defer></script>
 
 </body>
 </html>

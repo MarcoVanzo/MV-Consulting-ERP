@@ -143,6 +143,31 @@ $queries = [
         FOREIGN KEY (sottocliente_id) REFERENCES {$prefix}sottoclienti(id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
+    // ── Incarichi (Commesse / Assignments) ─────────────────
+    "CREATE TABLE IF NOT EXISTS {$prefix}incarichi (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        cliente_id INT NOT NULL,
+        sottocliente_id INT DEFAULT NULL,
+        data_incarico DATE NOT NULL,
+        tipo_commessa ENUM('assistenza','dpo','formazione') NOT NULL DEFAULT 'assistenza',
+        descrizione TEXT DEFAULT NULL,
+        num_giornate DECIMAL(5,1) DEFAULT 0,
+        importo_totale DECIMAL(10,2) NOT NULL DEFAULT 0,
+        importo_fatturato DECIMAL(10,2) DEFAULT 0 COMMENT 'Somma importi fatture collegate',
+        importo_pagato DECIMAL(10,2) DEFAULT 0 COMMENT 'Somma importi fatture pagate collegate',
+        stato ENUM('attivo','parziale','fatturato','pagato') DEFAULT 'attivo',
+        pdf_path VARCHAR(255) DEFAULT NULL COMMENT 'Path al PDF originale dell incarico',
+        note TEXT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (cliente_id) REFERENCES {$prefix}clienti(id) ON DELETE CASCADE,
+        FOREIGN KEY (sottocliente_id) REFERENCES {$prefix}sottoclienti(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    // Link fatture → incarichi
+    "ALTER TABLE {$prefix}fatture ADD COLUMN incarico_id INT DEFAULT NULL AFTER sottocliente_id",
+    "ALTER TABLE {$prefix}fatture ADD FOREIGN KEY fk_fatture_incarico (incarico_id) REFERENCES {$prefix}incarichi(id) ON DELETE SET NULL",
+
     // ── Google Calendar tokens ───────────────────────────
     "CREATE TABLE IF NOT EXISTS {$prefix}google_tokens (
         id INT AUTO_INCREMENT PRIMARY KEY,
