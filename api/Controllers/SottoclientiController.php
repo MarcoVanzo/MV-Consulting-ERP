@@ -54,7 +54,7 @@ class SottoclientiController {
             $vals[] = $id;
             $sql = "UPDATE {$this->prefix}sottoclienti SET " . implode(', ', $sets) . " WHERE id = ?";
             $this->pdo->prepare($sql)->execute($vals);
-            Audit::log('UPDATE', 'sottoclienti', $id, null, null, ['nome' => $fields['nome']])
+            Audit::log('UPDATE', 'sottoclienti', $id, null, null, ['nome' => $fields['nome']]);
             Response::json(true, 'Sottocliente aggiornato', ['id' => $id]);
         } else {
             $cols = implode(', ', array_keys($fields));
@@ -62,14 +62,14 @@ class SottoclientiController {
             $sql = "INSERT INTO {$this->prefix}sottoclienti ($cols) VALUES ($placeholders)";
             $this->pdo->prepare($sql)->execute(array_values($fields));
             $newId = $this->pdo->lastInsertId();
-            Audit::log('INSERT', 'sottoclienti', $newId, null, null, ['nome' => $fields['nome']])
+            Audit::log('INSERT', 'sottoclienti', $newId, null, null, ['nome' => $fields['nome']]);
             Response::json(true, 'Sottocliente creato', ['id' => $newId]);
         }
     }
 
     public function delete($id) {
         $this->pdo->prepare("DELETE FROM {$this->prefix}sottoclienti WHERE id = ?")->execute([$id]);
-        Audit::log('DELETE', 'sottoclienti', $id, null, null, null)
+        Audit::log('DELETE', 'sottoclienti', $id, null, null, null);
         Response::json(true, 'Sottocliente eliminato');
     }
 }

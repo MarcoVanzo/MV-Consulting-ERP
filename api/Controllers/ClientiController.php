@@ -65,7 +65,7 @@ class ClientiController {
             $vals[] = $id;
             $sql = "UPDATE {$this->prefix}clienti SET " . implode(', ', $sets) . " WHERE id = ?";
             $this->pdo->prepare($sql)->execute($vals);
-            Audit::log('UPDATE', 'clienti', $id, null, null, ['ragione_sociale' => $fields['ragione_sociale']])
+            Audit::log('UPDATE', 'clienti', $id, null, null, ['ragione_sociale' => $fields['ragione_sociale']]);
             Response::json(true, 'Cliente aggiornato', ['id' => $id]);
         } else {
             $cols = implode(', ', array_keys($fields));
@@ -73,7 +73,7 @@ class ClientiController {
             $sql = "INSERT INTO {$this->prefix}clienti ($cols) VALUES ($placeholders)";
             $this->pdo->prepare($sql)->execute(array_values($fields));
             $newId = $this->pdo->lastInsertId();
-            Audit::log('INSERT', 'clienti', $newId, null, null, ['ragione_sociale' => $fields['ragione_sociale']])
+            Audit::log('INSERT', 'clienti', $newId, null, null, ['ragione_sociale' => $fields['ragione_sociale']]);
             Response::json(true, 'Cliente creato', ['id' => $newId]);
         }
     }
@@ -81,7 +81,7 @@ class ClientiController {
     public function delete($id) {
         $stmt = $this->pdo->prepare("DELETE FROM {$this->prefix}clienti WHERE id = ?");
         $stmt->execute([$id]);
-        Audit::log('DELETE', 'clienti', $id, null, null, null)
+        Audit::log('DELETE', 'clienti', $id, null, null, null);
         Response::json(true, 'Cliente eliminato');
     }
 
