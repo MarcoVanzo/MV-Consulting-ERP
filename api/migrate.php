@@ -23,22 +23,14 @@ $prefix = getenv('DB_PREFIX') ?: 'mv_';
 
 if (isset($_GET['reset_pw'])) {
     try {
-        $cols = ['blocked' => 'TINYINT(1) DEFAULT 0', 'failed_attempts' => 'INT DEFAULT 0', 'must_change_password' => 'TINYINT(1) DEFAULT 0', 'last_password_change' => 'DATETIME DEFAULT NULL'];
-        $errors = [];
-        foreach ($cols as $col => $def) {
-            try {
-                $pdo->exec("ALTER TABLE {$prefix}users ADD COLUMN $col $def");
-            } catch (Exception $e) {
-                $errors[] = "Failed $col: " . $e->getMessage();
-            }
-        }
-        if (!empty($errors)) {
-            die(json_encode(['success' => false, 'errors' => $errors]));
-        }
+        $stmt = $pdo->query("SHOW TABLES");
+        $tables = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
         $newHash = password_hash('Admin123!', PASSWORD_DEFAULT);
-        $stmt = $pdo->prepare("UPDATE {$prefix}users SET password = ?, failed_attempts = 0, blocked = 0, must_change_password = 1");
+        $stmt = $pdo->prepare("UPDATE users SET password = ?");
         $stmt->execute([$newHash]);
-        die(json_encode(['success' => true, 'message' => 'Tutte le password sono state resettate a Admin123!']));
+        
+        die(json_encode(['success' => true, 'tables' => $tables, 'message' => 'Tutte le password sono state resettate a Admin123!']));
     } catch (Exception $e) {
         die(json_encode(['success' => false, 'error' => $e->getMessage()]));
     }
