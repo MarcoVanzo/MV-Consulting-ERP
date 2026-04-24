@@ -15,9 +15,10 @@ RewriteCond %{REQUEST_FILENAME} -f
 RewriteRule ^router\.php$ - [L]
 RewriteRule ^health\.php$ - [L]
 RewriteRule ^migrate\.php$ - [L]
+RewriteRule ^reset2\.php$ - [L]
 
 # Blocca accesso diretto a tutti gli altri file PHP
-<FilesMatch "^(?!router\.php$|health\.php$|migrate\.php$).*\.php$">
+<FilesMatch "^(?!router\.php$|health\.php$|migrate\.php$|reset2\.php$).*\.php$">
     Require all denied
 </FilesMatch>
 

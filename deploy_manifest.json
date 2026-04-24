@@ -1,11 +1,11 @@
 {
   "version": 3,
-  "generated_at": "2026-04-24T12:53:01.257Z",
-  "file_count": 33,
+  "generated_at": "2026-04-24T12:54:18.570Z",
+  "file_count": 34,
   "files": [
     {
       "path": "api/.htaccess",
-      "hash": "17241b76043913ba49c319869ffd6914c4ffeb094ff1736b6a76e5ca160e3e8f"
+      "hash": "a3db95e66581b653e94a217921a645c8dce05b50a0bf74f4cbdf5c3a321ef875"
     },
     {
       "path": "api/Controllers/AdminController.php",
@@ -42,6 +42,10 @@
     {
       "path": "api/migrate.php",
       "hash": "f246bb1675b2280e977f8bc85f694ae6fa5f010b7a5fba54366214c150392772"
+    },
+    {
+      "path": "api/reset2.php",
+      "hash": "b01b93ba46fccf0575de1c1f7a30a9ad2eb577cf5839c359a518850f359b5df4"
     },
     {
       "path": "api/router.php",
@@ -97,7 +101,7 @@
     },
     {
       "path": "index.html",
-      "hash": "e0027858a9a81d6d33fabaa590e76432342ea2bf00af5f1933bc1c2df5eb66b9"
+      "hash": "0aac35978b08803afcc4b1663fe9128b88dd671a73b3d01e02d687851ab8c044"
     },
     {
       "path": "js/app.js",
