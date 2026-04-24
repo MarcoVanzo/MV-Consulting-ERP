@@ -128,6 +128,25 @@ function initApplication(userData) {
         });
     }
 
+    // ── Incarichi PDF Import ──
+    const btnImportIncPdf = document.getElementById('btn-import-pdf-incarico');
+    const inputImportIncPdf = document.getElementById('input-pdf-incarico');
+    if (btnImportIncPdf && inputImportIncPdf) {
+        btnImportIncPdf.addEventListener('click', () => inputImportIncPdf.click());
+        inputImportIncPdf.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                ModIncarichi.importPdf(e.target.files[0]);
+                e.target.value = '';
+            }
+        });
+    }
+
+    // ── Nuovo Incarico ──
+    const btnAddIncarico = document.getElementById('btn-add-incarico');
+    if (btnAddIncarico) {
+        btnAddIncarico.addEventListener('click', () => ModIncarichi.openNew());
+    }
+
     // ── Logout ──
     document.getElementById('logout-btn').addEventListener('click', () => {
         localStorage.removeItem('erp_token');
