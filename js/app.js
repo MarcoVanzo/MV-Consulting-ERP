@@ -4,17 +4,17 @@
  * App — Main orchestrator per MV Consulting ERP
  */
 document.addEventListener('DOMContentLoaded', () => {
-    const token = localStorage.getItem('erp_token');
+    // Non richiediamo più erp_token rigorosamente perché gestito tramite Cookie HttpOnly
     const userData = JSON.parse(localStorage.getItem('erp_user') || 'null');
 
-    if (token && userData) {
+    if (userData) {
         initApplication(userData);
     } else {
         AuthFlow.showLoginScreen((data) => {
             if (data.token) {
                 localStorage.setItem('erp_token', data.token);
-                localStorage.setItem('erp_user', JSON.stringify(data));
             }
+            localStorage.setItem('erp_user', JSON.stringify(data));
             initApplication(data);
         });
     }

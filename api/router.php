@@ -87,19 +87,19 @@ $data = array_merge($_POST, $input);
 // GLOBAL AUTHENTICATION MIDDLEWARE
 // ═════════════════════════════════════════════
 $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-// Solo auth e callback OAuth sono pubblici. La sync richiede autenticazione.
+// Solo auth e callback OAuth sono pubblici.
 $public_actions = [
-    'auth' => ['login'],
+    'auth' => ['login', 'request_reset', 'reset_password'],
     'google' => ['auth', 'callback']
 ];
 $isPublic = isset($public_actions[$module]) && in_array($action, $public_actions[$module]);
 if (!$isPublic) {
-    $jwt = '';
-    if (preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
+    $jwt = $_COOKIE['auth_token'] ?? '';
+    if (!$jwt && preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
         $jwt = $matches[1];
     }
-    // SECURITY: JWT accettato SOLO via header Authorization: Bearer
-    // Mai tramite query parameter (espone il token nei log server e referrer)
+    
+    // SECURITY: JWT accettato tramite Cookie HttpOnly o Authorization Header
 
     if ($jwt) {
         $secret = getenv('JWT_SECRET');
