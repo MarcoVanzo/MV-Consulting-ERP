@@ -156,7 +156,7 @@ class Auth {
         }
 
         // History check
-        $stmtHist = $this->db->prepare("SELECT pwd_hash FROM {$prefix}password_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 5");
+        $stmtHist = $this->db->prepare("SELECT password_hash FROM {$prefix}password_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 5");
         $stmtHist->execute([$userId]);
         $history = $stmtHist->fetchAll(PDO::FETCH_COLUMN);
         foreach ($history as $oldHash) {
@@ -168,7 +168,7 @@ class Auth {
         $hash = password_hash($newPwd, PASSWORD_DEFAULT);
         $this->db->prepare("UPDATE {$prefix}users SET password = ?, last_password_change = NOW(), must_change_password = 0 WHERE id = ?")->execute([$hash, $userId]);
         
-        $this->db->prepare("INSERT INTO {$prefix}password_history (user_id, pwd_hash) VALUES (?, ?)")->execute([$userId, $hash]);
+        $this->db->prepare("INSERT INTO {$prefix}password_history (user_id, password_hash) VALUES (?, ?)")->execute([$userId, $hash]);
         $this->db->prepare("DELETE FROM {$prefix}password_history WHERE user_id = ? AND id NOT IN (SELECT id FROM (SELECT id FROM {$prefix}password_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 5) AS recent)")->execute([$userId, $userId]);
 
         return true;
