@@ -47,10 +47,12 @@ class Auth {
 
                 if ($isValid) {
                     
-                    // Reset failed attempts
-                    $this->db->prepare("UPDATE {$prefix}users SET failed_attempts = 0 WHERE id = ?")->execute([$user['id']]);
+                    // Reset failed attempts (fallback for older DB schemas)
+                    try {
+                        $this->db->prepare("UPDATE {$prefix}users SET failed_attempts = 0 WHERE id = ?")->execute([$user['id']]);
+                    } catch (\Exception $e) { }
 
-                    if ($user['must_change_password']) {
+                    if (isset($user['must_change_password']) && $user['must_change_password']) {
                         return ['must_change' => true, 'reason' => 'mandatory', 'user_id' => $user['id']];
                     }
 
@@ -58,7 +60,9 @@ class Auth {
                         $lastChange = strtotime($user['last_password_change']);
                         $expiryDate = strtotime("+90 days", $lastChange);
                         if (time() > $expiryDate) {
-                            $this->db->prepare("UPDATE {$prefix}users SET must_change_password = 1 WHERE id = ?")->execute([$user['id']]);
+                            try {
+                                $this->db->prepare("UPDATE {$prefix}users SET must_change_password = 1 WHERE id = ?")->execute([$user['id']]);
+                            } catch (\Exception $e) { }
                             return ['must_change' => true, 'reason' => 'expired', 'user_id' => $user['id']];
                         }
                     }
@@ -99,12 +103,14 @@ class Auth {
                         'role' => $user['role'] ?? 'admin'
                     ];
                 } else {
-                    $this->db->prepare("UPDATE {$prefix}users SET failed_attempts = failed_attempts + 1 WHERE id = ?")->execute([$user['id']]);
-                    $stmtCheck = $this->db->prepare("SELECT failed_attempts FROM {$prefix}users WHERE id = ?");
-                    $stmtCheck->execute([$user['id']]);
-                    if ($stmtCheck->fetchColumn() >= 10) {
-                        $this->db->prepare("UPDATE {$prefix}users SET blocked = 1 WHERE id = ?")->execute([$user['id']]);
-                    }
+                    try {
+                        $this->db->prepare("UPDATE {$prefix}users SET failed_attempts = failed_attempts + 1 WHERE id = ?")->execute([$user['id']]);
+                        $stmtCheck = $this->db->prepare("SELECT failed_attempts FROM {$prefix}users WHERE id = ?");
+                        $stmtCheck->execute([$user['id']]);
+                        if ($stmtCheck->fetchColumn() >= 10) {
+                            $this->db->prepare("UPDATE {$prefix}users SET blocked = 1 WHERE id = ?")->execute([$user['id']]);
+                        }
+                    } catch (\Exception $e) { }
                 }
             }
         } catch (PDOException $e) {
