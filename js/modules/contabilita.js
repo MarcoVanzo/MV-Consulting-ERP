@@ -193,9 +193,14 @@ const ModContabilita = (() => {
             const pages=[];
             for(let i=1;i<=pdf.numPages;i++){const pg=await pdf.getPage(i);const tc=await pg.getTextContent();pages.push(tc.items.map(x=>x.str).join(' '));}
             btn.innerHTML='<i class="ph ph-spinner ph-spin"></i> Analisi...';
-            const req=await Store.api('import_pdf','contabilita',{pages});
-            if(req?.success){UI.toast(`Importazione: ${req.num_imported} fatture.`); if(req.errors?.length)UI.toast(`${req.errors.length} errori (console)`,'error'); load();}
-            else throw new Error('Risposta anomala');
+            // Use direct fetch with JSON to preserve the pages array (FormData flattens arrays)
+            const token=localStorage.getItem('erp_token'); const hdr={'Content-Type':'application/json'};
+            if(token) hdr['Authorization']='Bearer '+token;
+            const resp=await fetch('api/router.php',{method:'POST',headers:hdr,credentials:'include',body:JSON.stringify({module:'contabilita',action:'import_pdf',pages})});
+            const result=await resp.json();
+            if(!result.success) throw new Error(result.message||'Errore analisi PDF');
+            const req=result.data;
+            if(req){UI.toast(`Importazione: ${req.num_imported} fatture.`); if(req.errors?.length)UI.toast(`${req.errors.length} errori (console)`,'error'); load();}
         }catch(e){UI.toast('Errore importazione PDF: '+e.message,'error');}
         finally{btn.innerHTML=prev;btn.disabled=false;}
     }

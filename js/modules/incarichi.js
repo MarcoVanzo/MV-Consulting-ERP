@@ -148,7 +148,14 @@ const ModIncarichi = (() => {
             const pdf = await pdfjsLib.getDocument({data:ab}).promise;
             const pages = [];
             for (let i=1;i<=pdf.numPages;i++) { const pg=await pdf.getPage(i); const tc=await pg.getTextContent(); pages.push(tc.items.map(x=>x.str).join(' ')); }
-            const res = await Store.api('import_pdf','incarichi',{pages});
+            // Use direct fetch with JSON to preserve the pages array (FormData flattens arrays)
+            const token = localStorage.getItem('erp_token');
+            const hdr = {'Content-Type':'application/json'};
+            if (token) hdr['Authorization'] = 'Bearer ' + token;
+            const resp = await fetch('api/router.php', {method:'POST', headers:hdr, credentials:'include', body:JSON.stringify({module:'incarichi', action:'import_pdf', pages})});
+            const result = await resp.json();
+            if (!result.success) throw new Error(result.message || 'Errore analisi PDF');
+            const res = result.data;
             if (res) {
                 UI.openModal('Nuovo Incarico (da PDF)', getFormHtml({
                     cliente_id: res.cliente_id, sottocliente_id: res.sottocliente_id,
