@@ -1,7 +1,7 @@
 {
   "version": 3,
-  "generated_at": "2026-04-24T13:24:27.428Z",
-  "file_count": 33,
+  "generated_at": "2026-04-24T20:48:51.085Z",
+  "file_count": 35,
   "files": [
     {
       "path": "api/.htaccess",
@@ -17,11 +17,15 @@
     },
     {
       "path": "api/Controllers/ContabilitaController.php",
-      "hash": "e25932c1f0dc2f6e67705be5195b8143502e4391121356f17e00e27f4d039200"
+      "hash": "eee487c305239c1ae7c51c1b7acd2fffc3ea48d5ddc503474e0410a5c22d84a9"
     },
     {
       "path": "api/Controllers/GoogleAuthController.php",
       "hash": "0ab9ba2a6b03a6a30bbdce7a5e575142beb9471fc13c7b45b9e292fd74b4527b"
+    },
+    {
+      "path": "api/Controllers/IncarchiController.php",
+      "hash": "98316a8744ca823edbab9c7625aa907c4809e0fb144c22d0c2fcf7cad3cc46a9"
     },
     {
       "path": "api/Controllers/MezziController.php",
@@ -41,11 +45,11 @@
     },
     {
       "path": "api/migrate.php",
-      "hash": "ba897fce9990e963336716352dc2f50d58ff623a78c18a66228011fad1575ca1"
+      "hash": "c23b419d11b44334f5c52c99d956b99394560c3965858db533f0288c48c20e0b"
     },
     {
       "path": "api/router.php",
-      "hash": "32ed525997564f4c97e78c2464bed8cc62676b7844fc6738fbec5c095f670aad"
+      "hash": "41fd0e338d8364b408630b7b2b4727a7779238a90fadf63b94fd51f9c97dce87"
     },
     {
       "path": "api/Shared/Audit.php",
@@ -97,11 +101,11 @@
     },
     {
       "path": "index.html",
-      "hash": "1a582da31f085c77aec0d6a8267a4a8649e4cfc2ef9e93410e0fc2dc7e68f116"
+      "hash": "bf9099fb9b22c0cbd32a1321922bd8bddb1763e8cfb98389eea071bf19d8febe"
     },
     {
       "path": "js/app.js",
-      "hash": "f839459c823ea02aff437fe008f1a5106fbe2896b643289e8e5d5a1f82514f89"
+      "hash": "85036ae0d3f424b783ba25035e9e249f776f19c24f1e6f1718576497cf995725"
     },
     {
       "path": "js/core/auth.js",
@@ -125,7 +129,11 @@
     },
     {
       "path": "js/modules/contabilita.js",
-      "hash": "3382c8e1ca807b540d7a0cb3018c547f03851add4110b5d9ead4726efc70255c"
+      "hash": "b500ef19310422850e046cc06785bf99019e70194b0a60f38818ca92c7d66c37"
+    },
+    {
+      "path": "js/modules/incarichi.js",
+      "hash": "fa054ad1a2538709a7c1919db7175c072e4834ff1f89f8c13d986930cc2ca172"
     },
     {
       "path": "js/modules/mezzi.js",

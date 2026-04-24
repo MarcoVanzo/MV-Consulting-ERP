@@ -49,6 +49,7 @@ class ContabilitaController {
             'data_emissione'    => $data['data_emissione'] ?? date('Y-m-d'),
             'cliente_id'        => !empty($data['cliente_id']) ? (int)$data['cliente_id'] : null,
             'sottocliente_id'   => !empty($data['sottocliente_id']) ? (int)$data['sottocliente_id'] : null,
+            'incarico_id'       => !empty($data['incarico_id']) ? (int)$data['incarico_id'] : null,
             'descrizione'       => trim($data['descrizione'] ?? ''),
             'imponibile'        => $imponibile,
             'iva_percentuale'   => $ivaPerc,
@@ -76,6 +77,10 @@ class ContabilitaController {
             $sql = "UPDATE {$this->prefix}fatture SET " . implode(', ', $sets) . " WHERE id = ?";
             $this->pdo->prepare($sql)->execute($vals);
             Audit::log('UPDATE', 'fatture', $id, null, null, ['numero_fattura' => $fields['numero_fattura'], 'importo_totale' => $fields['importo_totale']]);
+
+            // Ricalcola incarico collegato (se presente)
+            $this->recalculateLinkedIncarico($id);
+
             Response::json(true, 'Fattura aggiornata', ['id' => $id]);
         } else {
             $cols = implode(', ', array_keys($fields));
@@ -84,13 +89,30 @@ class ContabilitaController {
             $this->pdo->prepare($sql)->execute(array_values($fields));
             $newId = $this->pdo->lastInsertId();
             Audit::log('INSERT', 'fatture', $newId, null, null, ['numero_fattura' => $fields['numero_fattura'], 'importo_totale' => $fields['importo_totale']]);
+
+            // Ricalcola incarico collegato (se presente)
+            $this->recalculateLinkedIncarico($newId);
+
             Response::json(true, 'Fattura creata', ['id' => $newId]);
         }
     }
 
     public function delete($id) {
+        // Prima recupera l'incarico_id per ricalcolo successivo
+        $stmtInc = $this->pdo->prepare("SELECT incarico_id FROM {$this->prefix}fatture WHERE id = ?");
+        $stmtInc->execute([$id]);
+        $incaricoId = $stmtInc->fetchColumn();
+
         $this->pdo->prepare("DELETE FROM {$this->prefix}fatture WHERE id = ?")->execute([$id]);
         Audit::log('DELETE', 'fatture', $id, null, null, null);
+
+        // Ricalcola incarico se era collegato
+        if ($incaricoId) {
+            require_once __DIR__ . '/IncarchiController.php';
+            $incCtrl = new IncarchiController();
+            $incCtrl->recalculate($incaricoId);
+        }
+
         Response::json(true, 'Fattura eliminata');
     }
 
@@ -651,6 +673,13 @@ class ContabilitaController {
 
             $matched += count($idsAggiornati);
             $details[] = "✅ Fattura n. {$numFattura} — €" . number_format($importo, 2, ',', '.') . " → {$numRigheDb} righe aggiornate come Pagate ({$dataPagamento})";
+
+            // Ricalcola incarichi collegati alle fatture pagate
+            foreach ($righeDb as $r) {
+                if (in_array($r['id'], $idsAggiornati)) {
+                    $this->recalculateLinkedIncarico($r['id']);
+                }
+            }
         }
 
         $messages = array_merge($details, $alreadyPaid, $notFound);
@@ -664,5 +693,19 @@ class ContabilitaController {
             'num_righe_trovate' => count($righe),
             'messages' => $messages
         ]);
+    }
+
+    /**
+     * Ricalcola l'incarico collegato a una fattura (helper interno)
+     */
+    private function recalculateLinkedIncarico($fatturaId) {
+        $stmt = $this->pdo->prepare("SELECT incarico_id FROM {$this->prefix}fatture WHERE id = ?");
+        $stmt->execute([$fatturaId]);
+        $incaricoId = $stmt->fetchColumn();
+        if ($incaricoId) {
+            require_once __DIR__ . '/IncarchiController.php';
+            $incCtrl = new IncarchiController();
+            $incCtrl->recalculate($incaricoId);
+        }
     }
 }
