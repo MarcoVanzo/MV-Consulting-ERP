@@ -83,7 +83,7 @@ class AdminController {
         $stmt->execute([$email, $email, $hash, $name, $role]);
         $id = $this->pdo->lastInsertId();
 
-        Logger::logAction('INSERT', 'users', $id, ['email' => $email]);
+        Audit::log('INSERT', 'users', $id, null, null, ['email' => $email])
         Response::json(true, 'Utente creato', ['tempPassword' => $tempPassword, 'id' => $id]);
     }
 
@@ -93,7 +93,7 @@ class AdminController {
         if (!$id) Response::json(false, 'ID utente mancante');
         
         $this->pdo->prepare("DELETE FROM {$this->prefix}users WHERE id = ?")->execute([$id]);
-        Logger::logAction('DELETE', 'users', $id);
+        Audit::log('DELETE', 'users', $id, null, null, null)
         Response::json(true, 'Utente eliminato');
     }
 
@@ -106,7 +106,7 @@ class AdminController {
         $hash = password_hash($tempPassword, PASSWORD_DEFAULT);
         
         $this->pdo->prepare("UPDATE {$this->prefix}users SET password = ? WHERE id = ?")->execute([$hash, $id]);
-        Logger::logAction('UPDATE', 'users', $id, ['action' => 'reset_password']);
+        Audit::log('UPDATE', 'users', $id, null, null, ['action' => 'reset_password'])
         
         Response::json(true, 'Password resettata', ['tempPassword' => $tempPassword]);
     }
@@ -125,86 +125,38 @@ class AdminController {
     }
 
     public function createBackup() {
-        ob_start();
         try {
-            $id = 'BKP_' . bin2hex(random_bytes(6));
-            $filename = "backup_mv_{$id}_" . date('Ymd_His') . ".sql";
-            $dir = dirname(__DIR__, 2) . '/storage/backups';
-            if (!is_dir($dir)) {
-                if (!@mkdir($dir, 0755, true)) {
-                    throw new Exception("Impossibile creare la cartella di backup: $dir");
-                }
-            }
-            $filepath = $dir . '/' . $filename;
-
-            // Esegui dump usando mysqldump se disponibile, altrimenti finto backup
-            $host = getenv('DB_HOST') ?: 'localhost';
-            $user = getenv('DB_USER') ?: 'root';
-            $pass = getenv('DB_PASS') ?: '';
-            $name = getenv('DB_NAME') ?: 'mv_erp';
+            require_once dirname(__DIR__) . '/Shared/BackupService.php';
+            require_once dirname(__DIR__) . '/Shared/GoogleDrive.php';
             
-            $return_var = 1;
-            if (function_exists('exec')) {
-                $cmd = sprintf(
-                    'mysqldump -h %s -u %s -p%s %s > %s 2>/dev/null',
-                    escapeshellarg($host),
-                    escapeshellarg($user),
-                    escapeshellarg($pass),
-                    escapeshellarg($name),
-                    escapeshellarg($filepath)
-                );
-                @exec($cmd, $output, $return_var);
+            // L'utente corrente (puoi prenderlo dalla sessione se disponibile, altrimenti admin manuale)
+            $userId = $_SESSION['user_id'] ?? null;
+            
+            $service = new BackupService($this->pdo, $this->prefix);
+            $result = $service->dump((string)$userId, 'Manuale da Pannello');
+            
+            if (!$result['success']) {
+                Response::json(false, "Errore backup: " . $result['error']);
+                return;
             }
 
-            if ($return_var !== 0 || !file_exists($filepath) || filesize($filepath) === 0) {
-                // Generiamo un dump via PHP PDO visto che mysqldump non va
-                $fp = @fopen($filepath, 'w');
-                if (!$fp) {
-                    throw new Exception("Impossibile scrivere il file di backup in $filepath");
-                }
-                fwrite($fp, "-- Backup DB $name via PHP PDO\n");
-                fwrite($fp, "-- Data: " . date('Y-m-d H:i:s') . "\n\n");
-                
+            $driveEnabled = !empty(getenv('GDRIVE_CLIENT_ID')) && !empty(getenv('GDRIVE_REFRESH_TOKEN'));
+            $driveMsg = '';
+            
+            if ($driveEnabled) {
                 try {
-                    $tables = [];
-                    $stmt = $this->pdo->query("SHOW TABLES");
-                    while ($row = $stmt->fetch(PDO::FETCH_NUM)) {
-                        $tables[] = $row[0];
-                    }
-
-                    foreach ($tables as $table) {
-                        $stmt = $this->pdo->query("SHOW CREATE TABLE `$table`");
-                        $row = $stmt->fetch(PDO::FETCH_NUM);
-                        fwrite($fp, "DROP TABLE IF EXISTS `$table`;\n");
-                        fwrite($fp, $row[1] . ";\n\n");
-
-                        $stmt = $this->pdo->query("SELECT * FROM `$table`");
-                        while ($rowData = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                            $escapedValues = array_map(function($v) {
-                                return ($v === null) ? 'NULL' : $this->pdo->quote($v);
-                            }, array_values($rowData));
-                            $sql = "INSERT INTO `$table` (`" . implode("`, `", array_keys($rowData)) . "`) VALUES (" . implode(", ", $escapedValues) . ");\n";
-                            fwrite($fp, $sql);
-                        }
-                        fwrite($fp, "\n");
-                    }
-                } catch(Exception $e) {
-                    fclose($fp);
-                    throw new Exception("Errore durante il dump PDO: " . $e->getMessage());
+                    $driveFileId = GoogleDrive::uploadFile($result['filepath'], $result['filename']);
+                    $this->pdo->prepare("UPDATE {$this->prefix}db_backups SET status = 'synced' WHERE id = ?")->execute([$result['id']]);
+                    $driveMsg = ' (Sincronizzato su Google Drive)';
+                } catch (\Throwable $e) {
+                    $driveMsg = ' (Errore GDrive: ' . $e->getMessage() . ')';
                 }
-                fclose($fp);
             }
-
-            $filesize = @filesize($filepath) ?: 0;
-            $sql = "INSERT INTO {$this->prefix}db_backups (id, filename, filesize) VALUES (?, ?, ?)";
-            $this->pdo->prepare($sql)->execute([$id, $filename, $filesize]);
-
-            Logger::logAction('CREATE', 'db_backups', $id, ['filename' => $filename]);
-            $warns = ob_get_clean();
-            Response::json(true, 'Backup creato' . ($warns ? " [Avvisi: $warns]" : ""), ['filename' => $filename]);
+            
+            Audit::log('CREATE', 'db_backups', $result['id'], null, null, ['filename' => $result['filename']])
+            Response::json(true, 'Backup creato con successo' . $driveMsg, ['filename' => $result['filename']]);
         } catch (Throwable $e) {
-            $warns = ob_get_clean();
-            Response::json(false, "Errore interno server: " . $e->getMessage() . " | " . $warns);
+            Response::json(false, "Errore interno server: " . $e->getMessage());
         }
     }
 
@@ -247,7 +199,7 @@ class AdminController {
             if (file_exists($filepath)) unlink($filepath);
             
             $this->pdo->prepare("DELETE FROM {$this->prefix}db_backups WHERE id = ?")->execute([$id]);
-            Logger::logAction('DELETE', 'db_backups', $id, ['filename' => $filename]);
+            Audit::log('DELETE', 'db_backups', $id, null, null, ['filename' => $filename])
             Response::json(true, 'Backup eliminato');
         } else {
             Response::json(false, 'Backup non trovato');
