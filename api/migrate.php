@@ -203,7 +203,43 @@ $queries = [
     "ALTER TABLE {$prefix}users ADD COLUMN username VARCHAR(100) DEFAULT NULL AFTER name",
     "ALTER TABLE {$prefix}users ADD COLUMN full_name VARCHAR(150) DEFAULT NULL AFTER username",
     "ALTER TABLE {$prefix}users ADD COLUMN is_active TINYINT(1) DEFAULT 1 AFTER role",
-    "ALTER TABLE {$prefix}users ADD COLUMN last_login_at DATETIME DEFAULT NULL AFTER is_active"
+    "ALTER TABLE {$prefix}users ADD COLUMN last_login_at DATETIME DEFAULT NULL AFTER is_active",
+
+    // ── Audit Logs ───────────────────────────────────────
+    "CREATE TABLE IF NOT EXISTS {$prefix}audit_logs (
+        id VARCHAR(50) PRIMARY KEY,
+        tenant_id INT NOT NULL DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        user_id VARCHAR(50) DEFAULT NULL,
+        username VARCHAR(100) DEFAULT NULL,
+        role VARCHAR(20) DEFAULT NULL,
+        event_type VARCHAR(50) NOT NULL DEFAULT 'crud',
+        action VARCHAR(100) NOT NULL,
+        table_name VARCHAR(100) DEFAULT NULL,
+        record_id VARCHAR(100) DEFAULT NULL,
+        ip_address VARCHAR(45) DEFAULT NULL,
+        user_agent VARCHAR(512) DEFAULT NULL,
+        http_status SMALLINT DEFAULT 200,
+        before_snapshot MEDIUMTEXT DEFAULT NULL,
+        after_snapshot MEDIUMTEXT DEFAULT NULL,
+        details TEXT DEFAULT NULL,
+        KEY idx_audit_user (user_id),
+        KEY idx_audit_created (created_at),
+        KEY idx_audit_action (action),
+        KEY idx_audit_event_type (event_type),
+        KEY idx_audit_table (table_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    // Se la tabella esisteva già prima con la vecchia struttura, le colonne verranno create o modificate.
+    "ALTER TABLE {$prefix}audit_logs CHANGE user_name username VARCHAR(100) DEFAULT NULL",
+    "ALTER TABLE {$prefix}audit_logs ADD COLUMN id VARCHAR(50) PRIMARY KEY FIRST",
+    "ALTER TABLE {$prefix}audit_logs ADD COLUMN tenant_id INT NOT NULL DEFAULT 1 AFTER id",
+    "ALTER TABLE {$prefix}audit_logs ADD COLUMN role VARCHAR(20) DEFAULT NULL AFTER username",
+    "ALTER TABLE {$prefix}audit_logs ADD COLUMN event_type VARCHAR(50) NOT NULL DEFAULT 'crud' AFTER role",
+    "ALTER TABLE {$prefix}audit_logs ADD COLUMN user_agent VARCHAR(512) DEFAULT NULL AFTER ip_address",
+    "ALTER TABLE {$prefix}audit_logs ADD COLUMN http_status SMALLINT DEFAULT 200 AFTER user_agent",
+    "ALTER TABLE {$prefix}audit_logs ADD COLUMN before_snapshot MEDIUMTEXT DEFAULT NULL AFTER http_status",
+    "ALTER TABLE {$prefix}audit_logs ADD COLUMN after_snapshot MEDIUMTEXT DEFAULT NULL AFTER before_snapshot",
+    "ALTER TABLE {$prefix}audit_logs CHANGE timestamp created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
 ];
 
 $results = [];

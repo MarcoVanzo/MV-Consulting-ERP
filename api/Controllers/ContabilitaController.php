@@ -75,7 +75,7 @@ class ContabilitaController {
             $vals[] = $id;
             $sql = "UPDATE {$this->prefix}fatture SET " . implode(', ', $sets) . " WHERE id = ?";
             $this->pdo->prepare($sql)->execute($vals);
-            Logger::logAction('UPDATE', 'fatture', $id, ['numero_fattura' => $fields['numero_fattura'], 'importo_totale' => $fields['importo_totale']]);
+            Audit::log('UPDATE', 'fatture', $id, null, null, ['numero_fattura' => $fields['numero_fattura'], 'importo_totale' => $fields['importo_totale']])
             Response::json(true, 'Fattura aggiornata', ['id' => $id]);
         } else {
             $cols = implode(', ', array_keys($fields));
@@ -83,14 +83,14 @@ class ContabilitaController {
             $sql = "INSERT INTO {$this->prefix}fatture ($cols) VALUES ($placeholders)";
             $this->pdo->prepare($sql)->execute(array_values($fields));
             $newId = $this->pdo->lastInsertId();
-            Logger::logAction('INSERT', 'fatture', $newId, ['numero_fattura' => $fields['numero_fattura'], 'importo_totale' => $fields['importo_totale']]);
+            Audit::log('INSERT', 'fatture', $newId, null, null, ['numero_fattura' => $fields['numero_fattura'], 'importo_totale' => $fields['importo_totale']])
             Response::json(true, 'Fattura creata', ['id' => $newId]);
         }
     }
 
     public function delete($id) {
         $this->pdo->prepare("DELETE FROM {$this->prefix}fatture WHERE id = ?")->execute([$id]);
-        Logger::logAction('DELETE', 'fatture', $id);
+        Audit::log('DELETE', 'fatture', $id, null, null, null)
         Response::json(true, 'Fattura eliminata');
     }
 
@@ -639,12 +639,12 @@ class ContabilitaController {
                             metodo_pagamento = 'bonifico'
                         WHERE id = ?");
                     $stmtUpd->execute([$dataPagamento, $r['id']]);
-                    Logger::logAction('UPDATE', 'fatture', $r['id'], [
+                    Audit::log('UPDATE', 'fatture', $r['id'], null, null, [
                         'azione' => 'pagamento_da_pdf',
                         'stato' => 'pagata',
                         'data_pagamento' => $dataPagamento,
                         'importo_riga' => $r['importo_totale']
-                    ]);
+                    ])
                     $idsAggiornati[] = $r['id'];
                 }
             }

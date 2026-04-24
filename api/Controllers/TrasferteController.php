@@ -89,14 +89,14 @@ class TrasferteController {
             $vals[] = $id;
             $sql = "UPDATE {$this->prefix}trasferte SET " . implode(', ', $sets) . " WHERE id = ?";
             $this->pdo->prepare($sql)->execute($vals);
-            Logger::logAction('UPDATE', 'trasferte', $id, ['data_trasferta' => $fields['data_trasferta'], 'cliente_id' => $fields['cliente_id']]);
+            Audit::log('UPDATE', 'trasferte', $id, null, null, ['data_trasferta' => $fields['data_trasferta'], 'cliente_id' => $fields['cliente_id']])
         } else {
             $cols = implode(', ', array_keys($fields));
             $placeholders = implode(', ', array_fill(0, count($fields), '?'));
             $sql = "INSERT INTO {$this->prefix}trasferte ($cols) VALUES ($placeholders)";
             $this->pdo->prepare($sql)->execute(array_values($fields));
             $id = $this->pdo->lastInsertId();
-            Logger::logAction('INSERT', 'trasferte', $id, ['data_trasferta' => $fields['data_trasferta'], 'cliente_id' => $fields['cliente_id']]);
+            Audit::log('INSERT', 'trasferte', $id, null, null, ['data_trasferta' => $fields['data_trasferta'], 'cliente_id' => $fields['cliente_id']])
         }
 
         // Auto-calcula rotta
@@ -114,7 +114,7 @@ class TrasferteController {
 
     public function delete($id) {
         $this->pdo->prepare("DELETE FROM {$this->prefix}trasferte WHERE id = ?")->execute([$id]);
-        Logger::logAction('DELETE', 'trasferte', $id);
+        Audit::log('DELETE', 'trasferte', $id, null, null, null)
         Response::json(true, 'Trasferta eliminata');
     }
 

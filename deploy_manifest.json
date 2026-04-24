@@ -1,7 +1,7 @@
 {
   "version": 3,
-  "generated_at": "2026-04-23T21:43:00.858Z",
-  "file_count": 29,
+  "generated_at": "2026-04-24T12:11:01.371Z",
+  "file_count": 32,
   "files": [
     {
       "path": "api/.htaccess",
@@ -9,15 +9,15 @@
     },
     {
       "path": "api/Controllers/AdminController.php",
-      "hash": "dd8c6d332cf8edd5c95a76f503c6756db509fce092eeecc83d7a27253e8dc264"
+      "hash": "e14885bd79761a1e8eb72b1a7203c1e15950287d8ddd1cceff8549d90cbdab84"
     },
     {
       "path": "api/Controllers/ClientiController.php",
-      "hash": "1e69d25bd0479bc2af0752cc80fc91b8d47cd5a37496d3016ca23fca1475d48c"
+      "hash": "e76e78694c9a175772a4796e56e5ec8aab07db0cee60eff802c915ec84119395"
     },
     {
       "path": "api/Controllers/ContabilitaController.php",
-      "hash": "906d644799acaeece1ac564c5077dc0a74d49ba44db02692542ec2997bfbe80b"
+      "hash": "fd8d090b73b4d1226ce7dabd88ae65369e813df7bdc75b81fb33e8c439e2c060"
     },
     {
       "path": "api/Controllers/GoogleAuthController.php",
@@ -29,11 +29,11 @@
     },
     {
       "path": "api/Controllers/SottoclientiController.php",
-      "hash": "9045635ceb74fdd3a68d1907009e0b960f4e7db627d39c9c02ff2f368fc5ed2b"
+      "hash": "57c883d614bfef8d4c0e38c1e602ca47ee1115e5b48347074ce7c0c13e23cd82"
     },
     {
       "path": "api/Controllers/TrasferteController.php",
-      "hash": "2978203721058fc6158e5fae4527ef3e38e18c65c604eebbf8a99ac69c4d32e7"
+      "hash": "5d7dc7bf8a1692b6395d5382813bbdb4c6e0c40e63d47dc3f8cca565ee9365e4"
     },
     {
       "path": "api/health.php",
@@ -41,27 +41,35 @@
     },
     {
       "path": "api/migrate.php",
-      "hash": "06a0ff2f7c6448b96ff1beef86b29463a64ea6391ecbb2a87a1b51a891b7c50f"
+      "hash": "4195a744fbf7e02eaeb6ab1f3795c8b57827b9621f162bc7a9385f77718686a0"
     },
     {
       "path": "api/router.php",
-      "hash": "b1c27084e01a829ac23d6f32f6ca5fac96402c1e4d95f7e6a6592b2b45894e11"
+      "hash": "96616d5842583a5e4a85361ab9ea9e843fc4ae875015db98f5e4b05ee0cb16a8"
+    },
+    {
+      "path": "api/Shared/Audit.php",
+      "hash": "8dc34e86a062551490462695ad0444a9c5d31a095b47f54b29ac06851c835719"
     },
     {
       "path": "api/Shared/Auth.php",
-      "hash": "4adedcd9aa0e0def4f03baa06745a39d17cfb2d4ed2368d16b211fc5fffcc95a"
+      "hash": "c5905777dd0581cb10d64a0f05cfeb1ee522e004b7978cf8fc2a141ccb36d264"
+    },
+    {
+      "path": "api/Shared/BackupService.php",
+      "hash": "b0dfc091f927c9a9e9947551fcfacf03048243177af5675c30b975d996fe86ef"
     },
     {
       "path": "api/Shared/Database.php",
       "hash": "9e11ec185b28e442d0e14a823896118415b63acdc3fe589bd4f50b62c58a8edf"
     },
     {
-      "path": "api/Shared/JWT.php",
-      "hash": "51a585fafdd82a7aa0c3f9e912a9a34eac040a0aa9cec55d3d86173c634512bf"
+      "path": "api/Shared/GoogleDrive.php",
+      "hash": "090c2d883f7a1519bd3a81ff999236ba64c03712bdc49b689b4c1b2566680778"
     },
     {
-      "path": "api/Shared/Logger.php",
-      "hash": "e3d5a5313ae9988b639ce6ca3ab8fbb6508352d76dd9478c3d902966b3327f28"
+      "path": "api/Shared/JWT.php",
+      "hash": "51a585fafdd82a7aa0c3f9e912a9a34eac040a0aa9cec55d3d86173c634512bf"
     },
     {
       "path": "api/Shared/Response.php",
@@ -70,6 +78,10 @@
     {
       "path": "assets/logo.png",
       "hash": "dd35d97098ca3a92b9d38e7679ce8b99e8b8d429b116bf311bc3b41bc8e2ea12"
+    },
+    {
+      "path": "cron/backup_nightly.php",
+      "hash": "cb12749a47a5bfccc4c0a0b67b0a403c49d8f5ef1ab8e5effd9279be07bcc56d"
     },
     {
       "path": "css/style.css",
@@ -81,7 +93,7 @@
     },
     {
       "path": "index.html",
-      "hash": "f433a216aae32ba51ceac6a08027654075aa221467d197afa5b745f4fe42782b"
+      "hash": "4c2f2aa614faecab5e10c4fe1fc3d8fb9cf96128cd0f6d7f8ab032b559b6db8a"
     },
     {
       "path": "js/app.js",
