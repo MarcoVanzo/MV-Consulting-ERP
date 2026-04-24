@@ -5,7 +5,7 @@
  */
 
 require_once __DIR__ . '/Shared/Database.php';
-require_once __DIR__ . '/Shared/Logger.php';
+require_once __DIR__ . '/Shared/Audit.php';
 require_once __DIR__ . '/Shared/Response.php';
 require_once __DIR__ . '/Shared/JWT.php';
 require_once __DIR__ . '/Shared/Auth.php';
@@ -150,7 +150,7 @@ try {
                 }
 
                 if (count($attempts) >= $maxAttempts) {
-                    Logger::logAction('RATE_LIMIT', 'auth', null, ['ip' => $ip, 'email' => $email]);
+                    Audit::log('RATE_LIMIT', 'auth', null, null, null, ['ip' => $ip, 'email' => $email]);
                     Response::json(false, 'Troppi tentativi di accesso. Riprovare tra qualche minuto.', null, 429);
                 }
 

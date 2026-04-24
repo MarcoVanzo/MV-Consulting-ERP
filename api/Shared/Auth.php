@@ -37,7 +37,7 @@ class Auth {
                 ];
                 $token = JWT::encode($payload, $secret);
                 
-                Logger::logAction('LOGIN', 'users', $user['id'], ['email' => $user['email']]);
+                Audit::log('LOGIN', 'users', $user['id'], null, null, ['email' => $user['email']])
                 
                 return [
                     'id' => $user['id'],
