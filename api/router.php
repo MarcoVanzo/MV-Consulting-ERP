@@ -97,7 +97,18 @@ $public_actions = [
     'google' => ['auth', 'callback']
 ];
 $isPublic = isset($public_actions[$module]) && in_array($action, $public_actions[$module]);
-if (!$isPublic) {
+
+// Deploy key auth: admin/migrate può essere autenticato via X-Deploy-Key
+$isDeployKeyAuth = false;
+if ($module === 'admin' && $action === 'migrate') {
+    $deployKey = $_SERVER['HTTP_X_DEPLOY_KEY'] ?? '';
+    $serverKey = getenv('DEPLOY_KEY') ?: '';
+    if ($deployKey && $serverKey && hash_equals($serverKey, $deployKey)) {
+        $isDeployKeyAuth = true;
+    }
+}
+
+if (!$isPublic && !$isDeployKeyAuth) {
     $jwt = $_COOKIE['auth_token'] ?? '';
     if (!$jwt && preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
         $jwt = $matches[1];
