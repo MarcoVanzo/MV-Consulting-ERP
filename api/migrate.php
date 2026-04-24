@@ -232,6 +232,10 @@ $queries = [
     "ALTER TABLE {$prefix}users ADD COLUMN full_name VARCHAR(150) DEFAULT NULL AFTER username",
     "ALTER TABLE {$prefix}users ADD COLUMN is_active TINYINT(1) DEFAULT 1 AFTER role",
     "ALTER TABLE {$prefix}users ADD COLUMN last_login_at DATETIME DEFAULT NULL AFTER is_active",
+    "ALTER TABLE {$prefix}users ADD COLUMN blocked TINYINT(1) DEFAULT 0 AFTER is_active",
+    "ALTER TABLE {$prefix}users ADD COLUMN failed_attempts INT DEFAULT 0 AFTER blocked",
+    "ALTER TABLE {$prefix}users ADD COLUMN must_change_password TINYINT(1) DEFAULT 0 AFTER failed_attempts",
+    "ALTER TABLE {$prefix}users ADD COLUMN last_password_change DATETIME DEFAULT NULL AFTER must_change_password",
 
     // ── Audit Logs ───────────────────────────────────────
     "CREATE TABLE IF NOT EXISTS {$prefix}audit_logs (
