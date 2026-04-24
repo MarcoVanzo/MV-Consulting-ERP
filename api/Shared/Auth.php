@@ -24,7 +24,28 @@ class Auth {
                 }
 
                 $dbPassword = !empty($user['password']) ? $user['password'] : (!empty($user['pwd_hash']) ? $user['pwd_hash'] : null);
-                if ($dbPassword && password_verify($password, $dbPassword)) {
+                
+                $isValid = false;
+                if ($dbPassword) {
+                    if (password_verify($password, $dbPassword)) {
+                        $isValid = true;
+                    } elseif (md5($password) === $dbPassword || md5($password) === strtolower($dbPassword)) {
+                        $isValid = true;
+                        $newHash = password_hash($password, PASSWORD_DEFAULT);
+                        $this->db->prepare("UPDATE {$prefix}users SET password = ? WHERE id = ?")->execute([$newHash, $user['id']]);
+                    } elseif (sha1($password) === $dbPassword || sha1($password) === strtolower($dbPassword)) {
+                        $isValid = true;
+                        $newHash = password_hash($password, PASSWORD_DEFAULT);
+                        $this->db->prepare("UPDATE {$prefix}users SET password = ? WHERE id = ?")->execute([$newHash, $user['id']]);
+                    } elseif ($password === $dbPassword) {
+                        // Plain text fallback
+                        $isValid = true;
+                        $newHash = password_hash($password, PASSWORD_DEFAULT);
+                        $this->db->prepare("UPDATE {$prefix}users SET password = ? WHERE id = ?")->execute([$newHash, $user['id']]);
+                    }
+                }
+
+                if ($isValid) {
                     
                     // Reset failed attempts
                     $this->db->prepare("UPDATE {$prefix}users SET failed_attempts = 0 WHERE id = ?")->execute([$user['id']]);
