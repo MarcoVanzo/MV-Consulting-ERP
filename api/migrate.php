@@ -32,9 +32,26 @@ $queries = [
         email VARCHAR(150) NOT NULL UNIQUE,
         password VARCHAR(255) NOT NULL,
         role VARCHAR(30) DEFAULT 'admin',
+        status ENUM('Attivo', 'Invitato', 'Disattivato') DEFAULT 'Attivo',
+        blocked TINYINT(1) DEFAULT 0,
+        failed_attempts INT DEFAULT 0,
+        must_change_password TINYINT(1) DEFAULT 0,
+        last_password_change DATETIME DEFAULT NULL,
+        verification_token VARCHAR(255) DEFAULT NULL,
+        token_expires_at DATETIME DEFAULT NULL,
         is_active TINYINT(1) DEFAULT 1,
         last_login_at DATETIME DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    "CREATE TABLE IF NOT EXISTS {$prefix}password_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        pwd_hash VARCHAR(255) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_pwdhist_user (user_id),
+        KEY idx_pwdhist_created (created_at),
+        FOREIGN KEY (user_id) REFERENCES {$prefix}users(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
     // ── Clienti ──────────────────────────────────────────
