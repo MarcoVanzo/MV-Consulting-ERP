@@ -83,7 +83,7 @@ class AdminController {
         $stmt->execute([$email, $email, $hash, $name, $role]);
         $id = $this->pdo->lastInsertId();
 
-        Audit::log('INSERT', 'users', $id, null, null, ['email' => $email])
+        Audit::log('INSERT', 'users', $id, null, null, ['email' => $email]);
         Response::json(true, 'Utente creato', ['tempPassword' => $tempPassword, 'id' => $id]);
     }
 
@@ -93,7 +93,7 @@ class AdminController {
         if (!$id) Response::json(false, 'ID utente mancante');
         
         $this->pdo->prepare("DELETE FROM {$this->prefix}users WHERE id = ?")->execute([$id]);
-        Audit::log('DELETE', 'users', $id, null, null, null)
+        Audit::log('DELETE', 'users', $id, null, null, null);
         Response::json(true, 'Utente eliminato');
     }
 
@@ -106,7 +106,7 @@ class AdminController {
         $hash = password_hash($tempPassword, PASSWORD_DEFAULT);
         
         $this->pdo->prepare("UPDATE {$this->prefix}users SET password = ? WHERE id = ?")->execute([$hash, $id]);
-        Audit::log('UPDATE', 'users', $id, null, null, ['action' => 'reset_password'])
+        Audit::log('UPDATE', 'users', $id, null, null, ['action' => 'reset_password']);
         
         Response::json(true, 'Password resettata', ['tempPassword' => $tempPassword]);
     }
@@ -153,7 +153,7 @@ class AdminController {
                 }
             }
             
-            Audit::log('CREATE', 'db_backups', $result['id'], null, null, ['filename' => $result['filename']])
+            Audit::log('CREATE', 'db_backups', $result['id'], null, null, ['filename' => $result['filename']]);
             Response::json(true, 'Backup creato con successo' . $driveMsg, ['filename' => $result['filename']]);
         } catch (Throwable $e) {
             Response::json(false, "Errore interno server: " . $e->getMessage());
@@ -199,7 +199,7 @@ class AdminController {
             if (file_exists($filepath)) unlink($filepath);
             
             $this->pdo->prepare("DELETE FROM {$this->prefix}db_backups WHERE id = ?")->execute([$id]);
-            Audit::log('DELETE', 'db_backups', $id, null, null, ['filename' => $filename])
+            Audit::log('DELETE', 'db_backups', $id, null, null, ['filename' => $filename]);
             Response::json(true, 'Backup eliminato');
         } else {
             Response::json(false, 'Backup non trovato');
