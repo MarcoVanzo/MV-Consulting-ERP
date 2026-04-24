@@ -30,7 +30,7 @@ const Store = (() => {
             const fetchOptions = {
                 method: options.method || 'POST',
                 headers: headers,
-                credentials: 'same-origin'
+                credentials: 'include'
             };
             
             // fetch doesn't allow body for GET requests

@@ -21,21 +21,6 @@ if (file_exists($envPath)) {
 $pdo = Database::getConnection();
 $prefix = getenv('DB_PREFIX') ?: 'mv_';
 
-if (isset($_GET['reset_pw'])) {
-    try {
-        $stmt = $pdo->query("SHOW TABLES");
-        $tables = $stmt->fetchAll(PDO::FETCH_COLUMN);
-        
-        $newHash = password_hash('Admin123!', PASSWORD_DEFAULT);
-        $stmt = $pdo->prepare("UPDATE users SET password = ?");
-        $stmt->execute([$newHash]);
-        
-        die(json_encode(['success' => true, 'tables' => $tables, 'message' => 'Tutte le password sono state resettate a Admin123!']));
-    } catch (Exception $e) {
-        die(json_encode(['success' => false, 'error' => $e->getMessage()]));
-    }
-}
-
 $queries = [
 
     // ── Users table (if not exists) ──────────────────────

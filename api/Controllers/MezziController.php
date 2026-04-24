@@ -141,11 +141,23 @@ class MezziController {
 
         $allegatoUrl = null;
         if (isset($_FILES['allegato']) && $_FILES['allegato']['error'] === UPLOAD_ERR_OK) {
+            // Validate file extension
+            $allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'];
+            $ext = strtolower(pathinfo($_FILES['allegato']['name'], PATHINFO_EXTENSION));
+            if (!in_array($ext, $allowedExtensions)) {
+                Response::json(false, "Tipo di file non consentito. Formati accettati: " . implode(', ', $allowedExtensions));
+            }
+
+            // Validate file size (max 10MB)
+            $maxSize = (int)(getenv('MAX_UPLOAD_SIZE') ?: 10485760);
+            if ($_FILES['allegato']['size'] > $maxSize) {
+                Response::json(false, "File troppo grande. Dimensione massima: " . round($maxSize / 1048576) . "MB");
+            }
+
             $uploadDir = __DIR__ . '/../../uploads/manutenzioni/';
-            if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+            if (!is_dir($uploadDir)) mkdir($uploadDir, 0750, true);
             
-            $ext = pathinfo($_FILES['allegato']['name'], PATHINFO_EXTENSION);
-            $filename = 'maint_' . time() . '_' . uniqid() . '.' . $ext;
+            $filename = 'maint_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
             
             if (move_uploaded_file($_FILES['allegato']['tmp_name'], $uploadDir . $filename)) {
                 $allegatoUrl = 'uploads/manutenzioni/' . $filename;

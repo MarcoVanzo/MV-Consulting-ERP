@@ -29,19 +29,13 @@ class Auth {
                 if ($dbPassword) {
                     if (password_verify($password, $dbPassword)) {
                         $isValid = true;
-                    } elseif (md5($password) === $dbPassword || md5($password) === strtolower($dbPassword)) {
-                        $isValid = true;
-                        $newHash = password_hash($password, PASSWORD_DEFAULT);
-                        $this->db->prepare("UPDATE {$prefix}users SET password = ? WHERE id = ?")->execute([$newHash, $user['id']]);
-                    } elseif (sha1($password) === $dbPassword || sha1($password) === strtolower($dbPassword)) {
-                        $isValid = true;
-                        $newHash = password_hash($password, PASSWORD_DEFAULT);
-                        $this->db->prepare("UPDATE {$prefix}users SET password = ? WHERE id = ?")->execute([$newHash, $user['id']]);
-                    } elseif ($password === $dbPassword) {
-                        // Plain text fallback
-                        $isValid = true;
-                        $newHash = password_hash($password, PASSWORD_DEFAULT);
-                        $this->db->prepare("UPDATE {$prefix}users SET password = ? WHERE id = ?")->execute([$newHash, $user['id']]);
+                    } else {
+                        // Log if password looks like a legacy hash (MD5/SHA1/plaintext) 
+                        // to help identify users who haven't been migrated
+                        $hashLen = strlen($dbPassword);
+                        if ($hashLen === 32 || $hashLen === 40 || $hashLen < 30) {
+                            error_log('[SECURITY] Legacy password hash detected for user ' . $user['id'] . ' — force password reset required');
+                        }
                     }
                 }
 
