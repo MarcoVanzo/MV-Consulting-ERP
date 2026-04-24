@@ -307,18 +307,72 @@ class IncarchiController {
             }
         }
 
-        // 2. Per nome nel testo (soglia: 3 caratteri)
+        // 2. Per nome nel testo — matching intelligente per parole chiave
+        //    (gestisce abbreviazioni tipo S.c.ar.l. vs SOCIETA' CONSORTILE ecc.)
         if (!$extracted['cliente_id']) {
-            // Ordina per lunghezza nome decrescente (match più specifico prima)
-            usort($allClienti, function($a, $b) {
-                return mb_strlen($b['ragione_sociale'], 'UTF-8') - mb_strlen($a['ragione_sociale'], 'UTF-8');
-            });
+            // Parole da ignorare nel matching (forme giuridiche, preposizioni, ecc.)
+            $stopWords = ['srl', 'spa', 'sas', 'snc', 'scarl', 'soc', 'societa', 'società',
+                'consortile', 'responsabilita', 'responsabilità', 'limitata', 'illimitata',
+                'azioni', 'accomandita', 'semplice', 'cooperativa', 'coop',
+                'a', 'e', 'di', 'del', 'dei', 'della', 'delle', 'in', 'con', 'per', 'da',
+                'il', 'lo', 'la', 'i', 'gli', 'le', 'un', 'uno', 'una',
+                's.r.l.', 's.p.a.', 's.a.s.', 's.n.c.', 's.c.ar.l.', 's.c.a.r.l.'];
+
+            $bestScore = 0;
+            $bestClienteId = null;
+
             foreach ($allClienti as $c) {
                 $nomeCliente = mb_strtolower(trim($c['ragione_sociale']), 'UTF-8');
+
+                // Tentativo 1: Match diretto (substring) — caso semplice
                 if (mb_strlen($nomeCliente, 'UTF-8') >= 3 && mb_strpos($textLower, $nomeCliente) !== false) {
                     $extracted['cliente_id'] = $c['id'];
+                    $bestScore = 999; // match perfetto
                     break;
                 }
+
+                // Tentativo 2: Match per parole chiave significative
+                // Pulisci il nome del cliente da punteggiatura e separatori
+                $cleaned = preg_replace('/[.\-\',;:\/\\\\()]+/', ' ', $nomeCliente);
+                $cleaned = preg_replace('/\s+/', ' ', trim($cleaned));
+                $words = explode(' ', $cleaned);
+
+                // Filtra: tieni solo parole significative (>= 4 char e non stop words)
+                $keywords = [];
+                foreach ($words as $w) {
+                    $w = trim($w);
+                    if (mb_strlen($w, 'UTF-8') >= 4 && !in_array($w, $stopWords)) {
+                        $keywords[] = $w;
+                    }
+                }
+
+                if (empty($keywords)) continue;
+
+                // Conta quante keywords del nome cliente compaiono nel testo PDF
+                $matched = 0;
+                foreach ($keywords as $kw) {
+                    if (mb_strpos($textLower, $kw) !== false) {
+                        $matched++;
+                    }
+                }
+
+                // Score = rapporto keywords trovate / totali
+                $score = $matched / count($keywords);
+
+                // Richiediamo almeno 2 keywords trovate OPPURE score >= 50%
+                if ($matched >= 2 && $score > $bestScore) {
+                    $bestScore = $score;
+                    $bestClienteId = $c['id'];
+                }
+                // Se il nome ha solo 1 keyword (es. "Unindustria") basta 1 match
+                if (count($keywords) === 1 && $matched === 1 && $bestScore < 1) {
+                    $bestScore = 0.5;
+                    $bestClienteId = $c['id'];
+                }
+            }
+
+            if ($bestClienteId && !$extracted['cliente_id']) {
+                $extracted['cliente_id'] = $bestClienteId;
             }
         }
 
