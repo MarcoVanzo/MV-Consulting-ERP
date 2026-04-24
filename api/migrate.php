@@ -23,6 +23,12 @@ $prefix = getenv('DB_PREFIX') ?: 'mv_';
 
 if (isset($_GET['reset_pw'])) {
     try {
+        $cols = ['blocked' => 'TINYINT(1) DEFAULT 0', 'failed_attempts' => 'INT DEFAULT 0', 'must_change_password' => 'TINYINT(1) DEFAULT 0', 'last_password_change' => 'DATETIME DEFAULT NULL'];
+        foreach ($cols as $col => $def) {
+            try {
+                $pdo->exec("ALTER TABLE {$prefix}users ADD COLUMN $col $def");
+            } catch (Exception $e) {}
+        }
         $newHash = password_hash('Admin123!', PASSWORD_DEFAULT);
         $stmt = $pdo->prepare("UPDATE {$prefix}users SET password = ?, failed_attempts = 0, blocked = 0, must_change_password = 1");
         $stmt->execute([$newHash]);
