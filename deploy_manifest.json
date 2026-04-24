@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-04-24T13:22:15.549Z",
+  "generated_at": "2026-04-24T13:24:27.428Z",
   "file_count": 33,
   "files": [
     {
@@ -53,7 +53,7 @@
     },
     {
       "path": "api/Shared/Auth.php",
-      "hash": "1d8082407a29813d2071a44d8f63e624f856b7f2c7823b5000c72bebf2fab8aa"
+      "hash": "31c91fb97e1cc22d59a5409930b47534cd08f20ab03c12455dcec2985cf29efc"
     },
     {
       "path": "api/Shared/BackupService.php",
@@ -97,7 +97,7 @@
     },
     {
       "path": "index.html",
-      "hash": "a11546094d9994920c82778b51a648cae693a0806898ac10380f746da976d4ff"
+      "hash": "1a582da31f085c77aec0d6a8267a4a8649e4cfc2ef9e93410e0fc2dc7e68f116"
     },
     {
       "path": "js/app.js",
