@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-04-24T20:51:52.095Z",
+  "generated_at": "2026-04-24T21:13:55.529Z",
   "file_count": 35,
   "files": [
     {
@@ -101,7 +101,7 @@
     },
     {
       "path": "index.html",
-      "hash": "7494b9cfe37177e06373f16bf7aea8722be43653b72767c14516d1ed51b9b785"
+      "hash": "5877700bfa86da7173497f6146b8e011115df9704b60d7fb69b9c0aee50af93f"
     },
     {
       "path": "js/app.js",
@@ -129,11 +129,11 @@
     },
     {
       "path": "js/modules/contabilita.js",
-      "hash": "b500ef19310422850e046cc06785bf99019e70194b0a60f38818ca92c7d66c37"
+      "hash": "c29d67982ed84a70065e82cd486ad3686f03f9057e2301694269703a4e63ef64"
     },
     {
       "path": "js/modules/incarichi.js",
-      "hash": "fa054ad1a2538709a7c1919db7175c072e4834ff1f89f8c13d986930cc2ca172"
+      "hash": "75c89c68961d3750ec4765eb7d52649c7238cbe0ae79000233f582b7c8d8b265"
     },
     {
       "path": "js/modules/mezzi.js",
