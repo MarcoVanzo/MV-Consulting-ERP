@@ -150,7 +150,9 @@ try {
                 }
 
                 if (count($attempts) >= $maxAttempts) {
-                    Audit::log('RATE_LIMIT', 'auth', null, null, null, ['ip' => $ip, 'email' => $email]);
+                    if (class_exists('Audit')) {
+                        Audit::log('RATE_LIMIT', 'auth', null, null, null, ['ip' => $ip, 'email' => $email]);
+                    }
                     Response::json(false, 'Troppi tentativi di accesso. Riprovare tra qualche minuto.', null, 429);
                 }
 
@@ -165,6 +167,28 @@ try {
                     $attempts[] = time();
                     file_put_contents($rateLimitFile, json_encode(array_values($attempts)));
                     Response::json(false, 'Email o password errati');
+                }
+            } elseif ($action === 'request_reset') {
+                $email = $data['email'] ?? '';
+                if (empty($email)) {
+                    Response::json(false, 'Email mancante');
+                }
+                $auth = new Auth();
+                $auth->requestPasswordReset($email);
+                Response::json(true, 'Se l\'email è registrata, riceverai una password temporanea a breve.');
+            } elseif ($action === 'reset_password') {
+                $userId = $data['user_id'] ?? '';
+                $currentPwd = $data['current_password'] ?? '';
+                $newPwd = $data['new_password'] ?? '';
+                if (empty($userId) || empty($currentPwd) || empty($newPwd)) {
+                    Response::json(false, 'Dati mancanti');
+                }
+                $auth = new Auth();
+                try {
+                    $auth->resetPassword($userId, $currentPwd, $newPwd);
+                    Response::json(true, 'Password aggiornata con successo. Effettua il login.');
+                } catch (Exception $e) {
+                    Response::json(false, $e->getMessage());
                 }
             }
             break;
@@ -293,7 +317,7 @@ try {
         default:
             Response::json(false, 'Modulo non supportato: ' . htmlspecialchars($module . '/' . $action));
     }
-} catch (Exception $e) {
+} catch (Throwable $e) {
     error_log("MV Consulting ERP API Error: " . $e->getMessage());
     // Non esporre i dettagli dell'errore al client in produzione
     $msg = (getenv('APP_DEBUG') === 'true') 
