@@ -1,15 +1,15 @@
 {
   "version": 3,
-  "generated_at": "2026-04-24T12:56:23.019Z",
-  "file_count": 34,
+  "generated_at": "2026-04-24T13:08:07.094Z",
+  "file_count": 33,
   "files": [
     {
       "path": "api/.htaccess",
-      "hash": "a3db95e66581b653e94a217921a645c8dce05b50a0bf74f4cbdf5c3a321ef875"
+      "hash": "299c65da28086f72c3f20ecea102330fb74700e6d96b7025119e7f8fd3e850f5"
     },
     {
       "path": "api/Controllers/AdminController.php",
-      "hash": "2f420fee3d3f15a2cacd57809f35828f644458e9107f8d319f68455114507cdf"
+      "hash": "c4f4868b1d4d7c65d58c4ee6f7ae6f110618b5d358628250e4ea15c7a373bc3d"
     },
     {
       "path": "api/Controllers/ClientiController.php",
@@ -25,7 +25,7 @@
     },
     {
       "path": "api/Controllers/MezziController.php",
-      "hash": "ae761fded2d1ead43c76545d66a7091ead7150a94b59fbc19afa42a37de94d0f"
+      "hash": "9d1130ff3a953e6f6c82507a7f5f20b7781e42208df551e42a6ec64df4b6073b"
     },
     {
       "path": "api/Controllers/SottoclientiController.php",
@@ -41,15 +41,11 @@
     },
     {
       "path": "api/migrate.php",
-      "hash": "f246bb1675b2280e977f8bc85f694ae6fa5f010b7a5fba54366214c150392772"
-    },
-    {
-      "path": "api/reset2.php",
-      "hash": "b01b93ba46fccf0575de1c1f7a30a9ad2eb577cf5839c359a518850f359b5df4"
+      "hash": "ba897fce9990e963336716352dc2f50d58ff623a78c18a66228011fad1575ca1"
     },
     {
       "path": "api/router.php",
-      "hash": "ca0a7acbb65a9649db916b17eb40b00085e885d76ee0596b9014b179bef2ff14"
+      "hash": "32ed525997564f4c97e78c2464bed8cc62676b7844fc6738fbec5c095f670aad"
     },
     {
       "path": "api/Shared/Audit.php",
@@ -57,7 +53,7 @@
     },
     {
       "path": "api/Shared/Auth.php",
-      "hash": "5d0b6c7fb5f988e2e8926a63f3ad001f8b76b4e311244051e6d54eb861018e46"
+      "hash": "1d8082407a29813d2071a44d8f63e624f856b7f2c7823b5000c72bebf2fab8aa"
     },
     {
       "path": "api/Shared/BackupService.php",
@@ -65,7 +61,7 @@
     },
     {
       "path": "api/Shared/Database.php",
-      "hash": "9e11ec185b28e442d0e14a823896118415b63acdc3fe589bd4f50b62c58a8edf"
+      "hash": "3f05ea23e1ce5038e70f3e15fd1092588d74ec85904d4b0db2a9222c255d88b6"
     },
     {
       "path": "api/Shared/GoogleDrive.php",
@@ -89,7 +85,7 @@
     },
     {
       "path": "cron/backup_nightly.php",
-      "hash": "cb12749a47a5bfccc4c0a0b67b0a403c49d8f5ef1ab8e5effd9279be07bcc56d"
+      "hash": "2469e6ed2ca13d88afc92a5e6acfcdd9c7b347609210cefa83e8b6e2c5707486"
     },
     {
       "path": "css/style.css",
@@ -101,7 +97,7 @@
     },
     {
       "path": "index.html",
-      "hash": "dd413ab4f8d8d76a95c4deaa8d995d1f379b8b1e6a65c0f89369c750224267b1"
+      "hash": "30cde09736a34633cffe8f003a69d89749f1e4c33c63e0016d5a82ec47de935c"
     },
     {
       "path": "js/app.js",
@@ -113,11 +109,11 @@
     },
     {
       "path": "js/core/store.js",
-      "hash": "188d1da322ba5d6547df993f0f93abec023b029c2f80c8408ddec1cd62535a56"
+      "hash": "0a9a1c71113344d4a6fa672c718d23d7cf10af9be71e94be1af357eb9d434f18"
     },
     {
       "path": "js/core/ui.js",
-      "hash": "78e71049c05545c114e9f214e5e78ba609f73484d7904b40214202d89b063251"
+      "hash": "951222446743b657f0a71e41714c0db32ecfca391a9cdf58a5f9df8ace89fa70"
     },
     {
       "path": "js/modules/admin.js",
@@ -125,7 +121,7 @@
     },
     {
       "path": "js/modules/clienti.js",
-      "hash": "0bf27e3c14d79075544430d33eea83d1e3a8c6a1e0954bd972543f6c58ce045d"
+      "hash": "4a107c192d89cd0568b75575c66882ec77fc6047ebb1533065f647319a7699f9"
     },
     {
       "path": "js/modules/contabilita.js",

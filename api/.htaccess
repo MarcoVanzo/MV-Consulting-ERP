@@ -10,15 +10,13 @@ RewriteEngine On
 RewriteCond %{HTTP:Authorization} ^(.*)
 RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
 
-# Se il file richiesto è router.php, health.php o migrate.php, lascialo passare
+# Se il file richiesto è router.php o health.php, lascialo passare
 RewriteCond %{REQUEST_FILENAME} -f
 RewriteRule ^router\.php$ - [L]
 RewriteRule ^health\.php$ - [L]
-RewriteRule ^migrate\.php$ - [L]
-RewriteRule ^reset2\.php$ - [L]
 
-# Blocca accesso diretto a tutti gli altri file PHP
-<FilesMatch "^(?!router\.php$|health\.php$|migrate\.php$|reset2\.php$).*\.php$">
+# Blocca accesso diretto a tutti gli altri file PHP (incluso migrate.php)
+<FilesMatch "^(?!router\.php$|health\.php$).*\.php$">
     Require all denied
 </FilesMatch>
 

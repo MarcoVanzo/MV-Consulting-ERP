@@ -11,9 +11,17 @@ class Database {
             $pass = getenv('DB_PASS');
 
             try {
-                self::$pdo = new PDO("mysql:host=$host;dbname=$dbName;charset=utf8", $user, $pass);
-                self::$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-                self::$pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+                self::$pdo = new PDO(
+                    "mysql:host=$host;dbname=$dbName;charset=utf8mb4",
+                    $user,
+                    $pass,
+                    [
+                        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+                        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                        PDO::ATTR_EMULATE_PREPARES   => false,
+                        PDO::ATTR_TIMEOUT            => 5,
+                    ]
+                );
             } catch (PDOException $e) {
                 throw new Exception('Database connection failed: ' . $e->getMessage());
             }
