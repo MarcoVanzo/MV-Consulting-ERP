@@ -272,7 +272,7 @@ class IncarchiController {
         if (preg_match_all('/(?:compenso|importo|corrispettivo|onorario|costo|pari\s+a)[:\s]*(?:di\s+)?€?\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)(?:\s*(?:euro|€))?/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $val = $parseImporto($m);
-                if ($val > 0) $importoCandidates[] = $val;
+                if ($val >= 100) $importoCandidates[] = $val;
             }
         }
 
@@ -280,7 +280,7 @@ class IncarchiController {
         if (preg_match_all('/€\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $val = $parseImporto($m);
-                if ($val > 0) $importoCandidates[] = $val;
+                if ($val >= 100) $importoCandidates[] = $val;
             }
         }
 
@@ -288,7 +288,7 @@ class IncarchiController {
         if (preg_match_all('/([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)\s*(?:€|euro)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $val = $parseImporto($m);
-                if ($val > 0) $importoCandidates[] = $val;
+                if ($val >= 100) $importoCandidates[] = $val;
             }
         }
 
@@ -296,11 +296,12 @@ class IncarchiController {
         if (preg_match_all('/totale[:\s]*€?\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $val = $parseImporto($m);
-                if ($val > 0) $importoCandidates[] = $val;
+                if ($val >= 100) $importoCandidates[] = $val;
             }
         }
 
         // Prendi l'importo massimo tra i candidati (il più probabile per un contratto)
+        // I prezzi reali degli incarichi sono sempre in centinaia o migliaia di euro
         if (!empty($importoCandidates)) {
             $extracted['importo_totale'] = max($importoCandidates);
         }
@@ -308,6 +309,13 @@ class IncarchiController {
         // ─── Estrai numero giornate / verifiche / audit ───
         // Raccogli tutti i candidati e prendi il maggiore
         $giornCandidates = [];
+
+        // Pattern prioritario: "sono previste N ..." (es. "sono previste 8 verifiche", "sono previste n. 3 giornate")
+        if (preg_match_all('/sono\s+previst[eio]\s+(?:n\.?\s*)?(?:complessiv(?:amente|e)\s+)?(\d+(?:[.,]\d+)?)/i', $fullText, $matches)) {
+            foreach ($matches[1] as $m) {
+                $giornCandidates[] = (float)str_replace(',', '.', $m);
+            }
+        }
 
         // Pattern diretto: "8 verifiche", "12 giornate", "3 audit"
         if (preg_match_all('/(\d+(?:[.,]\d+)?)\s*(?:giornat[ae]|giorn[io]|gg|verifich[ae]|verifica|audit|sopralluogh?[io]|interventi|sessioni|ispezioni)/i', $fullText, $matches)) {
@@ -327,30 +335,39 @@ class IncarchiController {
         }
 
         // ─── Rileva tipo commessa ───
-        // Solo keyword fortemente specifiche per DPO (non parole generiche come "verifiche" o "regolamento")
-        $dpoStrongKeywords = ['dpo', 'data protection', 'protezione dati', 'gdpr', 'reg. ue 2016/679', 'regolamento ue 2016'];
-        $isDpo = false;
-        foreach ($dpoStrongKeywords as $kw) {
-            if (mb_strpos($textLower, $kw) !== false) {
-                $isDpo = true;
-                break;
-            }
-        }
-        // "privacy" con contesto specifico DPO (non generico)
-        if (!$isDpo && mb_strpos($textLower, 'privacy') !== false) {
-            // Solo se accompagnato da altri indicatori DPO
-            if (mb_strpos($textLower, 'responsabile') !== false || mb_strpos($textLower, 'incaricato') !== false
-                || mb_strpos($textLower, 'trattamento') !== false || mb_strpos($textLower, 'titolare') !== false) {
-                $isDpo = true;
-            }
-        }
+        // PRIORITÀ 1: "Assistenza annuale privacy" → tipo assistenza (NON dpo)
+        $isAssistenzaPrivacy = (mb_strpos($textLower, 'assistenza annuale privacy') !== false
+            || mb_strpos($textLower, 'assistenza privacy') !== false
+            || mb_strpos($textLower, 'assistenza annuale') !== false);
 
-        if ($isDpo) {
-            $extracted['tipo_commessa'] = 'dpo';
-        } elseif (strpos($textLower, 'formazione') !== false || strpos($textLower, 'corso') !== false || strpos($textLower, 'training') !== false) {
-            $extracted['tipo_commessa'] = 'formazione';
-        } else {
+        if ($isAssistenzaPrivacy) {
             $extracted['tipo_commessa'] = 'assistenza';
+        } else {
+            // Solo keyword fortemente specifiche per DPO (non parole generiche come "verifiche" o "regolamento")
+            $dpoStrongKeywords = ['dpo', 'data protection', 'protezione dati', 'gdpr', 'reg. ue 2016/679', 'regolamento ue 2016'];
+            $isDpo = false;
+            foreach ($dpoStrongKeywords as $kw) {
+                if (mb_strpos($textLower, $kw) !== false) {
+                    $isDpo = true;
+                    break;
+                }
+            }
+            // "privacy" con contesto specifico DPO (non generico)
+            if (!$isDpo && mb_strpos($textLower, 'privacy') !== false) {
+                // Solo se accompagnato da altri indicatori DPO
+                if (mb_strpos($textLower, 'responsabile') !== false || mb_strpos($textLower, 'incaricato') !== false
+                    || mb_strpos($textLower, 'trattamento') !== false || mb_strpos($textLower, 'titolare') !== false) {
+                    $isDpo = true;
+                }
+            }
+
+            if ($isDpo) {
+                $extracted['tipo_commessa'] = 'dpo';
+            } elseif (strpos($textLower, 'formazione') !== false || strpos($textLower, 'corso') !== false || strpos($textLower, 'training') !== false) {
+                $extracted['tipo_commessa'] = 'formazione';
+            } else {
+                $extracted['tipo_commessa'] = 'assistenza';
+            }
         }
 
         // ─── Cerca cliente ───
