@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-04-25T15:27:55.560Z",
+  "generated_at": "2026-04-25T15:31:09.213Z",
   "file_count": 35,
   "files": [
     {
@@ -25,7 +25,7 @@
     },
     {
       "path": "api/Controllers/IncarchiController.php",
-      "hash": "6ed8f299d6a78f8f850e7face0e42bcf941f01abaf932e6cb9075e268e3ebc5c"
+      "hash": "1e7063363699812c126587ea72b48dbfe64a55ab6cf170eca1e4d33661cc9121"
     },
     {
       "path": "api/Controllers/MezziController.php",
@@ -101,7 +101,7 @@
     },
     {
       "path": "index.html",
-      "hash": "d537d4bbebe3097356b2073181037a58df8e6515dfcad909a22b0fa0467519d9"
+      "hash": "2c19f769bacbaae7f73dda73596e4201e34655b777dd9343e22e063c0e6ff790"
     },
     {
       "path": "js/app.js",
