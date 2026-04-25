@@ -168,6 +168,9 @@ $queries = [
     "ALTER TABLE {$prefix}fatture ADD COLUMN incarico_id INT DEFAULT NULL AFTER sottocliente_id",
     "ALTER TABLE {$prefix}fatture ADD FOREIGN KEY fk_fatture_incarico (incarico_id) REFERENCES {$prefix}incarichi(id) ON DELETE SET NULL",
 
+    // ── Incarichi — numero protocollo per match fatture XML ──
+    "ALTER TABLE {$prefix}incarichi ADD COLUMN numero_protocollo VARCHAR(100) DEFAULT NULL COMMENT 'Numero protocollo univoco (es. 1350/2026)' AFTER tipo_commessa",
+
     // ── Google Calendar tokens ───────────────────────────
     "CREATE TABLE IF NOT EXISTS {$prefix}google_tokens (
         id INT AUTO_INCREMENT PRIMARY KEY,
