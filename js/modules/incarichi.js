@@ -158,7 +158,9 @@ const ModIncarichi = (() => {
             if (!result.success) throw new Error(result.message || 'Errore analisi PDF');
             const res = result.data;
             console.log('[PDF Import] Risultato parsing:', res);
-            if (res?._debug_text) console.log('[PDF Import] Testo debug:', res._debug_text);
+            if (res?._debug_text) console.log('[PDF Import] Testo estratto:', res._debug_text);
+            if (res?._debug_importo_candidates) console.log('[PDF Import] Importo candidates:', JSON.stringify(res._debug_importo_candidates, null, 2));
+            if (res?._debug_giornate_candidates) console.log('[PDF Import] Giornate candidates:', JSON.stringify(res._debug_giornate_candidates, null, 2));
             if (res) {
                 UI.openModal('Nuovo Incarico (da PDF)', getFormHtml({
                     cliente_id: res.cliente_id, sottocliente_id: res.sottocliente_id,

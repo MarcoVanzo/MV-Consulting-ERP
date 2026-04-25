@@ -228,7 +228,9 @@ class IncarchiController {
             'tipo_commessa' => 'assistenza',
             'cliente_id' => null,
             'sottocliente_id' => null,
-            '_debug_text' => mb_substr(trim($fullText), 0, 800, 'UTF-8') // debug: per vedere il testo estratto
+            '_debug_text' => mb_substr(trim($fullText), 0, 2000, 'UTF-8'), // debug: per vedere il testo estratto
+            '_debug_importo_candidates' => [],
+            '_debug_giornate_candidates' => []
         ];
 
         // ─── Estrai data (DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY o YYYY-MM-DD) ───
@@ -267,11 +269,13 @@ class IncarchiController {
 
         // Raccogli tutti gli importi candidati e prendi il maggiore
         $importoCandidates = [];
+        $debugImporto = [];
 
         // Pattern 1: Keyword + importo formattato ("compenso di € 5.000,00", "compenso di Euro 5.000")
         if (preg_match_all('/(?:compenso|importo|corrispettivo|onorario|costo|pari\s+a)[:\s]*(?:di\s+)?(?:€|euro|eur\.?)?\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)(?:\s*(?:euro|€))?/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $val = $parseImporto($m);
+                $debugImporto[] = ['pattern' => 'P1-keyword', 'raw' => $m, 'parsed' => $val, 'accepted' => $val >= 100];
                 if ($val >= 100) $importoCandidates[] = $val;
             }
         }
@@ -280,6 +284,7 @@ class IncarchiController {
         if (preg_match_all('/(?:€|euro|eur\.?)\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $val = $parseImporto($m);
+                $debugImporto[] = ['pattern' => 'P2-euro-prefix', 'raw' => $m, 'parsed' => $val, 'accepted' => $val >= 100];
                 if ($val >= 100) $importoCandidates[] = $val;
             }
         }
@@ -288,6 +293,7 @@ class IncarchiController {
         if (preg_match_all('/([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)\s*(?:€|euro)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $val = $parseImporto($m);
+                $debugImporto[] = ['pattern' => 'P3-euro-suffix', 'raw' => $m, 'parsed' => $val, 'accepted' => $val >= 100];
                 if ($val >= 100) $importoCandidates[] = $val;
             }
         }
@@ -296,20 +302,23 @@ class IncarchiController {
         if (preg_match_all('/totale[:\s]*(?:€|euro|eur\.?)?\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $val = $parseImporto($m);
+                $debugImporto[] = ['pattern' => 'P4-totale', 'raw' => $m, 'parsed' => $val, 'accepted' => $val >= 100];
                 if ($val >= 100) $importoCandidates[] = $val;
             }
         }
 
         // Pattern 5 (fallback): importo con formato italiano >= 100 vicino a contesto monetario
-        // Cerca numeri con formato migliaia italiano (es. "5.000", "5.000,00") ovunque nel testo
         if (empty($importoCandidates)) {
             if (preg_match_all('/([0-9]{1,3}(?:\.\d{3})+(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
                 foreach ($matches[1] as $m) {
                     $val = $parseImporto($m);
+                    $debugImporto[] = ['pattern' => 'P5-fallback', 'raw' => $m, 'parsed' => $val, 'accepted' => $val >= 100];
                     if ($val >= 100) $importoCandidates[] = $val;
                 }
             }
         }
+
+        $extracted['_debug_importo_candidates'] = $debugImporto;
 
         // Prendi l'importo massimo tra i candidati (il più probabile per un contratto)
         // I prezzi reali degli incarichi sono sempre in centinaia o migliaia di euro
@@ -320,29 +329,35 @@ class IncarchiController {
         // ─── Estrai numero giornate / verifiche / audit ───
         // Raccogli tutti i candidati e prendi il maggiore
         $giornCandidates = [];
+        $debugGiornate = [];
 
         // Pattern prioritario: "sono previste N ..." (es. "sono previste 8 verifiche", "sono previste n. 3 giornate")
         if (preg_match_all('/sono\s+previst[eio]\s+(?:n\.?\s*)?(?:complessiv(?:amente|e)\s+)?(\d+(?:[.,]\d+)?)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
-                $giornCandidates[] = (float)str_replace(',', '.', $m);
+                $val = (float)str_replace(',', '.', $m);
+                $debugGiornate[] = ['pattern' => 'sono-previste', 'raw' => $m, 'parsed' => $val];
+                $giornCandidates[] = $val;
             }
         }
 
         // Pattern diretto: "8 verifiche", "12 giornate", "3 audit"
-        // NOTA: escluso "giorn[io]" (= "giorni" sono giorni calendario, es. "60 giorni" = termini pagamento)
-        // "giornat[ae]" = giornate lavorative, quello che ci interessa
         if (preg_match_all('/(\d+(?:[.,]\d+)?)\s*(?:giornat[ae]|gg|verifich[ae]|verifica|audit|sopralluogh?[io]|interventi|sessioni|ispezioni)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
-                $giornCandidates[] = (float)str_replace(',', '.', $m);
+                $val = (float)str_replace(',', '.', $m);
+                $debugGiornate[] = ['pattern' => 'N-keyword', 'raw' => $m, 'parsed' => $val];
+                $giornCandidates[] = $val;
             }
         }
         // Pattern inverso: "n. 8 verifiche" o "numero 8 verifiche"
         if (preg_match_all('/(?:n\.?|num\.?|numero|nr\.?)\s*(\d+)\s*(?:verifich[ae]|verifica|giornat[ae]|audit|sopralluogh?[io]|interventi|sessioni)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
-                $giornCandidates[] = (float)$m;
+                $val = (float)$m;
+                $debugGiornate[] = ['pattern' => 'n-N-keyword', 'raw' => $m, 'parsed' => $val];
+                $giornCandidates[] = $val;
             }
         }
 
+        $extracted['_debug_giornate_candidates'] = $debugGiornate;
         if (!empty($giornCandidates)) {
             $extracted['num_giornate'] = max($giornCandidates);
         }
