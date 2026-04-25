@@ -45,8 +45,9 @@ const ModIncarichi = (() => {
             const pctF = Math.min((fatt/tot)*100,100).toFixed(0);
             const pctP = Math.min((pag/tot)*100,100).toFixed(0);
             const cliente = UI.esc(i.cliente_nome||'—') + (i.sottocliente_nome ? ` <span style="color:var(--text-muted)">/ ${UI.esc(i.sottocliente_nome)}</span>` : '');
+            const protLabel = i.numero_protocollo ? `<span style="font-size:0.7rem;color:var(--accent-secondary);opacity:0.8" title="Protocollo"><i class="ph ph-hash"></i> ${UI.esc(i.numero_protocollo)}</span>` : '';
             return `<tr data-id="${i.id}">
-                <td></td>
+                <td>${protLabel}</td>
                 <td class="td-primary">${cliente}</td>
                 <td>${tipoBadge(i.tipo_commessa)}</td>
                 <td>${UI.formatDate(i.data_incarico)}</td>
@@ -87,6 +88,7 @@ const ModIncarichi = (() => {
             <div class="form-group"><label>Sottocliente</label><select class="form-control" id="f-inc-sotto"><option value="">— Nessuno —</option></select></div>
             <div class="form-group"><label>Data Incarico *</label><input type="date" class="form-control" id="f-inc-data" value="${d.data_incarico||new Date().toISOString().split('T')[0]}"></div>
             <div class="form-group"><label>Tipo Commessa *</label><select class="form-control" id="f-inc-tipo">${tOpts}</select></div>
+            <div class="form-group"><label>N. Protocollo</label><input type="text" class="form-control" id="f-inc-protocollo" value="${UI.esc(d.numero_protocollo||'')}" placeholder="es. 1350/2026"></div>
             <div class="form-group"><label>N. Giornate</label><input type="number" class="form-control" id="f-inc-gg" value="${d.num_giornate||0}" step="0.5"></div>
             <div class="form-group"><label>Importo Totale (€) *</label><input type="number" class="form-control" id="f-inc-importo" value="${d.importo_totale||0}" step="0.01"></div>
             <div class="form-group full-width"><label>Note</label><textarea class="form-control" id="f-inc-note">${UI.esc(d.note||'')}</textarea></div>
@@ -123,6 +125,7 @@ const ModIncarichi = (() => {
             sottocliente_id: document.getElementById('f-inc-sotto').value,
             data_incarico: document.getElementById('f-inc-data').value,
             tipo_commessa: document.getElementById('f-inc-tipo').value,
+            numero_protocollo: document.getElementById('f-inc-protocollo').value,
             num_giornate: document.getElementById('f-inc-gg').value,
             importo_totale: document.getElementById('f-inc-importo').value,
             note: document.getElementById('f-inc-note').value
@@ -178,7 +181,8 @@ const ModIncarichi = (() => {
                 UI.openModal('Nuovo Incarico (da PDF)', getFormHtml({
                     cliente_id: res.cliente_id, sottocliente_id: res.sottocliente_id,
                     data_incarico: res.data_incarico, importo_totale: res.importo_totale,
-                    num_giornate: res.num_giornate, tipo_commessa: res.tipo_commessa
+                    num_giornate: res.num_giornate, tipo_commessa: res.tipo_commessa,
+                    numero_protocollo: res.numero_protocollo
                 }), saveForm);
                 setTimeout(() => { initClienteWatch(); if(res.cliente_id) loadSotto(res.cliente_id, res.sottocliente_id); }, 100);
                 UI.toast('Dati estratti dal PDF — verifica e salva');
