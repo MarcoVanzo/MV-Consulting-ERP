@@ -75,7 +75,6 @@ class IncarchiController {
             'sottocliente_id' => !empty($data['sottocliente_id']) ? (int)$data['sottocliente_id'] : null,
             'data_incarico'   => $data['data_incarico'] ?? date('Y-m-d'),
             'tipo_commessa'   => $data['tipo_commessa'] ?? 'assistenza',
-            'descrizione'     => trim($data['descrizione'] ?? ''),
             'num_giornate'    => floatval($data['num_giornate'] ?? 0),
             'importo_totale'  => floatval($data['importo_totale'] ?? 0),
             'note'            => trim($data['note'] ?? '')
@@ -229,7 +228,6 @@ class IncarchiController {
             'tipo_commessa' => 'assistenza',
             'cliente_id' => null,
             'sottocliente_id' => null,
-            'descrizione' => '',
             '_debug_text' => mb_substr(trim($fullText), 0, 800, 'UTF-8') // debug: per vedere il testo estratto
         ];
 
@@ -243,43 +241,111 @@ class IncarchiController {
             $extracted['data_incarico'] = $m[1];
         }
 
-        // ─── Estrai importo — strategia multi-pattern ───
-        // 1. Keyword + importo (€, Euro, compenso, importo, corrispettivo, onorario, totale, costo)
-        $importoFound = false;
-        if (preg_match('/(?:€|euro|compenso|importo|corrispettivo|onorario|totale|costo|pari\s+a)[:\s]*€?\s*([0-9]{1,3}(?:[.\s]\d{3})*[,]\d{2})/i', $fullText, $m)) {
-            $extracted['importo_totale'] = (float)str_replace(['.', ' ', ','], ['', '', '.'], $m[1]);
-            $importoFound = true;
+        // ─── Estrai importo — strategia multi-pattern migliorata ───
+        // Helper: converte stringa importo italiano in float
+        // "5.000,00" → 5000.00, "5.000" → 5000, "5000" → 5000, "5,50" → 5.50
+        $parseImporto = function($str) {
+            $str = trim($str);
+            // Se contiene sia . che , → il punto è separatore migliaia, la virgola decimali
+            if (strpos($str, '.') !== false && strpos($str, ',') !== false) {
+                return (float)str_replace(['.', ','], ['', '.'], $str);
+            }
+            // Se contiene solo . → potrebbe essere migliaia (es. "5.000") o decimale (es. "5.50")
+            if (strpos($str, '.') !== false) {
+                // Se dopo il punto ci sono 3 cifre → separatore migliaia
+                if (preg_match('/\.(\d{3})(?:\D|$)/', $str)) {
+                    return (float)str_replace('.', '', $str);
+                }
+                return (float)$str;
+            }
+            // Se contiene solo , → decimale
+            if (strpos($str, ',') !== false) {
+                return (float)str_replace(',', '.', $str);
+            }
+            return (float)$str;
+        };
+
+        // Raccogli tutti gli importi candidati e prendi il maggiore
+        $importoCandidates = [];
+
+        // Pattern 1: Keyword + importo formattato ("compenso di € 5.000,00", "importo: 5.000,00")
+        if (preg_match_all('/(?:compenso|importo|corrispettivo|onorario|costo|pari\s+a)[:\s]*(?:di\s+)?€?\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)(?:\s*(?:euro|€))?/i', $fullText, $matches)) {
+            foreach ($matches[1] as $m) {
+                $val = $parseImporto($m);
+                if ($val > 0) $importoCandidates[] = $val;
+            }
         }
-        // 2. Formato semplice con €: "€ 5.000,00" o "€5000" o "€ 5.000"
-        if (!$importoFound && preg_match('/€\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $m)) {
-            $extracted['importo_totale'] = (float)str_replace(['.', ' ', ','], ['', '', '.'], $m[1]);
-            $importoFound = true;
+
+        // Pattern 2: € seguito da importo ("€ 5.000,00", "€5.000", "€ 5000")
+        if (preg_match_all('/€\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
+            foreach ($matches[1] as $m) {
+                $val = $parseImporto($m);
+                if ($val > 0) $importoCandidates[] = $val;
+            }
         }
-        // 3. Keyword + numero semplice senza formattazione: "compenso 5000"
-        if (!$importoFound && preg_match('/(?:compenso|importo|corrispettivo|onorario|totale|costo|pari\s+a)[:\s]*€?\s*(\d+(?:[.,]\d{1,2})?)/i', $fullText, $m)) {
-            $extracted['importo_totale'] = (float)str_replace(',', '.', $m[1]);
-            $importoFound = true;
+
+        // Pattern 3: Importo seguito da € o euro ("5.000,00 €", "5.000 euro")
+        if (preg_match_all('/([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)\s*(?:€|euro)/i', $fullText, $matches)) {
+            foreach ($matches[1] as $m) {
+                $val = $parseImporto($m);
+                if ($val > 0) $importoCandidates[] = $val;
+            }
         }
-        // 4. Ultimo tentativo: "euro 5000" o "Euro 5.000"
-        if (!$importoFound && preg_match('/euro\s+([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $m)) {
-            $extracted['importo_totale'] = (float)str_replace(['.', ' ', ','], ['', '', '.'], $m[1]);
+
+        // Pattern 4: "totale" seguito da importo ("totale 5.000,00")
+        if (preg_match_all('/totale[:\s]*€?\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
+            foreach ($matches[1] as $m) {
+                $val = $parseImporto($m);
+                if ($val > 0) $importoCandidates[] = $val;
+            }
+        }
+
+        // Prendi l'importo massimo tra i candidati (il più probabile per un contratto)
+        if (!empty($importoCandidates)) {
+            $extracted['importo_totale'] = max($importoCandidates);
         }
 
         // ─── Estrai numero giornate / verifiche / audit ───
-        if (preg_match('/(\d+(?:[.,]\d+)?)\s*(?:giornat[ae]|giorn[io]|gg|verifich[ae]|verifica|audit|sopralluogh?[io]|interventi|sessioni|ispezioni)/i', $fullText, $m)) {
-            $extracted['num_giornate'] = (float)str_replace(',', '.', $m[1]);
+        // Raccogli tutti i candidati e prendi il maggiore
+        $giornCandidates = [];
+
+        // Pattern diretto: "8 verifiche", "12 giornate", "3 audit"
+        if (preg_match_all('/(\d+(?:[.,]\d+)?)\s*(?:giornat[ae]|giorn[io]|gg|verifich[ae]|verifica|audit|sopralluogh?[io]|interventi|sessioni|ispezioni)/i', $fullText, $matches)) {
+            foreach ($matches[1] as $m) {
+                $giornCandidates[] = (float)str_replace(',', '.', $m);
+            }
         }
         // Pattern inverso: "n. 8 verifiche" o "numero 8 verifiche"
-        if ($extracted['num_giornate'] == 0 && preg_match('/(?:n\.?|num\.?|numero|nr\.?)\s*(\d+)\s*(?:verifich[ae]|verifica|giornat[ae]|giorn[io]|audit|sopralluogh?[io]|interventi|sessioni)/i', $fullText, $m)) {
-            $extracted['num_giornate'] = (float)$m[1];
+        if (preg_match_all('/(?:n\.?|num\.?|numero|nr\.?)\s*(\d+)\s*(?:verifich[ae]|verifica|giornat[ae]|giorn[io]|audit|sopralluogh?[io]|interventi|sessioni)/i', $fullText, $matches)) {
+            foreach ($matches[1] as $m) {
+                $giornCandidates[] = (float)$m;
+            }
+        }
+
+        if (!empty($giornCandidates)) {
+            $extracted['num_giornate'] = max($giornCandidates);
         }
 
         // ─── Rileva tipo commessa ───
-        if (strpos($textLower, 'dpo') !== false || strpos($textLower, 'data protection') !== false 
-            || strpos($textLower, 'protezione dati') !== false || strpos($textLower, 'privacy') !== false
-            || strpos($textLower, 'verifich') !== false || strpos($textLower, 'audit') !== false
-            || strpos($textLower, 'gdpr') !== false || strpos($textLower, 'reg. ue') !== false
-            || strpos($textLower, 'regolamento') !== false) {
+        // Solo keyword fortemente specifiche per DPO (non parole generiche come "verifiche" o "regolamento")
+        $dpoStrongKeywords = ['dpo', 'data protection', 'protezione dati', 'gdpr', 'reg. ue 2016/679', 'regolamento ue 2016'];
+        $isDpo = false;
+        foreach ($dpoStrongKeywords as $kw) {
+            if (mb_strpos($textLower, $kw) !== false) {
+                $isDpo = true;
+                break;
+            }
+        }
+        // "privacy" con contesto specifico DPO (non generico)
+        if (!$isDpo && mb_strpos($textLower, 'privacy') !== false) {
+            // Solo se accompagnato da altri indicatori DPO
+            if (mb_strpos($textLower, 'responsabile') !== false || mb_strpos($textLower, 'incaricato') !== false
+                || mb_strpos($textLower, 'trattamento') !== false || mb_strpos($textLower, 'titolare') !== false) {
+                $isDpo = true;
+            }
+        }
+
+        if ($isDpo) {
             $extracted['tipo_commessa'] = 'dpo';
         } elseif (strpos($textLower, 'formazione') !== false || strpos($textLower, 'corso') !== false || strpos($textLower, 'training') !== false) {
             $extracted['tipo_commessa'] = 'formazione';
@@ -390,9 +456,6 @@ class IncarchiController {
                 }
             }
         }
-
-        // Descrizione: prime 500 char del testo
-        $extracted['descrizione'] = mb_substr(trim($fullText), 0, 500, 'UTF-8');
 
         Response::json(true, 'Analisi PDF completata', $extracted);
     }
