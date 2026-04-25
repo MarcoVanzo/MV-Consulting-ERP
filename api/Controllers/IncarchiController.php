@@ -268,16 +268,16 @@ class IncarchiController {
         // Raccogli tutti gli importi candidati e prendi il maggiore
         $importoCandidates = [];
 
-        // Pattern 1: Keyword + importo formattato ("compenso di € 5.000,00", "importo: 5.000,00")
-        if (preg_match_all('/(?:compenso|importo|corrispettivo|onorario|costo|pari\s+a)[:\s]*(?:di\s+)?€?\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)(?:\s*(?:euro|€))?/i', $fullText, $matches)) {
+        // Pattern 1: Keyword + importo formattato ("compenso di € 5.000,00", "compenso di Euro 5.000")
+        if (preg_match_all('/(?:compenso|importo|corrispettivo|onorario|costo|pari\s+a)[:\s]*(?:di\s+)?(?:€|euro|eur\.?)?\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)(?:\s*(?:euro|€))?/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $val = $parseImporto($m);
                 if ($val >= 100) $importoCandidates[] = $val;
             }
         }
 
-        // Pattern 2: € seguito da importo ("€ 5.000,00", "€5.000", "€ 5000")
-        if (preg_match_all('/€\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
+        // Pattern 2: € o "Euro" seguito da importo ("€ 5.000,00", "Euro 5.000", "€5000")
+        if (preg_match_all('/(?:€|euro|eur\.?)\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $val = $parseImporto($m);
                 if ($val >= 100) $importoCandidates[] = $val;
@@ -292,11 +292,22 @@ class IncarchiController {
             }
         }
 
-        // Pattern 4: "totale" seguito da importo ("totale 5.000,00")
-        if (preg_match_all('/totale[:\s]*€?\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
+        // Pattern 4: "totale" seguito da importo ("totale 5.000,00", "totale Euro 5.000")
+        if (preg_match_all('/totale[:\s]*(?:€|euro|eur\.?)?\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $val = $parseImporto($m);
                 if ($val >= 100) $importoCandidates[] = $val;
+            }
+        }
+
+        // Pattern 5 (fallback): importo con formato italiano >= 100 vicino a contesto monetario
+        // Cerca numeri con formato migliaia italiano (es. "5.000", "5.000,00") ovunque nel testo
+        if (empty($importoCandidates)) {
+            if (preg_match_all('/([0-9]{1,3}(?:\.\d{3})+(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
+                foreach ($matches[1] as $m) {
+                    $val = $parseImporto($m);
+                    if ($val >= 100) $importoCandidates[] = $val;
+                }
             }
         }
 
@@ -318,13 +329,15 @@ class IncarchiController {
         }
 
         // Pattern diretto: "8 verifiche", "12 giornate", "3 audit"
-        if (preg_match_all('/(\d+(?:[.,]\d+)?)\s*(?:giornat[ae]|giorn[io]|gg|verifich[ae]|verifica|audit|sopralluogh?[io]|interventi|sessioni|ispezioni)/i', $fullText, $matches)) {
+        // NOTA: escluso "giorn[io]" (= "giorni" sono giorni calendario, es. "60 giorni" = termini pagamento)
+        // "giornat[ae]" = giornate lavorative, quello che ci interessa
+        if (preg_match_all('/(\d+(?:[.,]\d+)?)\s*(?:giornat[ae]|gg|verifich[ae]|verifica|audit|sopralluogh?[io]|interventi|sessioni|ispezioni)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $giornCandidates[] = (float)str_replace(',', '.', $m);
             }
         }
         // Pattern inverso: "n. 8 verifiche" o "numero 8 verifiche"
-        if (preg_match_all('/(?:n\.?|num\.?|numero|nr\.?)\s*(\d+)\s*(?:verifich[ae]|verifica|giornat[ae]|giorn[io]|audit|sopralluogh?[io]|interventi|sessioni)/i', $fullText, $matches)) {
+        if (preg_match_all('/(?:n\.?|num\.?|numero|nr\.?)\s*(\d+)\s*(?:verifich[ae]|verifica|giornat[ae]|audit|sopralluogh?[io]|interventi|sessioni)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $giornCandidates[] = (float)$m;
             }
