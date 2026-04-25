@@ -219,6 +219,44 @@ class IncarchiController {
 
         $fullText = implode(' ', $pages);
         $fullText = preg_replace('/\s+/', ' ', $fullText);
+
+        // ─── Normalizzazione testo PDF ───
+        // pdf.js spesso spezza numeri e parole con spazi interni
+        // Es: "€ 5 . 000 , 00" → "€ 5.000,00", "ver ifiche" → "verifiche", "N r." → "Nr."
+
+        // 1. Rimuovi spazi attorno a . e , tra cifre: "5 . 000 , 00" → "5.000,00"
+        $fullText = preg_replace('/(\d)\s*\.\s*(\d)/', '$1.$2', $fullText);
+        $fullText = preg_replace('/(\d)\s*,\s*(\d)/', '$1,$2', $fullText);
+
+        // 2. Rimuovi spazi tra cifre adiacenti causati da splitting: "5 000" → "5000" (solo quando preceduto da € o "euro")
+        // Ma attenzione a non unire date o altri numeri — lo facciamo solo in contesto monetario
+        $fullText = preg_replace('/€\s*(\d+)\s+(\d{3})\b/', '€ $1$2', $fullText);
+
+        // 3. Ricomponi parole comuni spezzate da pdf.js
+        $brokenWords = [
+            '/\bver\s+ifich/i' => 'verifich',
+            '/\bgiorn\s+at/i' => 'giornat',
+            '/\bgiorn\s+o\b/i' => 'giorno',
+            '/\bgiorn\s+i\b/i' => 'giorni',
+            '/\bN\s+r\s*\./i' => 'Nr.',
+            '/\bN\s+r\s+(\d)/i' => 'Nr. $1',
+            '/\bsopral\s+luogh/i' => 'sopralluogh',
+            '/\bispez\s+ion/i' => 'ispezion',
+            '/\binter\s+vent/i' => 'intervent',
+            '/\bsess\s+ion/i' => 'session',
+            '/\bcompen\s+so\b/i' => 'compenso',
+            '/\bimport\s+o\b/i' => 'importo',
+            '/\bcorri\s+spettiv/i' => 'corrispettiv',
+            '/\bonor\s+ario/i' => 'onorario',
+            '/\bpre\s+vist/i' => 'previst',
+            '/\bformaz\s+ione/i' => 'formazione',
+            '/\bassist\s+enza/i' => 'assistenza',
+            '/\bcinque\s*mila\b/i' => 'cinquemila',
+        ];
+        foreach ($brokenWords as $pattern => $replacement) {
+            $fullText = preg_replace($pattern, $replacement, $fullText);
+        }
+
         $textLower = mb_strtolower($fullText, 'UTF-8');
 
         $extracted = [
@@ -331,8 +369,8 @@ class IncarchiController {
         $giornCandidates = [];
         $debugGiornate = [];
 
-        // Pattern prioritario: "sono previste N ..." (es. "sono previste 8 verifiche", "sono previste n. 3 giornate")
-        if (preg_match_all('/sono\s+previst[eio]\s+(?:n\.?\s*)?(?:complessiv(?:amente|e)\s+)?(\d+(?:[.,]\d+)?)/i', $fullText, $matches)) {
+        // Pattern prioritario: "sono previste N ..." (es. "sono previste nr. 8 verifiche", "sono previste n. 3 giornate")
+        if (preg_match_all('/sono\s+previst[eio]\s+(?:(?:nr|n|num|numero)\\.?\s*)?(?:complessiv(?:amente|e)\s+)?(\d+(?:[.,]\d+)?)/i', $fullText, $matches)) {
             foreach ($matches[1] as $m) {
                 $val = (float)str_replace(',', '.', $m);
                 $debugGiornate[] = ['pattern' => 'sono-previste', 'raw' => $m, 'parsed' => $val];
