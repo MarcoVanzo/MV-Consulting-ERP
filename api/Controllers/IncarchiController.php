@@ -71,13 +71,14 @@ class IncarchiController {
         $id = $data['id'] ?? null;
 
         $fields = [
-            'cliente_id'      => !empty($data['cliente_id']) ? (int)$data['cliente_id'] : null,
-            'sottocliente_id' => !empty($data['sottocliente_id']) ? (int)$data['sottocliente_id'] : null,
-            'data_incarico'   => $data['data_incarico'] ?? date('Y-m-d'),
-            'tipo_commessa'   => $data['tipo_commessa'] ?? 'assistenza',
-            'num_giornate'    => floatval($data['num_giornate'] ?? 0),
-            'importo_totale'  => floatval($data['importo_totale'] ?? 0),
-            'note'            => trim($data['note'] ?? '')
+            'cliente_id'        => !empty($data['cliente_id']) ? (int)$data['cliente_id'] : null,
+            'sottocliente_id'   => !empty($data['sottocliente_id']) ? (int)$data['sottocliente_id'] : null,
+            'data_incarico'     => $data['data_incarico'] ?? date('Y-m-d'),
+            'tipo_commessa'     => $data['tipo_commessa'] ?? 'assistenza',
+            'numero_protocollo' => !empty($data['numero_protocollo']) ? trim($data['numero_protocollo']) : null,
+            'num_giornate'      => floatval($data['num_giornate'] ?? 0),
+            'importo_totale'    => floatval($data['importo_totale'] ?? 0),
+            'note'              => trim($data['note'] ?? '')
         ];
 
         if (empty($fields['cliente_id'])) {
@@ -264,6 +265,7 @@ class IncarchiController {
             'importo_totale' => 0,
             'num_giornate' => 0,
             'tipo_commessa' => 'assistenza',
+            'numero_protocollo' => null,
             'cliente_id' => null,
             'sottocliente_id' => null,
             '_debug_text' => mb_substr(trim($fullText), 0, 2000, 'UTF-8'), // debug: per vedere il testo estratto
@@ -523,6 +525,12 @@ class IncarchiController {
             if ($bestClienteId && !$extracted['cliente_id']) {
                 $extracted['cliente_id'] = $bestClienteId;
             }
+        }
+
+        // ─── Estrai numero protocollo ───
+        // Pattern: "Prot. n. 1350/2026", "Prot. n. 1350/2026 + 31/2027", "Prot n 1350/2026"
+        if (preg_match('/Prot\.?\s*n\.?\s*(\d+\s*\/\s*\d{4})/i', $fullText, $mProt)) {
+            $extracted['numero_protocollo'] = preg_replace('/\s+/', '', trim($mProt[1]));
         }
 
         // ─── Cerca sottocliente ───

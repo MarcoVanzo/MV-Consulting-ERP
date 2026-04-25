@@ -390,6 +390,14 @@ class ContabilitaController {
         // 2. Analisi delle righe e raggruppamento per Sottocliente
         $raggruppamenti = [];
 
+        // Pre-carico gli incarichi del cliente per il match protocollo
+        $allIncarichi = [];
+        if ($clienteId) {
+            $stmtInc = $this->pdo->prepare("SELECT id, numero_protocollo, sottocliente_id, cliente_id FROM {$this->prefix}incarichi WHERE cliente_id = ? AND numero_protocollo IS NOT NULL AND numero_protocollo != ''");
+            $stmtInc->execute([$clienteId]);
+            $allIncarichi = $stmtInc->fetchAll();
+        }
+
         $linee = $body->DatiBeniServizi->DettaglioLinee;
         foreach ($linee as $linea) {
             $descrizione = (string)$linea->Descrizione;
@@ -400,6 +408,13 @@ class ContabilitaController {
             $sotto_nome_trovato = null;
             if (preg_match('/presso\s+(.*?)\s+Prot\./i', $descrizione, $m)) {
                 $sotto_nome_trovato = trim($m[1]);
+            }
+
+            // Estraiamo il numero protocollo dalla descrizione della riga
+            // Pattern: "Prot. n. 1350/2026", "Prot. n. 1350/2026 + 31/2027", "Prot n 1350/2026"
+            $protocolloRiga = null;
+            if (preg_match('/Prot\.?\s*n\.?\s*(\d+\s*\/\s*\d{4})/i', $descrizione, $mProt)) {
+                $protocolloRiga = preg_replace('/\s+/', '', trim($mProt[1]));
             }
 
             // Tentiamo di validare in DB tra i sottoclienti del cliente individuato
@@ -469,14 +484,18 @@ class ContabilitaController {
                 $raggruppamenti[$groupKey] = [
                     'imponibile' => 0.0,
                     'iva_percentuale' => $aliquotaIva, // Assume stessa IVA
-                    'descrizioni' => []
+                    'descrizioni' => [],
+                    'protocolli' => []  // Raccogliamo i protocolli trovati nelle righe
                 ];
             }
             $raggruppamenti[$groupKey]['imponibile'] += $prezzoTotale;
             $raggruppamenti[$groupKey]['descrizioni'][] = $descrizione;
+            if ($protocolloRiga) {
+                $raggruppamenti[$groupKey]['protocolli'][$protocolloRiga] = true;
+            }
         }
 
-        // 3. Eseguiamo gli Insert/Update su `fatture`
+        // 3. Eseguiamo gli Insert/Update su `fatture`, con match incarico tramite protocollo
         foreach ($raggruppamenti as $sk => $data) {
             $sid = ($sk === 'none') ? null : (int)$sk;
             $imponibile = round($data['imponibile'], 2);
@@ -484,7 +503,31 @@ class ContabilitaController {
             $importoTotale = round($imponibile + $importoIva, 2);
             $testoDesc = implode("\n", $data['descrizioni']);
 
-            // Verifica esistenza di questa riga (Fattura + Cliente + EventualSottocliente)
+            // 3a. Cerchiamo l'incarico corrispondente tramite protocollo
+            $incaricoId = null;
+            $protocolliTrovati = array_keys($data['protocolli'] ?? []);
+            if (!empty($protocolliTrovati) && !empty($allIncarichi)) {
+                foreach ($protocolliTrovati as $prot) {
+                    $protNorm = preg_replace('/\s+/', '', strtolower($prot));
+                    foreach ($allIncarichi as $inc) {
+                        $incProtNorm = preg_replace('/\s+/', '', strtolower($inc['numero_protocollo']));
+                        if ($protNorm === $incProtNorm) {
+                            // Match trovato! Verifica anche il sottocliente se presente
+                            if ($sid && $inc['sottocliente_id'] && $sid != $inc['sottocliente_id']) {
+                                continue; // Sottocliente diverso, skip
+                            }
+                            $incaricoId = $inc['id'];
+                            $errors[] = "Fattura n. $numeroFattura collegata automaticamente all'incarico #$incaricoId (Prot. $prot).";
+                            break 2;
+                        }
+                    }
+                }
+                if (!$incaricoId && !empty($protocolliTrovati)) {
+                    $errors[] = "Fattura n. $numeroFattura: protocollo trovato (" . implode(', ', $protocolliTrovati) . ") ma nessun incarico corrispondente in archivio.";
+                }
+            }
+
+            // 3b. Verifica esistenza di questa riga (Fattura + Cliente + EventualSottocliente)
             $chkSql = "SELECT id FROM {$this->prefix}fatture WHERE numero_fattura = ? AND YEAR(data_emissione) = YEAR(?)";
             $chkParams = [$numeroFattura, $dataEmissione];
             
@@ -508,12 +551,18 @@ class ContabilitaController {
                 // Skip
                 $errors[] = "Fattura n. $numeroFattura già presente, caricamento ignorato.";
             } else {
-                // Insert
+                // Insert con eventuale incarico_id collegato
                 $stmtIns = $this->pdo->prepare("INSERT INTO {$this->prefix}fatture 
-                    (numero_fattura, data_emissione, cliente_id, sottocliente_id, imponibile, iva_percentuale, importo_iva, importo_totale, stato, descrizione)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'emessa', ?)");
-                $stmtIns->execute([$numeroFattura, $dataEmissione, $clienteId, $sid, $imponibile, $data['iva_percentuale'], $importoIva, $importoTotale, $testoDesc]);
+                    (numero_fattura, data_emissione, cliente_id, sottocliente_id, incarico_id, imponibile, iva_percentuale, importo_iva, importo_totale, stato, descrizione)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'emessa', ?)");
+                $stmtIns->execute([$numeroFattura, $dataEmissione, $clienteId, $sid, $incaricoId, $imponibile, $data['iva_percentuale'], $importoIva, $importoTotale, $testoDesc]);
+                $newFatturaId = $this->pdo->lastInsertId();
                 $imported++;
+
+                // Ricalcola l'incarico collegato (se trovato)
+                if ($incaricoId) {
+                    $this->recalculateLinkedIncarico($newFatturaId);
+                }
             }
         }
 
