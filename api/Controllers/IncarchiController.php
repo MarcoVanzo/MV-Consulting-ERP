@@ -502,6 +502,24 @@ class IncarchiController {
             }
         }
 
+        // DEBUG: scrivi info di debug su file per diagnostica
+        $debugLog = [
+            'timestamp' => date('Y-m-d H:i:s'),
+            'full_text' => $fullText,
+            'text_length' => mb_strlen($fullText, 'UTF-8'),
+            'importo_candidates' => $extracted['_debug_importo_candidates'],
+            'giornate_candidates' => $extracted['_debug_giornate_candidates'],
+            'result' => [
+                'importo_totale' => $extracted['importo_totale'],
+                'num_giornate' => $extracted['num_giornate'],
+                'tipo_commessa' => $extracted['tipo_commessa'],
+                'data_incarico' => $extracted['data_incarico'],
+                'cliente_id' => $extracted['cliente_id'],
+                'sottocliente_id' => $extracted['sottocliente_id']
+            ]
+        ];
+        file_put_contents(__DIR__ . '/../_pdf_debug.json', json_encode($debugLog, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+
         Response::json(true, 'Analisi PDF completata', $extracted);
     }
 
