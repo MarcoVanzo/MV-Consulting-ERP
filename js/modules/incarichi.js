@@ -129,7 +129,20 @@ const ModIncarichi = (() => {
         };
         if (!p.cliente_id) { UI.toast('Seleziona un cliente','error'); return; }
         if (!p.importo_totale || parseFloat(p.importo_totale) <= 0) { UI.toast('Importo deve essere maggiore di zero','error'); return; }
-        try { await Store.api('save','incarichi',p); UI.closeModal(); UI.toast(p.id?'Incarico aggiornato':'Incarico creato'); load(); }
+        try {
+            await Store.api('save','incarichi',p);
+            UI.closeModal();
+            UI.toast(p.id?'Incarico aggiornato':'Incarico creato');
+            // Se l'anno dell'incarico è diverso da quello selezionato, cambia il selettore
+            if (p.data_incarico) {
+                const incYear = p.data_incarico.substring(0, 4);
+                const yearSel = document.getElementById('contabilita-year');
+                if (yearSel && yearSel.value !== incYear) {
+                    yearSel.value = incYear;
+                }
+            }
+            load();
+        }
         catch(e) { UI.toast(e.message||'Errore durante il salvataggio','error'); }
     }
     async function remove(id) {

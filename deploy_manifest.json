@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-04-25T15:34:29.425Z",
+  "generated_at": "2026-04-25T15:42:13.195Z",
   "file_count": 35,
   "files": [
     {
@@ -101,7 +101,7 @@
     },
     {
       "path": "index.html",
-      "hash": "f7595ad636eb6041d5a4e7b410d3775d8be50a5f9be76d8f71076e8583bcb449"
+      "hash": "c3df341dba231a45295930f8004438da8171dc33122f894044ac5cb401afb537"
     },
     {
       "path": "js/app.js",
@@ -133,7 +133,7 @@
     },
     {
       "path": "js/modules/incarichi.js",
-      "hash": "dccbe4d8b261bc72ccd1587477242bd56f871735aac7a336aba39841ef0bbeb7"
+      "hash": "fe9966cbc01c50d195b3d9ec4da7465ce53986e7ccca3b6c0b6c3238ba4ab355"
     },
     {
       "path": "js/modules/mezzi.js",
