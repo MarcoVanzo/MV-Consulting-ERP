@@ -89,7 +89,6 @@ const ModIncarichi = (() => {
             <div class="form-group"><label>Tipo Commessa *</label><select class="form-control" id="f-inc-tipo">${tOpts}</select></div>
             <div class="form-group"><label>N. Giornate</label><input type="number" class="form-control" id="f-inc-gg" value="${d.num_giornate||0}" step="0.5"></div>
             <div class="form-group"><label>Importo Totale (€) *</label><input type="number" class="form-control" id="f-inc-importo" value="${d.importo_totale||0}" step="0.01"></div>
-            <div class="form-group full-width"><label>Descrizione</label><textarea class="form-control" id="f-inc-desc">${UI.esc(d.descrizione||'')}</textarea></div>
             <div class="form-group full-width"><label>Note</label><textarea class="form-control" id="f-inc-note">${UI.esc(d.note||'')}</textarea></div>
         </div><input type="hidden" id="f-inc-id" value="${d.id||''}">`;
     }
@@ -126,11 +125,12 @@ const ModIncarichi = (() => {
             tipo_commessa: document.getElementById('f-inc-tipo').value,
             num_giornate: document.getElementById('f-inc-gg').value,
             importo_totale: document.getElementById('f-inc-importo').value,
-            descrizione: document.getElementById('f-inc-desc').value,
             note: document.getElementById('f-inc-note').value
         };
+        if (!p.cliente_id) { UI.toast('Seleziona un cliente','error'); return; }
+        if (!p.importo_totale || parseFloat(p.importo_totale) <= 0) { UI.toast('Importo deve essere maggiore di zero','error'); return; }
         try { await Store.api('save','incarichi',p); UI.closeModal(); UI.toast(p.id?'Incarico aggiornato':'Incarico creato'); load(); }
-        catch(e) { UI.toast(e.message,'error'); }
+        catch(e) { UI.toast(e.message||'Errore durante il salvataggio','error'); }
     }
     async function remove(id) {
         if (!confirm('Eliminare questo incarico?')) return;
@@ -163,8 +163,7 @@ const ModIncarichi = (() => {
                 UI.openModal('Nuovo Incarico (da PDF)', getFormHtml({
                     cliente_id: res.cliente_id, sottocliente_id: res.sottocliente_id,
                     data_incarico: res.data_incarico, importo_totale: res.importo_totale,
-                    num_giornate: res.num_giornate, tipo_commessa: res.tipo_commessa,
-                    descrizione: res.descrizione
+                    num_giornate: res.num_giornate, tipo_commessa: res.tipo_commessa
                 }), saveForm);
                 setTimeout(() => { initClienteWatch(); if(res.cliente_id) loadSotto(res.cliente_id, res.sottocliente_id); }, 100);
                 UI.toast('Dati estratti dal PDF — verifica e salva');
