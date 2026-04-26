@@ -528,8 +528,14 @@ class IncarchiController {
         }
 
         // ─── Estrai numero protocollo ───
-        // Pattern: "Prot. n. 1350/2026", "Prot. n. 1350/2026 + 31/2027", "Prot n 1350/2026"
-        if (preg_match('/Prot\.?\s*n\.?\s*(\d+\s*\/\s*\d{4})/i', $fullText, $mProt)) {
+        // PRIORITÀ 1: Codice alfanumerico con punti (es. SZ.DPS.F142.26)
+        // Pattern: almeno 2 segmenti separati da punto, con lettere e/o cifre,
+        // tipicamente nel formato XX.YYY.ZZZZ.NN
+        if (preg_match('/\b([A-Z]{1,5}\.[A-Z]{2,5}\.[A-Z0-9]{2,10}(?:\.[A-Z0-9]{1,6})*)\b/i', $fullText, $mAlpha)) {
+            $extracted['numero_protocollo'] = strtoupper(trim($mAlpha[1]));
+        }
+        // PRIORITÀ 2 (fallback): formato numerico "Prot. n. 1350/2026"
+        if (!$extracted['numero_protocollo'] && preg_match('/Prot\.?\s*n\.?\s*(\d+\s*\/\s*\d{4})/i', $fullText, $mProt)) {
             $extracted['numero_protocollo'] = preg_replace('/\s+/', '', trim($mProt[1]));
         }
 
@@ -538,13 +544,61 @@ class IncarchiController {
             $stmtSotto = $this->pdo->prepare("SELECT id, nome FROM {$this->prefix}sottoclienti WHERE cliente_id = ?");
             $stmtSotto->execute([$extracted['cliente_id']]);
             $subs = $stmtSotto->fetchAll();
+
+            // Helper: normalizza stringa rimuovendo punti, spazi, virgole, trattini
+            $normalize = function($s) {
+                $s = mb_strtolower(trim($s), 'UTF-8');
+                return preg_replace('/[\s.,;:\-\'"\(\)]+/', '', $s);
+            };
+
+            $bestSottoId = null;
+            $bestSottoScore = 0;
+
             foreach ($subs as $sc) {
                 $nomeSotto = mb_strtolower(trim($sc['nome']), 'UTF-8');
-                // Soglia abbassata a 2 caratteri per sigle come "MYG"
-                if (mb_strlen($nomeSotto, 'UTF-8') >= 2 && mb_strpos($textLower, $nomeSotto) !== false) {
-                    $extracted['sottocliente_id'] = $sc['id'];
+                if (mb_strlen($nomeSotto, 'UTF-8') < 2) continue;
+
+                // Match 1: diretto (substring esatto nel testo)
+                if (mb_strpos($textLower, $nomeSotto) !== false) {
+                    $bestSottoId = $sc['id'];
+                    $bestSottoScore = 999;
                     break;
                 }
+
+                // Match 2: normalizzato (rimuovi punteggiatura e spazi)
+                $normSotto = $normalize($nomeSotto);
+                $normText  = $normalize($fullText);
+                if (mb_strlen($normSotto, 'UTF-8') >= 3 && mb_strpos($normText, $normSotto) !== false) {
+                    if ($bestSottoScore < 900) {
+                        $bestSottoId = $sc['id'];
+                        $bestSottoScore = 900;
+                    }
+                    continue;
+                }
+
+                // Match 3: per parole chiave — per nomi multi-parola
+                // (es. "ASL Roma 2" → cerchiamo "asl" + "roma" nel testo)
+                $words = preg_split('/[\s.,;:\-\'"\(\)]+/', $nomeSotto, -1, PREG_SPLIT_NO_EMPTY);
+                $significantWords = array_filter($words, function($w) {
+                    return mb_strlen($w, 'UTF-8') >= 3;
+                });
+                if (!empty($significantWords)) {
+                    $matched = 0;
+                    foreach ($significantWords as $w) {
+                        if (mb_strpos($textLower, $w) !== false) $matched++;
+                    }
+                    $score = $matched / count($significantWords);
+                    // Servono almeno 2 parole matchate O il 100% per nomi corti
+                    if (($matched >= 2 && $score > $bestSottoScore) ||
+                        (count($significantWords) === 1 && $matched === 1 && $bestSottoScore < 0.5)) {
+                        $bestSottoId = $sc['id'];
+                        $bestSottoScore = $score;
+                    }
+                }
+            }
+
+            if ($bestSottoId) {
+                $extracted['sottocliente_id'] = $bestSottoId;
             }
         }
 
