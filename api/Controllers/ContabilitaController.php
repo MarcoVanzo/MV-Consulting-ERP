@@ -411,9 +411,13 @@ class ContabilitaController {
             }
 
             // Estraiamo il numero protocollo dalla descrizione della riga
-            // Pattern: "Prot. n. 1350/2026", "Prot. n. 1350/2026 + 31/2027", "Prot n 1350/2026"
+            // PRIORITÀ 1: Codice alfanumerico con punti (es. SZ.DPS.F142.26)
             $protocolloRiga = null;
-            if (preg_match('/Prot\.?\s*n\.?\s*(\d+\s*\/\s*\d{4})/i', $descrizione, $mProt)) {
+            if (preg_match('/\b([A-Z]{1,5}\.[A-Z]{2,5}\.[A-Z0-9]{2,10}(?:\.[A-Z0-9]{1,6})*)\b/i', $descrizione, $mAlpha)) {
+                $protocolloRiga = strtoupper(trim($mAlpha[1]));
+            }
+            // PRIORITÀ 2 (fallback): "Prot. n. 1350/2026"
+            if (!$protocolloRiga && preg_match('/Prot\.?\s*n\.?\s*(\d+\s*\/\s*\d{4})/i', $descrizione, $mProt)) {
                 $protocolloRiga = preg_replace('/\s+/', '', trim($mProt[1]));
             }
 

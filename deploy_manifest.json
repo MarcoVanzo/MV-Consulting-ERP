@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-04-25T16:01:50.374Z",
+  "generated_at": "2026-04-26T12:25:46.714Z",
   "file_count": 35,
   "files": [
     {
@@ -17,7 +17,7 @@
     },
     {
       "path": "api/Controllers/ContabilitaController.php",
-      "hash": "1e67e8986b67b56275da364ce05870482c7f84c6c4bef7a05a0c0dd4a66b671e"
+      "hash": "0ddddb0a7c6063d7c13943c3e26117a8caefdca6c2f59c7c8847a995140b27d5"
     },
     {
       "path": "api/Controllers/GoogleAuthController.php",
@@ -25,7 +25,7 @@
     },
     {
       "path": "api/Controllers/IncarchiController.php",
-      "hash": "0f380635f7ce709b329ad7910bd323b605faa5a2b74e0f2439757dface6c41d1"
+      "hash": "80265c3ec959f7c405f5efe553319e0a04a96706633e4f7aafb93149a692a890"
     },
     {
       "path": "api/Controllers/MezziController.php",
@@ -101,7 +101,7 @@
     },
     {
       "path": "index.html",
-      "hash": "8f4cb60fd67699580336290e07b3bcff25b755ef3530629af69ead901ba4ccff"
+      "hash": "d4aeb2c308665166fcfee670ebf0b79e7693038d4302309c10945373925f039d"
     },
     {
       "path": "js/app.js",
@@ -133,7 +133,7 @@
     },
     {
       "path": "js/modules/incarichi.js",
-      "hash": "9ecf1c4529582e3855689903db3b3a9d3bcb5618f7363307dae175620faee2f1"
+      "hash": "7831009497ae41be5f47c94f972f5b5da04184707c865351b1c4747ce3646b23"
     },
     {
       "path": "js/modules/mezzi.js",
