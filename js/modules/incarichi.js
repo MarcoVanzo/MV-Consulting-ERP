@@ -88,7 +88,7 @@ const ModIncarichi = (() => {
             <div class="form-group"><label>Sottocliente</label><select class="form-control" id="f-inc-sotto"><option value="">— Nessuno —</option></select></div>
             <div class="form-group"><label>Data Incarico *</label><input type="date" class="form-control" id="f-inc-data" value="${d.data_incarico||new Date().toISOString().split('T')[0]}"></div>
             <div class="form-group"><label>Tipo Commessa *</label><select class="form-control" id="f-inc-tipo">${tOpts}</select></div>
-            <div class="form-group"><label>N. Protocollo</label><input type="text" class="form-control" id="f-inc-protocollo" value="${UI.esc(d.numero_protocollo||'')}" placeholder="es. 1350/2026"></div>
+            <div class="form-group"><label>N. Protocollo</label><input type="text" class="form-control" id="f-inc-protocollo" value="${UI.esc(d.numero_protocollo||'')}" placeholder="es. SZ.DPS.F142.26"></div>
             <div class="form-group"><label>N. Giornate</label><input type="number" class="form-control" id="f-inc-gg" value="${d.num_giornate||0}" step="0.5"></div>
             <div class="form-group"><label>Importo Totale (€) *</label><input type="number" class="form-control" id="f-inc-importo" value="${d.importo_totale||0}" step="0.01"></div>
             <div class="form-group full-width"><label>Note</label><textarea class="form-control" id="f-inc-note">${UI.esc(d.note||'')}</textarea></div>
