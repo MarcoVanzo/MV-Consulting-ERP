@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-05-01T19:27:05.856Z",
+  "generated_at": "2026-05-01T19:29:49.916Z",
   "file_count": 35,
   "files": [
     {
@@ -101,7 +101,7 @@
     },
     {
       "path": "index.html",
-      "hash": "7a7b5aed03d14c46087602032bee71f5fb6f358101c2127f4ee986a01b03c4cf"
+      "hash": "e4dd4b7ce39fcb8dabff98f8d2997d4ff53c8bcd31449649c94f5853b9b2ce3c"
     },
     {
       "path": "js/app.js",
@@ -141,7 +141,7 @@
     },
     {
       "path": "js/modules/trasferte.js",
-      "hash": "606df096736e32bed34bfe056c712b23f325d00c606a530c1470a1fae7b76f49"
+      "hash": "7b4ddffa5c703cab5a07f3ad627aedc5d2131e96f3725c5eb9d59a543f91e12c"
     }
   ]
 }
