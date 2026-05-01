@@ -653,26 +653,26 @@ const ModTrasferte = (() => {
     <title>Trasferte — ${periodo} — MV Consulting</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 9px; color: #1a1a1a; padding: 10px; }
-        .header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px; border-bottom: 2px solid #0B0E14; padding-bottom: 6px; }
-        .header h1 { font-size: 14px; font-weight: 700; }
-        .header .sub { font-size: 10px; color: #666; margin-top: 2px; }
-        .header .info { text-align: right; font-size: 9px; color: #666; line-height: 1.4; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
-        th { background: #0B0E14; color: #fff; padding: 4px 4px; text-align: left; font-size: 8px; text-transform: uppercase; letter-spacing: 0.3px; }
-        td { padding: 3px 4px; border-bottom: 1px solid #e0e0e0; font-size: 9px; line-height: 1.2; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 7.5px; color: #1a1a1a; padding: 0; }
+        .header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 5px; border-bottom: 1.5px solid #0B0E14; padding-bottom: 4px; }
+        .header h1 { font-size: 12px; font-weight: 700; }
+        .header .sub { font-size: 9px; color: #666; margin-top: 1px; }
+        .header .info { text-align: right; font-size: 7.5px; color: #666; line-height: 1.3; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
+        th { background: #0B0E14; color: #fff; padding: 2px 3px; text-align: left; font-size: 7px; text-transform: uppercase; letter-spacing: 0.3px; }
+        td { padding: 2px 3px; border-bottom: 1px solid #ddd; font-size: 7.5px; line-height: 1.1; white-space: nowrap; }
         tr:nth-child(even) { background: #f7f7f7; }
         .num { text-align: right; font-variant-numeric: tabular-nums; }
         .tot { font-weight: 700; }
-        .footer-row td { background: #0B0E14; color: #fff; font-weight: 700; font-size: 9px; border: none; padding: 4px; }
-        .summary { display: flex; gap: 16px; margin-top: 6px; padding: 6px 10px; background: #f0f0f0; border-radius: 4px; }
+        .footer-row td { background: #0B0E14; color: #fff; font-weight: 700; font-size: 7.5px; border: none; padding: 3px; }
+        .summary { display: flex; gap: 12px; margin-top: 4px; padding: 4px 8px; background: #f0f0f0; border-radius: 3px; }
         .summary-item { text-align: center; }
-        .summary-item .label { font-size: 8px; color: #666; text-transform: uppercase; }
-        .summary-item .value { font-size: 12px; font-weight: 700; margin-top: 1px; }
-        .footer-note { margin-top: 8px; font-size: 8px; color: #999; text-align: center; }
+        .summary-item .label { font-size: 7px; color: #666; text-transform: uppercase; }
+        .summary-item .value { font-size: 10px; font-weight: 700; margin-top: 0; }
+        .footer-note { margin-top: 4px; font-size: 7px; color: #999; text-align: center; }
         @media print {
             body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            @page { size: landscape; margin: 8mm; }
+            @page { size: landscape; margin: 5mm; }
         }
     </style>
 </head>
