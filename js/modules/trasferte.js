@@ -20,7 +20,7 @@ const ModTrasferte = (() => {
             // Sync costo km da localStorage prima del render
             const storedCosto = localStorage.getItem('trasferte_costo_km');
             if (storedCosto) {
-                document.getElementById('trasferte-costo-km').value = storedCosto;
+                document.getElementById('trasferte-costo-km').value = parseFloat(storedCosto).toFixed(4);
             }
 
             renderKpis();
@@ -367,6 +367,11 @@ const ModTrasferte = (() => {
             btnCalcola.addEventListener('click', calcolaTuttiKm);
         }
 
+        const btnExportPdf = document.getElementById('btn-export-pdf-trasferte');
+        if (btnExportPdf) {
+            btnExportPdf.addEventListener('click', exportPdf);
+        }
+
         // Setup sub-tabs
         const viewTrasferte = document.getElementById('view-trasferte');
         if (viewTrasferte) {
@@ -488,7 +493,169 @@ const ModTrasferte = (() => {
         }
     }
 
-    return { load, openNew, edit, remove, initFilters, syncGoogle, calcolaKm, calcolaTuttiKm, togglePernottamento };
+    function exportPdf() {
+        const year = document.getElementById('trasferte-year').value;
+        const month = document.getElementById('trasferte-month').value;
+        const costoKm = parseFloat(document.getElementById('trasferte-costo-km').value) || 0;
+
+        if (!_trasferte.length) {
+            UI.toast('Nessuna trasferta da esportare nel periodo selezionato', 'error');
+            return;
+        }
+
+        // Group by date (same logic as renderTable)
+        const grouped = {};
+        _trasferte.forEach(t => {
+            if (!grouped[t.data_trasferta]) {
+                grouped[t.data_trasferta] = {
+                    data: t.data_trasferta,
+                    mattina: '',
+                    pomeriggio: '',
+                    km_totali: 0,
+                    has_client: false,
+                    pernottamento: false,
+                    vitto: 0,
+                    alloggio: 0
+                };
+            }
+            if (t.pernottamento == 1 || t.pernottamento == true) grouped[t.data_trasferta].pernottamento = true;
+
+            const nome = t.sottocliente_nome || t.cliente_nome || '';
+            if (nome) grouped[t.data_trasferta].has_client = true;
+
+            if (t.fascia_oraria === 'mattino') {
+                grouped[t.data_trasferta].mattina = grouped[t.data_trasferta].mattina || nome;
+            } else if (t.fascia_oraria === 'pomeriggio') {
+                grouped[t.data_trasferta].pomeriggio = grouped[t.data_trasferta].pomeriggio || nome;
+            } else {
+                if (!grouped[t.data_trasferta].mattina) grouped[t.data_trasferta].mattina = nome;
+                else if (!grouped[t.data_trasferta].pomeriggio) grouped[t.data_trasferta].pomeriggio = nome;
+            }
+
+            grouped[t.data_trasferta].km_totali += (parseFloat(t.km_andata || 0) + parseFloat(t.km_ritorno || 0));
+            grouped[t.data_trasferta].vitto += parseFloat(t.vitto || 0);
+            grouped[t.data_trasferta].alloggio += parseFloat(t.alloggio || 0);
+        });
+
+        const rows = Object.values(grouped).sort((a, b) => a.data.localeCompare(b.data));
+
+        let totKm = 0, totIndennita = 0, totRimborsoKm = 0, totVitto = 0, totAlloggio = 0, totTotale = 0;
+
+        const tableRows = rows.map(g => {
+            const indennita = g.has_client ? 46.48 : 0;
+            const rimborsoKm = g.km_totali * costoKm;
+            const totaleRiga = rimborsoKm + indennita + g.vitto + g.alloggio;
+
+            totKm += g.km_totali;
+            totIndennita += indennita;
+            totRimborsoKm += rimborsoKm;
+            totVitto += g.vitto;
+            totAlloggio += g.alloggio;
+            totTotale += totaleRiga;
+
+            const d = new Date(g.data);
+            const dataFmt = d.toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+
+            return `<tr>
+                <td>${dataFmt}</td>
+                <td>${g.mattina || '—'}</td>
+                <td>${g.pomeriggio || '—'}</td>
+                <td class="num">${g.km_totali.toFixed(1)}</td>
+                <td class="num">${indennita.toFixed(2)} €</td>
+                <td class="num">${rimborsoKm.toFixed(2)} €</td>
+                <td class="num">${g.vitto.toFixed(2)} €</td>
+                <td class="num">${g.alloggio.toFixed(2)} €</td>
+                <td class="num tot">${totaleRiga.toFixed(2)} €</td>
+            </tr>`;
+        }).join('');
+
+        const mesi = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+        const periodo = month ? `${mesi[parseInt(month) - 1]} ${year}` : `Anno ${year}`;
+
+        const html = `<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>Trasferte — ${periodo} — MV Consulting</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #1a1a1a; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; border-bottom: 2px solid #0B0E14; padding-bottom: 12px; }
+        .header h1 { font-size: 18px; font-weight: 700; }
+        .header .sub { font-size: 12px; color: #666; margin-top: 4px; }
+        .header .info { text-align: right; font-size: 11px; color: #666; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+        th { background: #0B0E14; color: #fff; padding: 8px 6px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+        td { padding: 6px; border-bottom: 1px solid #e0e0e0; font-size: 11px; }
+        tr:nth-child(even) { background: #f7f7f7; }
+        .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .tot { font-weight: 700; }
+        .footer-row td { background: #0B0E14; color: #fff; font-weight: 700; font-size: 11px; border: none; }
+        .summary { display: flex; gap: 24px; margin-top: 12px; padding: 12px; background: #f0f0f0; border-radius: 4px; }
+        .summary-item { text-align: center; }
+        .summary-item .label { font-size: 10px; color: #666; text-transform: uppercase; }
+        .summary-item .value { font-size: 16px; font-weight: 700; margin-top: 2px; }
+        .footer-note { margin-top: 20px; font-size: 10px; color: #999; text-align: center; }
+        @media print {
+            body { padding: 0; }
+            @page { size: landscape; margin: 12mm; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>MV Consulting S.r.l.</h1>
+            <div class="sub">Riepilogo Trasferte — ${periodo}</div>
+        </div>
+        <div class="info">
+            Costo KM: ${costoKm.toFixed(4)} €/km<br>
+            Indennità giornaliera: 46,48 €<br>
+            Stampato il: ${new Date().toLocaleDateString('it-IT')}
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Data</th>
+                <th>Mattina</th>
+                <th>Pomeriggio</th>
+                <th style="text-align:right">KM</th>
+                <th style="text-align:right">Indennità</th>
+                <th style="text-align:right">Rimb. KM</th>
+                <th style="text-align:right">Vitto</th>
+                <th style="text-align:right">Alloggio</th>
+                <th style="text-align:right">Totale</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${tableRows}
+            <tr class="footer-row">
+                <td colspan="3">TOTALE (${rows.length} giornate)</td>
+                <td class="num">${totKm.toFixed(1)}</td>
+                <td class="num">${totIndennita.toFixed(2)} €</td>
+                <td class="num">${totRimborsoKm.toFixed(2)} €</td>
+                <td class="num">${totVitto.toFixed(2)} €</td>
+                <td class="num">${totAlloggio.toFixed(2)} €</td>
+                <td class="num">${totTotale.toFixed(2)} €</td>
+            </tr>
+        </tbody>
+    </table>
+    <div class="footer-note">Documento generato automaticamente da MV Consulting ERP</div>
+    <script>window.onload = () => window.print();</script>
+</body>
+</html>`;
+
+        const w = window.open('', '_blank');
+        if (w) {
+            w.document.write(html);
+            w.document.close();
+        } else {
+            UI.toast('Popup bloccato dal browser — abilita i popup per esportare il PDF', 'error');
+        }
+    }
+
+    return { load, openNew, edit, remove, initFilters, syncGoogle, calcolaKm, calcolaTuttiKm, togglePernottamento, exportPdf };
 })();
 
 window.ModTrasferte = ModTrasferte;
