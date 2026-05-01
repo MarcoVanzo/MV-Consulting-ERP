@@ -642,17 +642,37 @@ const ModTrasferte = (() => {
         </tbody>
     </table>
     <div class="footer-note">Documento generato automaticamente da MV Consulting ERP</div>
-    <script>window.onload = () => window.print();</script>
 </body>
 </html>`;
 
-        const w = window.open('', '_blank');
-        if (w) {
-            w.document.write(html);
-            w.document.close();
-        } else {
-            UI.toast('Popup bloccato dal browser — abilita i popup per esportare il PDF', 'error');
-        }
+        // Usa iframe nascosto per evitare il popup blocker
+        const existing = document.getElementById('pdf-print-frame');
+        if (existing) existing.remove();
+
+        const iframe = document.createElement('iframe');
+        iframe.id = 'pdf-print-frame';
+        iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:0;height:0;border:none;';
+        document.body.appendChild(iframe);
+
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        doc.open();
+        doc.write(html);
+        doc.close();
+
+        iframe.onload = () => {
+            try {
+                iframe.contentWindow.focus();
+                iframe.contentWindow.print();
+            } catch (e) {
+                // Fallback: apri in nuova tab
+                const blob = new Blob([html], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+                setTimeout(() => URL.revokeObjectURL(url), 5000);
+            }
+            // Cleanup dopo 2 secondi
+            setTimeout(() => iframe.remove(), 2000);
+        };
     }
 
     return { load, openNew, edit, remove, initFilters, syncGoogle, calcolaKm, calcolaTuttiKm, togglePernottamento, exportPdf };
