@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-05-01T18:35:32.505Z",
+  "generated_at": "2026-05-01T18:57:11.967Z",
   "file_count": 35,
   "files": [
     {
@@ -37,7 +37,7 @@
     },
     {
       "path": "api/Controllers/TrasferteController.php",
-      "hash": "fce12b4eb9c309644c56ae8b7a6a4c156f875ae11dfc9bc248e305226a37d2b7"
+      "hash": "02a0a8d5a035d1bd6444b6da5ee696ed6814aee358a2a64e3dfe590287e48148"
     },
     {
       "path": "api/health.php",
@@ -45,7 +45,7 @@
     },
     {
       "path": "api/migrate.php",
-      "hash": "d91b3f13f417def03ca2e3b65c51fa3ed87bfb3de06bad5a2e3d10517abc2756"
+      "hash": "4ff2d832d3c54a2977013add002c8f937a23de02ccb77fe730c144e7a22bbef2"
     },
     {
       "path": "api/router.php",
@@ -101,7 +101,7 @@
     },
     {
       "path": "index.html",
-      "hash": "1c828bd03bec9e1b5f086c8de2fa7697c699496da489e2de5d2763f1cfbb7949"
+      "hash": "2f103c2fd3abb90cde93b638c8baf963ed6584e39d87da9e099dce8496f3d54b"
     },
     {
       "path": "js/app.js",
@@ -141,7 +141,7 @@
     },
     {
       "path": "js/modules/trasferte.js",
-      "hash": "89120863570e56030ae2f5e1ab6e8f71d955eca2a84a93bb50fd665a83f8841d"
+      "hash": "b0a8a886c68ee928fef14740ddcd98ceb495eb49f233ddaa030d3a958b37aac2"
     }
   ]
 }

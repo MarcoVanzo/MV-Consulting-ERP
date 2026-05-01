@@ -120,6 +120,10 @@ $queries = [
     "ALTER TABLE {$prefix}trasferte ADD COLUMN pernottamento TINYINT(1) DEFAULT 0 AFTER alloggio",
     "ALTER TABLE {$prefix}trasferte ADD COLUMN km_bloccati TINYINT(1) DEFAULT 0 AFTER pernottamento",
 
+    // ── Trasferte — mezzo utilizzato ─────────────────────
+    "ALTER TABLE {$prefix}trasferte ADD COLUMN mezzo_id INT DEFAULT NULL AFTER km_bloccati",
+    "ALTER TABLE {$prefix}trasferte ADD FOREIGN KEY fk_trasferte_mezzo (mezzo_id) REFERENCES {$prefix}mezzi(id) ON DELETE SET NULL",
+
     // ── Fatture / Contabilità ────────────────────────────
     "CREATE TABLE IF NOT EXISTS {$prefix}fatture (
         id INT AUTO_INCREMENT PRIMARY KEY,

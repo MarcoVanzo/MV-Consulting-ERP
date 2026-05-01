@@ -19,10 +19,12 @@ class TrasferteController {
 
         $sql = "SELECT t.*, 
                 c.ragione_sociale as cliente_nome,
-                sc.nome as sottocliente_nome
+                sc.nome as sottocliente_nome,
+                m.nome as mezzo_nome, m.targa as mezzo_targa
             FROM {$this->prefix}trasferte t
             LEFT JOIN {$this->prefix}clienti c ON c.id = t.cliente_id
             LEFT JOIN {$this->prefix}sottoclienti sc ON sc.id = t.sottocliente_id
+            LEFT JOIN {$this->prefix}mezzi m ON m.id = t.mezzo_id
             WHERE YEAR(t.data_trasferta) = ?";
         $params = [$year];
 
@@ -76,7 +78,8 @@ class TrasferteController {
             'alloggio'         => floatval($data['alloggio'] ?? 0),
             'note_spese'       => trim($data['note_spese'] ?? ''),
             'pernottamento'    => !empty($data['pernottamento']) ? 1 : 0,
-            'km_bloccati'      => !empty($data['km_bloccati']) ? 1 : 0
+            'km_bloccati'      => !empty($data['km_bloccati']) ? 1 : 0,
+            'mezzo_id'         => !empty($data['mezzo_id']) ? (int)$data['mezzo_id'] : null
         ];
 
         if ($id) {

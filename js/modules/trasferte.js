@@ -6,6 +6,7 @@
 const ModTrasferte = (() => {
     let _trasferte = [];
     let _totali = {};
+    let _mezziCache = [];
 
     async function load() {
         const year = document.getElementById('trasferte-year').value;
@@ -78,7 +79,7 @@ const ModTrasferte = (() => {
     function renderTable() {
         const tbody = document.getElementById('tbody-trasferte');
         if (!_trasferte.length) {
-            tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><i class="ph ph-car-profile"></i><h3>Nessuna trasferta</h3><p>Aggiungi la prima trasferta</p></div></td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><i class="ph ph-car-profile"></i><h3>Nessuna trasferta</h3><p>Aggiungi la prima trasferta</p></div></td></tr>`;
             return;
         }
 
@@ -92,7 +93,8 @@ const ModTrasferte = (() => {
                     extra: [], // Per eventi aggiuntivi oltre 2 nella stessa giornata
                     km_totali: 0,
                     has_client: false,
-                    pernottamento: false
+                    pernottamento: false,
+                    mezzo: ''
                 };
             }
             if (t.pernottamento == 1 || t.pernottamento == true) grouped[t.data_trasferta].pernottamento = true;
@@ -127,6 +129,10 @@ const ModTrasferte = (() => {
             }
             
             grouped[t.data_trasferta].km_totali += (parseFloat(t.km_andata || 0) + parseFloat(t.km_ritorno || 0));
+            // Track mezzo (use the first one found for the day)
+            if (!grouped[t.data_trasferta].mezzo && (t.mezzo_nome || t.mezzo_targa)) {
+                grouped[t.data_trasferta].mezzo = t.mezzo_nome ? `${t.mezzo_nome} (${t.mezzo_targa || ''})` : (t.mezzo_targa || '');
+            }
         });
 
         const rows = Object.values(grouped).sort((a, b) => b.data.localeCompare(a.data));
@@ -161,6 +167,9 @@ const ModTrasferte = (() => {
                             <button class="btn btn-sm btn-danger" style="padding: 2px" onclick="ModTrasferte.remove(${g.pomeriggio.id})"><i class="ph ph-trash"></i></button>
                         </div>` : ''}
                     </div>
+                </td>
+                <td style="white-space: nowrap; font-size: 0.85rem; color: var(--text-muted);">
+                    ${g.mezzo ? `<i class="ph ph-car-profile" style="margin-right:4px;"></i>${g.mezzo}` : '<span style="color:var(--text-muted);opacity:0.4;">—</span>'}
                 </td>
                 <td class="text-right">${UI.formatNumber(g.km_totali)}</td>
                 <td class="text-right">${UI.formatCurrency(indennita)}</td>
@@ -209,6 +218,12 @@ const ModTrasferte = (() => {
                     </select>
                 </div>
                 <div class="form-group">
+                    <label>Mezzo utilizzato</label>
+                    <select class="form-control" id="f-t-mezzo">
+                        <option value="">— Nessun mezzo —</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label>Destinazione</label>
                     <input type="text" class="form-control" id="f-t-luogo" value="${UI.esc(data.luogo_arrivo || '')}">
                 </div>
@@ -249,6 +264,7 @@ const ModTrasferte = (() => {
         setTimeout(() => {
             initClienteWatch();
             initKmWatch();
+            loadMezziDropdown();
         }, 100);
     }
 
@@ -259,6 +275,7 @@ const ModTrasferte = (() => {
         setTimeout(() => {
             initClienteWatch();
             initKmWatch();
+            loadMezziDropdown(t.mezzo_id);
             if (t.cliente_id) loadSottoclienti(t.cliente_id, t.sottocliente_id);
         }, 100);
     }
@@ -302,6 +319,27 @@ const ModTrasferte = (() => {
         }
     }
 
+    async function loadMezziDropdown(selectedId) {
+        const sel = document.getElementById('f-t-mezzo');
+        if (!sel) return;
+        // Use cached mezzi if available, otherwise fetch
+        if (!_mezziCache.length) {
+            try {
+                _mezziCache = await Store.api('getAllVehicles', 'mezzi') || [];
+            } catch (err) {
+                _mezziCache = [];
+            }
+        }
+        _mezziCache.forEach(m => {
+            if (m.stato !== 'attivo') return; // solo mezzi attivi
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = `${m.nome} (${m.targa})`;
+            if (m.id == selectedId) opt.selected = true;
+            sel.appendChild(opt);
+        });
+    }
+
     async function saveFromForm() {
         const payload = {
             id: document.getElementById('f-t-id').value || undefined,
@@ -317,7 +355,8 @@ const ModTrasferte = (() => {
             alloggio: document.getElementById('f-t-alloggio').value,
             descrizione: document.getElementById('f-t-desc').value,
             pernottamento: parseInt(document.getElementById('f-t-pernottamento').value) || 0,
-            km_bloccati: document.getElementById('f-t-km-bloccati').checked ? 1 : 0
+            km_bloccati: document.getElementById('f-t-km-bloccati').checked ? 1 : 0,
+            mezzo_id: document.getElementById('f-t-mezzo').value || null
         };
         try {
             await Store.api('save', 'trasferte', payload);
@@ -515,7 +554,8 @@ const ModTrasferte = (() => {
                     has_client: false,
                     pernottamento: false,
                     vitto: 0,
-                    alloggio: 0
+                    alloggio: 0,
+                    mezzo: ''
                 };
             }
             if (t.pernottamento == 1 || t.pernottamento == true) grouped[t.data_trasferta].pernottamento = true;
@@ -535,6 +575,9 @@ const ModTrasferte = (() => {
             grouped[t.data_trasferta].km_totali += (parseFloat(t.km_andata || 0) + parseFloat(t.km_ritorno || 0));
             grouped[t.data_trasferta].vitto += parseFloat(t.vitto || 0);
             grouped[t.data_trasferta].alloggio += parseFloat(t.alloggio || 0);
+            if (!grouped[t.data_trasferta].mezzo && (t.mezzo_nome || t.mezzo_targa)) {
+                grouped[t.data_trasferta].mezzo = t.mezzo_nome ? `${t.mezzo_nome} (${t.mezzo_targa || ''})` : (t.mezzo_targa || '');
+            }
         });
 
         const rows = Object.values(grouped).sort((a, b) => a.data.localeCompare(b.data));
@@ -560,6 +603,7 @@ const ModTrasferte = (() => {
                 <td>${dataFmt}</td>
                 <td>${g.mattina || '—'}</td>
                 <td>${g.pomeriggio || '—'}</td>
+                <td>${g.mezzo || '—'}</td>
                 <td class="num">${g.km_totali.toFixed(1)}</td>
                 <td class="num">${indennita.toFixed(2)} €</td>
                 <td class="num">${rimborsoKm.toFixed(2)} €</td>
@@ -620,6 +664,7 @@ const ModTrasferte = (() => {
                 <th>Data</th>
                 <th>Mattina</th>
                 <th>Pomeriggio</th>
+                <th>Mezzo</th>
                 <th style="text-align:right">KM</th>
                 <th style="text-align:right">Indennità</th>
                 <th style="text-align:right">Rimb. KM</th>
@@ -631,7 +676,7 @@ const ModTrasferte = (() => {
         <tbody>
             ${tableRows}
             <tr class="footer-row">
-                <td colspan="3">TOTALE (${rows.length} giornate)</td>
+                <td colspan="4">TOTALE (${rows.length} giornate)</td>
                 <td class="num">${totKm.toFixed(1)}</td>
                 <td class="num">${totIndennita.toFixed(2)} €</td>
                 <td class="num">${totRimborsoKm.toFixed(2)} €</td>
