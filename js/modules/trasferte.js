@@ -659,8 +659,8 @@ const ModTrasferte = (() => {
         .header .sub { font-size: 9.5px; color: #666; margin-top: 2px; }
         .header .info { text-align: right; font-size: 8px; color: #666; line-height: 1.4; }
         table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
-        th { background: #0B0E14; color: #fff; padding: 3px 4px; text-align: left; font-size: 7.5px; text-transform: uppercase; letter-spacing: 0.3px; }
-        td { padding: 2.5px 4px; border-bottom: 1px solid #e0e0e0; font-size: 8.5px; line-height: 1.15; }
+        th { background: #0B0E14; color: #fff; padding: 4px 4px; text-align: left; font-size: 7.5px; text-transform: uppercase; letter-spacing: 0.3px; }
+        td { padding: 3.5px 4px; border-bottom: 1px solid #e0e0e0; font-size: 8.5px; line-height: 1.25; }
         tr:nth-child(even) { background: #f7f7f7; }
         .num { text-align: right; font-variant-numeric: tabular-nums; }
         .tot { font-weight: 700; }
