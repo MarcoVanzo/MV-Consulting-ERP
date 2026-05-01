@@ -24,6 +24,10 @@ const ModTrasferte = (() => {
                 document.getElementById('trasferte-costo-km').value = parseFloat(storedCosto).toFixed(4);
             }
 
+            // Precarica mezzi se non ancora in cache
+            if (!_mezziCache.length) {
+                try { _mezziCache = await Store.api('getAllVehicles', 'mezzi') || []; } catch(e) { _mezziCache = []; }
+            }
             renderKpis();
             renderTable();
         } catch (err) {
@@ -94,7 +98,8 @@ const ModTrasferte = (() => {
                     km_totali: 0,
                     has_client: false,
                     pernottamento: false,
-                    mezzo: ''
+                    mezzo_id: null,
+                    trasferta_ids: []
                 };
             }
             if (t.pernottamento == 1 || t.pernottamento == true) grouped[t.data_trasferta].pernottamento = true;
@@ -129,9 +134,10 @@ const ModTrasferte = (() => {
             }
             
             grouped[t.data_trasferta].km_totali += (parseFloat(t.km_andata || 0) + parseFloat(t.km_ritorno || 0));
-            // Track mezzo (use the first one found for the day)
-            if (!grouped[t.data_trasferta].mezzo && (t.mezzo_nome || t.mezzo_targa)) {
-                grouped[t.data_trasferta].mezzo = t.mezzo_nome ? `${t.mezzo_nome} (${t.mezzo_targa || ''})` : (t.mezzo_targa || '');
+            grouped[t.data_trasferta].trasferta_ids.push(t.id);
+            // Track mezzo_id (use the first one found for the day)
+            if (!grouped[t.data_trasferta].mezzo_id && t.mezzo_id) {
+                grouped[t.data_trasferta].mezzo_id = t.mezzo_id;
             }
         });
 
@@ -168,8 +174,11 @@ const ModTrasferte = (() => {
                         </div>` : ''}
                     </div>
                 </td>
-                <td style="white-space: nowrap; font-size: 0.85rem; color: var(--text-muted);">
-                    ${g.mezzo ? `<i class="ph ph-car-profile" style="margin-right:4px;"></i>${g.mezzo}` : '<span style="color:var(--text-muted);opacity:0.4;">—</span>'}
+                <td style="white-space: nowrap; padding: 4px 8px;">
+                    <select class="form-control" style="font-size: 0.8rem; padding: 4px 8px; height: auto; min-width: 130px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary);" onchange="ModTrasferte.updateMezzoForDay('${g.data}', this.value)">
+                        <option value="">— Nessuno —</option>
+                        ${_mezziCache.filter(m => m.stato === 'attivo').map(m => `<option value="${m.id}" ${m.id == g.mezzo_id ? 'selected' : ''}>${UI.esc(m.nome)} (${UI.esc(m.targa)})</option>`).join('')}
+                    </select>
                 </td>
                 <td class="text-right">${UI.formatNumber(g.km_totali)}</td>
                 <td class="text-right">${UI.formatCurrency(indennita)}</td>
@@ -338,6 +347,45 @@ const ModTrasferte = (() => {
             if (m.id == selectedId) opt.selected = true;
             sel.appendChild(opt);
         });
+    }
+
+    async function updateMezzoForDay(data, mezzoId) {
+        // Find all trasferta IDs for this day
+        const ids = _trasferte.filter(t => t.data_trasferta === data).map(t => t.id);
+        if (!ids.length) return;
+        try {
+            // Update mezzo_id for each trasferta of the day
+            await Promise.all(ids.map(id => {
+                const t = _trasferte.find(tr => tr.id === id);
+                return Store.api('save', 'trasferte', {
+                    id,
+                    data_trasferta: t.data_trasferta,
+                    fascia_oraria: t.fascia_oraria,
+                    cliente_id: t.cliente_id,
+                    sottocliente_id: t.sottocliente_id,
+                    luogo_arrivo: t.luogo_arrivo,
+                    km_andata: t.km_andata,
+                    km_ritorno: t.km_ritorno,
+                    vitto: t.vitto,
+                    alloggio: t.alloggio,
+                    descrizione: t.descrizione,
+                    pernottamento: t.pernottamento,
+                    km_bloccati: t.km_bloccati,
+                    mezzo_id: mezzoId || null
+                });
+            }));
+            // Update local cache
+            ids.forEach(id => {
+                const t = _trasferte.find(tr => tr.id === id);
+                if (t) t.mezzo_id = mezzoId || null;
+            });
+            const mezzo = _mezziCache.find(m => m.id == mezzoId);
+            UI.toast(mezzoId ? `Mezzo ${mezzo?.nome || ''} assegnato` : 'Mezzo rimosso');
+        } catch (err) {
+            console.error('[Trasferte] updateMezzo error:', err);
+            UI.toast('Errore aggiornamento mezzo', 'error');
+            load(); // Ricarica in caso di errore
+        }
     }
 
     async function saveFromForm() {
@@ -720,7 +768,7 @@ const ModTrasferte = (() => {
         };
     }
 
-    return { load, openNew, edit, remove, initFilters, syncGoogle, calcolaKm, calcolaTuttiKm, togglePernottamento, exportPdf };
+    return { load, openNew, edit, remove, initFilters, syncGoogle, calcolaKm, calcolaTuttiKm, togglePernottamento, exportPdf, updateMezzoForDay };
 })();
 
 window.ModTrasferte = ModTrasferte;
