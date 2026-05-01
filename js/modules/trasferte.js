@@ -685,7 +685,7 @@ const ModTrasferte = (() => {
         <div class="info">
             Costo KM: ${costoKm.toFixed(4)} €/km<br>
             Indennità giornaliera: 46,48 €<br>
-            ${(() => { const m = _trasferte.find(t => t.mezzo_id); const mezzo = m ? _mezziCache.find(v => v.id == m.mezzo_id) : null; return mezzo ? `Mezzo: ${mezzo.nome} (${mezzo.targa})<br>` : ''; })()}
+            ${(() => { const selId = document.getElementById('trasferte-mezzo')?.value; const mezzo = selId ? _mezziCache.find(v => v.id == selId) : null; return mezzo ? `Mezzo: <strong>${mezzo.nome}</strong> — Targa: <strong>${mezzo.targa}</strong><br>` : ''; })()}
             Stampato il: ${new Date().toLocaleDateString('it-IT')}
         </div>
     </div>
