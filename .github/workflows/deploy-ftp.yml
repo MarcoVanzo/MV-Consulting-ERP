@@ -14,10 +14,10 @@ jobs:
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ftp.mv-consulting.it
-          username: REDACTED_USERNAME
-          password: 'REDACTED_CREDENTIAL'
-          server-dir: www.mv-consulting.it/ERP/
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          server-dir: ${{ secrets.FTP_PATH }}/
           exclude: |
             **/.git*
             **/.git*/**
