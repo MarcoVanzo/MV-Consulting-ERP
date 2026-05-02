@@ -613,18 +613,16 @@ const ModTrasferte = (() => {
 
         const rows = Object.values(grouped).sort((a, b) => a.data.localeCompare(b.data));
 
-        let totKm = 0, totIndennita = 0, totRimborsoKm = 0, totVitto = 0, totAlloggio = 0, totTotale = 0;
+        let totKm = 0, totIndennita = 0, totRimborsoKm = 0, totTotale = 0;
 
         const tableRows = rows.map(g => {
             const indennita = g.has_client ? 46.48 : 0;
             const rimborsoKm = g.km_totali * costoKm;
-            const totaleRiga = rimborsoKm + indennita + g.vitto + g.alloggio;
+            const totaleRiga = rimborsoKm + indennita;
 
             totKm += g.km_totali;
             totIndennita += indennita;
             totRimborsoKm += rimborsoKm;
-            totVitto += g.vitto;
-            totAlloggio += g.alloggio;
             totTotale += totaleRiga;
 
             const d = new Date(g.data);
@@ -637,8 +635,6 @@ const ModTrasferte = (() => {
                 <td class="num">${g.km_totali.toFixed(1)}</td>
                 <td class="num">${indennita.toFixed(2)} €</td>
                 <td class="num">${rimborsoKm.toFixed(2)} €</td>
-                <td class="num">${g.vitto.toFixed(2)} €</td>
-                <td class="num">${g.alloggio.toFixed(2)} €</td>
                 <td class="num tot">${totaleRiga.toFixed(2)} €</td>
             </tr>`;
         }).join('');
@@ -660,7 +656,7 @@ const ModTrasferte = (() => {
         .header .info { text-align: right; font-size: 8px; color: #666; line-height: 1.4; }
         table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
         th { background: #0B0E14; color: #fff; padding: 4px 4px; text-align: left; font-size: 7.5px; text-transform: uppercase; letter-spacing: 0.3px; }
-        td { padding: 3.5px 4px; border-bottom: 1px solid #e0e0e0; font-size: 8.5px; line-height: 1.25; }
+        td { padding: 3.5px 4px; border-bottom: 1px solid #e0e0e0; font-size: 8.5px; line-height: 2; }
         tr:nth-child(even) { background: #f7f7f7; }
         .num { text-align: right; font-variant-numeric: tabular-nums; }
         .tot { font-weight: 700; }
@@ -698,8 +694,6 @@ const ModTrasferte = (() => {
                 <th style="text-align:right">KM</th>
                 <th style="text-align:right">Indennità</th>
                 <th style="text-align:right">Rimb. KM</th>
-                <th style="text-align:right">Vitto</th>
-                <th style="text-align:right">Alloggio</th>
                 <th style="text-align:right">Totale</th>
             </tr>
         </thead>
@@ -710,8 +704,6 @@ const ModTrasferte = (() => {
                 <td class="num">${totKm.toFixed(1)}</td>
                 <td class="num">${totIndennita.toFixed(2)} €</td>
                 <td class="num">${totRimborsoKm.toFixed(2)} €</td>
-                <td class="num">${totVitto.toFixed(2)} €</td>
-                <td class="num">${totAlloggio.toFixed(2)} €</td>
                 <td class="num">${totTotale.toFixed(2)} €</td>
             </tr>
         </tbody>
