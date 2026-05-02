@@ -23,6 +23,9 @@ uploads/
 tmp_*/
 PDF Pagamenti/
 *.sql
+api/_pdf_debug.json
+api/refactor.py
+cron/*.log
 
 # Debug & Test scripts (root level)
 debug_*.php
