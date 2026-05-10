@@ -1,7 +1,7 @@
 {
   "version": 3,
-  "generated_at": "2026-05-10T08:23:20.564Z",
-  "file_count": 36,
+  "generated_at": "2026-05-10T08:38:38.141Z",
+  "file_count": 37,
   "files": [
     {
       "path": "api/.htaccess",
@@ -49,7 +49,7 @@
     },
     {
       "path": "api/router.php",
-      "hash": "d1ddb2918f91d18b51391e0d32fb93082f8e0eb95fcd3ee4e3e2292345b6d814"
+      "hash": "45a4d54a3f5a3110d1515957ca4c5089a6c6f1e60bbc9721b15dcff0b1943008"
     },
     {
       "path": "api/Shared/Audit.php",
@@ -84,6 +84,10 @@
       "hash": "d1d5403fee73675554238b7f1bcfc4857cd35ba18b24359a1e0fc6c9cd678125"
     },
     {
+      "path": "api/Shared/Router.php",
+      "hash": "3ad4b90590383703e49022131146bebb9e9527a80c394b3f178683ccb007d019"
+    },
+    {
       "path": "api/Shared/Security.php",
       "hash": "19aad1b1bf82eedbe6be0069cee78bf656a632b7c7f79cff00e97736aee2ef1b"
     },
@@ -105,7 +109,7 @@
     },
     {
       "path": "index.html",
-      "hash": "52cc01a1fa96766025566af427969ffc743dcfcf27c46a04568e6c4600e51823"
+      "hash": "4e717b4c673591ef3fbfb69fe396d2640ecb225db0fccbb8973b403485363f00"
     },
     {
       "path": "js/app.js",
