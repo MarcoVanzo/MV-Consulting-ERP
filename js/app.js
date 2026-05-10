@@ -3,17 +3,36 @@
 /**
  * App — Main orchestrator per MV Consulting ERP
  */
-document.addEventListener('DOMContentLoaded', () => {
-    // Non richiediamo più erp_token rigorosamente perché gestito tramite Cookie HttpOnly
-    const userData = JSON.parse(localStorage.getItem('erp_user') || 'null');
+document.addEventListener('DOMContentLoaded', async () => {
+    // Autenticazione basata SOLO su cookie HttpOnly.
+    // erp_user in localStorage è usato solo per dati di visualizzazione (nome, iniziali),
+    // MAI come prova di autenticazione.
+    const cachedUser = JSON.parse(localStorage.getItem('erp_user') || 'null');
 
-    if (userData) {
-        initApplication(userData);
-    } else {
-        AuthFlow.showLoginScreen((data) => {
-            if (data.token) {
-                localStorage.setItem('erp_token', data.token);
+    if (cachedUser) {
+        // Valida la sessione con il server prima di fidarsi del localStorage
+        try {
+            const verified = await Store.api('verify', 'auth');
+            if (verified) {
+                // Aggiorna i dati locali con quelli verificati dal server
+                const userData = { ...cachedUser, ...verified };
+                localStorage.setItem('erp_user', JSON.stringify(userData));
+                initApplication(userData);
+            } else {
+                throw new Error('Sessione non valida');
             }
+        } catch (e) {
+            // Cookie scaduto o invalido — mostra login
+            localStorage.removeItem('erp_user');
+            showLoginFlow();
+        }
+    } else {
+        showLoginFlow();
+    }
+
+    function showLoginFlow() {
+        AuthFlow.showLoginScreen((data) => {
+            // Token gestito SOLO via cookie HttpOnly, NON salvato in localStorage
             localStorage.setItem('erp_user', JSON.stringify(data));
             initApplication(data);
         });
@@ -148,8 +167,9 @@ function initApplication(userData) {
     }
 
     // ── Logout ──
-    document.getElementById('logout-btn').addEventListener('click', () => {
-        localStorage.removeItem('erp_token');
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+        // Invalida il cookie lato server (se endpoint disponibile) e pulisci localStorage
+        try { await Store.api('logout', 'auth'); } catch(e) { /* best-effort */ }
         localStorage.removeItem('erp_user');
         window.location.reload();
     });

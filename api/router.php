@@ -135,6 +135,19 @@ if (!$isPublic && !$isDeployKeyAuth) {
     }
 }
 
+// ═════════════════════════════════════════════
+// CSRF PROTECTION (Double Submit Cookie)
+// ═════════════════════════════════════════════
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$isPublic && !$isDeployKeyAuth) {
+    $csrfCookie = $_COOKIE['csrf_token'] ?? '';
+    $csrfHeader = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    
+    if (empty($csrfCookie) || empty($csrfHeader) || !hash_equals($csrfCookie, $csrfHeader)) {
+        Response::json(false, 'Richiesta non valida (CSRF).', null, 403);
+        exit;
+    }
+}
+
 try {
     switch ($module) {
 
@@ -205,6 +218,27 @@ try {
                 } catch (Exception $e) {
                     Response::json(false, $e->getMessage());
                 }
+            } elseif ($action === 'verify') {
+                // ── Verifica sessione corrente (cookie HttpOnly) ──
+                // Non è public: richiede auth → se arriviamo qui, il JWT è valido
+                $ctx = $GLOBALS['userContext'] ?? [];
+                Response::json(true, 'Sessione valida', [
+                    'id'    => $ctx['id'] ?? null,
+                    'email' => $ctx['email'] ?? null,
+                    'role'  => $ctx['role'] ?? null,
+                    'name'  => $ctx['name'] ?? $ctx['email'] ?? 'User'
+                ]);
+            } elseif ($action === 'logout') {
+                // ── Logout: invalida il cookie HttpOnly ──
+                $isSecure = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on');
+                setcookie('auth_token', '', [
+                    'expires'  => time() - 3600,
+                    'path'     => '/',
+                    'httponly'  => true,
+                    'secure'   => $isSecure,
+                    'samesite' => 'Lax'
+                ]);
+                Response::json(true, 'Logout effettuato');
             }
             break;
 
@@ -324,6 +358,13 @@ try {
         // ADMIN (Utenti, Backup, Logs)
         // ═════════════════════════════════════════════
         case 'admin':
+            // ── RBAC: solo admin può accedere a questo modulo ──
+            if (!$isDeployKeyAuth) {
+                $userCtx = $GLOBALS['userContext'] ?? [];
+                if (($userCtx['role'] ?? '') !== 'admin') {
+                    Response::json(false, 'Accesso negato. Permessi insufficienti.', null, 403);
+                }
+            }
             $ctrl = new AdminController();
             switch ($action) {
                 // Utenti
