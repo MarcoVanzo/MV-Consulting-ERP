@@ -1,25 +1,32 @@
 <?php
 /**
- * MV Consulting ERP — Database Migration
- * Creates tables: mv_clienti, mv_sottoclienti, mv_trasferte, mv_fatture
+ * MV Consulting ERP — Database Migration (Versioned)
+ * 
+ * Ogni migrazione viene tracciata nella tabella {prefix}migrations.
+ * Solo le migrazioni non ancora eseguite vengono applicate (idempotente).
  */
 
 require_once __DIR__ . '/Shared/Database.php';
+require_once __DIR__ . '/Shared/Env.php';
 
-// Load .env
-$envPath = __DIR__ . '/../.env';
-if (file_exists($envPath)) {
-    $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    foreach ($lines as $line) {
-        if (strpos(trim($line), '#') === 0) continue;
-        list($name, $value) = explode('=', $line, 2);
-        putenv(trim($name) . '=' . trim($value));
-        $_ENV[trim($name)] = trim($value);
-    }
-}
+Env::load(__DIR__ . '/../.env');
 
 $pdo = Database::getConnection();
 $prefix = getenv('DB_PREFIX') ?: 'mv_';
+
+// ── Crea tabella migrations se non esiste ──
+$pdo->exec("CREATE TABLE IF NOT EXISTS `{$prefix}migrations` (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    version VARCHAR(100) NOT NULL UNIQUE,
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+// Recupera migrazioni già applicate
+$applied = [];
+$stmt = $pdo->query("SELECT version FROM `{$prefix}migrations`");
+while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+    $applied[$row['version']] = true;
+}
 
 $queries = [
 
@@ -120,9 +127,9 @@ $queries = [
     "ALTER TABLE {$prefix}trasferte ADD COLUMN pernottamento TINYINT(1) DEFAULT 0 AFTER alloggio",
     "ALTER TABLE {$prefix}trasferte ADD COLUMN km_bloccati TINYINT(1) DEFAULT 0 AFTER pernottamento",
 
-    // ── Trasferte — mezzo utilizzato ─────────────────────
+    // ── Trasferte — mezzo utilizzato (colonna) ────────────
+    // FK aggiunta dopo la creazione della tabella mezzi (vedi fine array)
     "ALTER TABLE {$prefix}trasferte ADD COLUMN mezzo_id INT DEFAULT NULL AFTER km_bloccati",
-    "ALTER TABLE {$prefix}trasferte ADD FOREIGN KEY fk_trasferte_mezzo (mezzo_id) REFERENCES {$prefix}mezzi(id) ON DELETE SET NULL",
 
     // ── Fatture / Contabilità ────────────────────────────
     "CREATE TABLE IF NOT EXISTS {$prefix}fatture (
@@ -292,23 +299,50 @@ $queries = [
     "ALTER TABLE {$prefix}audit_logs ADD COLUMN http_status SMALLINT DEFAULT 200 AFTER user_agent",
     "ALTER TABLE {$prefix}audit_logs ADD COLUMN before_snapshot MEDIUMTEXT DEFAULT NULL AFTER http_status",
     "ALTER TABLE {$prefix}audit_logs ADD COLUMN after_snapshot MEDIUMTEXT DEFAULT NULL AFTER before_snapshot",
-    "ALTER TABLE {$prefix}audit_logs CHANGE timestamp created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+    "ALTER TABLE {$prefix}audit_logs CHANGE timestamp created_at DATETIME DEFAULT CURRENT_TIMESTAMP",
+
+    // ── FK differita: trasferte → mezzi (ora mezzi esiste) ──
+    "ALTER TABLE {$prefix}trasferte ADD FOREIGN KEY fk_trasferte_mezzo (mezzo_id) REFERENCES {$prefix}mezzi(id) ON DELETE SET NULL"
 ];
 
 $results = [];
-foreach ($queries as $sql) {
+$newlyApplied = 0;
+
+foreach ($queries as $idx => $sql) {
+    $version = 'v' . str_pad((string)($idx + 1), 3, '0', STR_PAD_LEFT);
+    
+    // Skip already applied
+    if (isset($applied[$version])) {
+        continue;
+    }
+
     try {
         $pdo->exec($sql);
-        // Extract table name from query
-        preg_match('/CREATE TABLE IF NOT EXISTS\s+(\S+)/i', $sql, $m);
-        $tableName = $m[1] ?? 'unknown';
-        $results[] = ['table' => $tableName, 'status' => 'OK'];
+        // Track as applied
+        $pdo->prepare("INSERT INTO `{$prefix}migrations` (version) VALUES (?)")->execute([$version]);
+        $newlyApplied++;
+        
+        preg_match('/(?:CREATE TABLE IF NOT EXISTS|ALTER TABLE)\s+`?(\S+?)`?\s/i', $sql, $m);
+        $tableName = $m[1] ?? "migration_$version";
+        $results[] = ['version' => $version, 'table' => $tableName, 'status' => 'OK'];
     } catch (PDOException $e) {
-        preg_match('/CREATE TABLE IF NOT EXISTS\s+(\S+)/i', $sql, $m);
-        $tableName = $m[1] ?? 'unknown';
-        $results[] = ['table' => $tableName, 'status' => 'ERROR', 'message' => $e->getMessage()];
+        // Duplicate column / table exists errors are safe to skip
+        $safeErrors = [1060, 1061, 1068, 1050]; // dup column, dup key, dup primary, table exists
+        if (in_array($e->errorInfo[1] ?? 0, $safeErrors)) {
+            // Mark as applied even if it was a safe skip
+            try { $pdo->prepare("INSERT INTO `{$prefix}migrations` (version) VALUES (?)")->execute([$version]); } catch(\Throwable $ignore) {}
+            $results[] = ['version' => $version, 'status' => 'SKIPPED', 'message' => $e->getMessage()];
+        } else {
+            $results[] = ['version' => $version, 'status' => 'ERROR', 'message' => $e->getMessage()];
+        }
     }
 }
 
 header('Content-Type: application/json');
-echo json_encode(['success' => true, 'migrations' => $results], JSON_PRETTY_PRINT);
+echo json_encode([
+    'success' => true, 
+    'newly_applied' => $newlyApplied,
+    'total_tracked' => count($applied) + $newlyApplied,
+    'migrations' => $results
+], JSON_PRETTY_PRINT);
+

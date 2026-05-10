@@ -16,6 +16,36 @@ class MezziController {
         $this->prefix = getenv('DB_PREFIX') ?: 'mv_';
     }
 
+    /**
+     * Gestisce upload allegato manutenzione. Restituisce URL relativo o null.
+     */
+    private function handleFileUpload(?string $existingUrl = null): ?string {
+        $allegatoUrl = $existingUrl;
+        if (!isset($_FILES['allegato']) || $_FILES['allegato']['error'] !== UPLOAD_ERR_OK) {
+            return $allegatoUrl;
+        }
+
+        $allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'];
+        $ext = strtolower(pathinfo($_FILES['allegato']['name'], PATHINFO_EXTENSION));
+        if (!in_array($ext, $allowedExtensions)) {
+            Response::json(false, "Tipo di file non consentito. Formati accettati: " . implode(', ', $allowedExtensions));
+        }
+
+        $maxSize = (int)(getenv('MAX_UPLOAD_SIZE') ?: 10485760);
+        if ($_FILES['allegato']['size'] > $maxSize) {
+            Response::json(false, "File troppo grande. Dimensione massima: " . round($maxSize / 1048576) . "MB");
+        }
+
+        $uploadDir = __DIR__ . '/../../uploads/manutenzioni/';
+        if (!is_dir($uploadDir)) mkdir($uploadDir, 0750, true);
+
+        $filename = 'maint_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+        if (move_uploaded_file($_FILES['allegato']['tmp_name'], $uploadDir . $filename)) {
+            return 'uploads/manutenzioni/' . $filename;
+        }
+        return $allegatoUrl;
+    }
+
     public function getAllVehicles($data = []) {
         try {
             $stmt = $this->pdo->query("SELECT * FROM {$this->prefix}mezzi ORDER BY nome ASC");
@@ -144,30 +174,7 @@ class MezziController {
             Response::json(false, "Data e tipo sono obbligatori");
         }
 
-        $allegatoUrl = null;
-        if (isset($_FILES['allegato']) && $_FILES['allegato']['error'] === UPLOAD_ERR_OK) {
-            // Validate file extension
-            $allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'];
-            $ext = strtolower(pathinfo($_FILES['allegato']['name'], PATHINFO_EXTENSION));
-            if (!in_array($ext, $allowedExtensions)) {
-                Response::json(false, "Tipo di file non consentito. Formati accettati: " . implode(', ', $allowedExtensions));
-            }
-
-            // Validate file size (max 10MB)
-            $maxSize = (int)(getenv('MAX_UPLOAD_SIZE') ?: 10485760);
-            if ($_FILES['allegato']['size'] > $maxSize) {
-                Response::json(false, "File troppo grande. Dimensione massima: " . round($maxSize / 1048576) . "MB");
-            }
-
-            $uploadDir = __DIR__ . '/../../uploads/manutenzioni/';
-            if (!is_dir($uploadDir)) mkdir($uploadDir, 0750, true);
-            
-            $filename = 'maint_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-            
-            if (move_uploaded_file($_FILES['allegato']['tmp_name'], $uploadDir . $filename)) {
-                $allegatoUrl = 'uploads/manutenzioni/' . $filename;
-            }
-        }
+        $allegatoUrl = $this->handleFileUpload();
 
         try {
             $sql = "INSERT INTO {$this->prefix}mezzi_manutenzioni (mezzo_id, data_manutenzione, tipo, descrizione, costo, chilometraggio, prossima_scadenza_data, prossima_scadenza_km, allegato_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
@@ -246,30 +253,7 @@ class MezziController {
             Response::json(false, "Dati manutenzione mancanti");
         }
 
-        $allegatoUrl = $data['existing_allegato'] ?? null;
-        if (isset($_FILES['allegato']) && $_FILES['allegato']['error'] === UPLOAD_ERR_OK) {
-            // Validate file extension
-            $allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'];
-            $ext = strtolower(pathinfo($_FILES['allegato']['name'], PATHINFO_EXTENSION));
-            if (!in_array($ext, $allowedExtensions)) {
-                Response::json(false, "Tipo di file non consentito. Formati accettati: " . implode(', ', $allowedExtensions));
-            }
-
-            // Validate file size (max 10MB)
-            $maxSize = (int)(getenv('MAX_UPLOAD_SIZE') ?: 10485760);
-            if ($_FILES['allegato']['size'] > $maxSize) {
-                Response::json(false, "File troppo grande. Dimensione massima: " . round($maxSize / 1048576) . "MB");
-            }
-
-            $uploadDir = __DIR__ . '/../../uploads/manutenzioni/';
-            if (!is_dir($uploadDir)) mkdir($uploadDir, 0750, true);
-            
-            $filename = 'maint_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-            
-            if (move_uploaded_file($_FILES['allegato']['tmp_name'], $uploadDir . $filename)) {
-                $allegatoUrl = 'uploads/manutenzioni/' . $filename;
-            }
-        }
+        $allegatoUrl = $this->handleFileUpload($data['existing_allegato'] ?? null);
 
         try {
             $sql = "UPDATE {$this->prefix}mezzi_manutenzioni SET data_manutenzione=?, tipo=?, descrizione=?, costo=?, chilometraggio=?, prossima_scadenza_data=?, prossima_scadenza_km=?, allegato_url=? WHERE id=?";
