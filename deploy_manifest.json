@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-05-10T08:16:44.040Z",
+  "generated_at": "2026-05-10T08:23:20.564Z",
   "file_count": 36,
   "files": [
     {
@@ -37,7 +37,7 @@
     },
     {
       "path": "api/Controllers/TrasferteController.php",
-      "hash": "e4e118c6016d1668c0a32c42505079dc886186cba2782a4f9ef3350bed3701b0"
+      "hash": "acac7a07d3ec5f8500d2364e942844e7e641e8fe06f001ee2beec3150044dadb"
     },
     {
       "path": "api/health.php",
@@ -105,7 +105,7 @@
     },
     {
       "path": "index.html",
-      "hash": "fad55f0a59629e3aa0dc3ae1db86e8e386d344191462b68e60744c0bb50c14df"
+      "hash": "52cc01a1fa96766025566af427969ffc743dcfcf27c46a04568e6c4600e51823"
     },
     {
       "path": "js/app.js",
