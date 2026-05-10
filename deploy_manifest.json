@@ -1,7 +1,7 @@
 {
   "version": 3,
-  "generated_at": "2026-05-10T08:11:38.392Z",
-  "file_count": 35,
+  "generated_at": "2026-05-10T08:16:44.040Z",
+  "file_count": 36,
   "files": [
     {
       "path": "api/.htaccess",
@@ -29,7 +29,7 @@
     },
     {
       "path": "api/Controllers/MezziController.php",
-      "hash": "377c6e18e65dec1e5fddd29a3c4bd913e66214809b9d9389c7e43638afc845e8"
+      "hash": "48536c8c8e4149c96fa95c7a85ac0ee0e8b9dd15390c982548fb7b5636e5440a"
     },
     {
       "path": "api/Controllers/SottoclientiController.php",
@@ -45,11 +45,11 @@
     },
     {
       "path": "api/migrate.php",
-      "hash": "4ff2d832d3c54a2977013add002c8f937a23de02ccb77fe730c144e7a22bbef2"
+      "hash": "b0789d035468ab380cf6fd6b023f53e0ac449fd9076ca0addf7a2a0eebd0382a"
     },
     {
       "path": "api/router.php",
-      "hash": "fa7ef7cc07f393f5c118e837f8b121070fb58e3b29a541222a082b42e650a8dc"
+      "hash": "d1ddb2918f91d18b51391e0d32fb93082f8e0eb95fcd3ee4e3e2292345b6d814"
     },
     {
       "path": "api/Shared/Audit.php",
@@ -66,6 +66,10 @@
     {
       "path": "api/Shared/Database.php",
       "hash": "3f05ea23e1ce5038e70f3e15fd1092588d74ec85904d4b0db2a9222c255d88b6"
+    },
+    {
+      "path": "api/Shared/Env.php",
+      "hash": "699d28f064dcc5917c63a1773cd247293f86183ba26ad142151962e8dcc1a170"
     },
     {
       "path": "api/Shared/GoogleDrive.php",
@@ -101,7 +105,7 @@
     },
     {
       "path": "index.html",
-      "hash": "0955731d5332ae6a4e054d7099f1e5f25164798ffe1253139b88e12e3f927688"
+      "hash": "fad55f0a59629e3aa0dc3ae1db86e8e386d344191462b68e60744c0bb50c14df"
     },
     {
       "path": "js/app.js",

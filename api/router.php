@@ -48,20 +48,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Carica variabili d'ambiente (.env)
-$envPath = __DIR__ . '/../.env';
-if (file_exists($envPath)) {
-    $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    foreach ($lines as $line) {
-        if (strpos(trim($line), '#') === 0) continue;
-        if (strpos($line, '=') === false) continue;
-        list($name, $value) = explode('=', $line, 2);
-        $name = trim($name);
-        $value = trim($value, " \t\n\r\0\x0B\"");
-        putenv("$name=$value");
-        $_ENV[$name] = $value;
-    }
-}
+// Carica variabili d'ambiente (.env) — centralizzato
+require_once __DIR__ . '/Shared/Env.php';
+Env::load(__DIR__ . '/../.env');
 
 // Validazione DB_PREFIX: solo caratteri sicuri (alfanumerici + underscore)
 $dbPrefix = getenv('DB_PREFIX') ?: 'mv_';
