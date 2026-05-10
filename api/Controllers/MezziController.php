@@ -34,7 +34,8 @@ class MezziController {
 
             Response::json(true, "Mezzi recuperati", $mezzi);
         } catch (PDOException $e) {
-            Response::json(false, "Errore DB: " . $e->getMessage());
+            error_log('[MezziController::getAllVehicles] ' . $e->getMessage());
+            Response::json(false, "Errore nel recupero dei mezzi. Riprovare.");
         }
     }
 
@@ -65,7 +66,8 @@ class MezziController {
 
             Response::json(true, "Mezzo recuperato", $mezzo);
         } catch (PDOException $e) {
-            Response::json(false, "Errore DB: " . $e->getMessage());
+            error_log('[MezziController::getVehicleById] ' . $e->getMessage());
+            Response::json(false, "Errore nel recupero del mezzo. Riprovare.");
         }
     }
 
@@ -91,7 +93,8 @@ class MezziController {
             if ($e->errorInfo[1] == 1062) {
                 Response::json(false, "La targa inserita è già presente nel sistema");
             }
-            Response::json(false, "Errore DB: " . $e->getMessage());
+            error_log('[MezziController::createVehicle] ' . $e->getMessage());
+            Response::json(false, "Errore durante l'inserimento del mezzo.");
         }
     }
 
@@ -118,7 +121,8 @@ class MezziController {
             if ($e->errorInfo[1] == 1062) {
                 Response::json(false, "La targa inserita è già presente nel sistema");
             }
-            Response::json(false, "Errore DB: " . $e->getMessage());
+            error_log('[MezziController::updateVehicle] ' . $e->getMessage());
+            Response::json(false, "Errore durante l'aggiornamento del mezzo.");
         }
     }
 
@@ -130,7 +134,8 @@ class MezziController {
             $stmt->execute([$data['id']]);
             Response::json(true, "Mezzo eliminato");
         } catch (PDOException $e) {
-            Response::json(false, "Errore DB: " . $e->getMessage());
+            error_log('[MezziController::deleteVehicle] ' . $e->getMessage());
+            Response::json(false, "Errore durante l'eliminazione del mezzo.");
         }
     }
 
@@ -180,7 +185,8 @@ class MezziController {
             ]);
             Response::json(true, "Manutenzione registrata", ["id" => $this->pdo->lastInsertId(), "allegato_url" => $allegatoUrl]);
         } catch (PDOException $e) {
-            Response::json(false, "Errore DB: " . $e->getMessage());
+            error_log('[MezziController::addMaintenance] ' . $e->getMessage());
+            Response::json(false, "Errore durante la registrazione della manutenzione.");
         }
     }
 
@@ -203,7 +209,8 @@ class MezziController {
             ]);
             Response::json(true, "Anomalia registrata");
         } catch (PDOException $e) {
-            Response::json(false, "Errore DB: " . $e->getMessage());
+            error_log('[MezziController::addAnomaly] ' . $e->getMessage());
+            Response::json(false, "Errore durante la registrazione dell'anomalia.");
         }
     }
 
@@ -229,7 +236,8 @@ class MezziController {
             
             Response::json(true, "Stato anomalia aggiornato");
         } catch (PDOException $e) {
-            Response::json(false, "Errore DB: " . $e->getMessage());
+            error_log('[MezziController::updateAnomalyStatus] ' . $e->getMessage());
+            Response::json(false, "Errore durante l'aggiornamento dello stato anomalia.");
         }
     }
 
@@ -279,7 +287,8 @@ class MezziController {
             ]);
             Response::json(true, "Manutenzione aggiornata", ["allegato_url" => $allegatoUrl]);
         } catch (PDOException $e) {
-            Response::json(false, "Errore DB: " . $e->getMessage());
+            error_log('[MezziController::updateMaintenance] ' . $e->getMessage());
+            Response::json(false, "Errore durante l'aggiornamento della manutenzione.");
         }
     }
 
@@ -290,7 +299,8 @@ class MezziController {
             $stmt->execute([$data['id']]);
             Response::json(true, "Manutenzione eliminata");
         } catch (PDOException $e) {
-            Response::json(false, "Errore DB: " . $e->getMessage());
+            error_log('[MezziController::deleteMaintenance] ' . $e->getMessage());
+            Response::json(false, "Errore durante l'eliminazione della manutenzione.");
         }
     }
 
@@ -308,7 +318,8 @@ class MezziController {
             ]);
             Response::json(true, "Anomalia aggiornata");
         } catch (PDOException $e) {
-            Response::json(false, "Errore DB: " . $e->getMessage());
+            error_log('[MezziController::updateAnomaly] ' . $e->getMessage());
+            Response::json(false, "Errore durante l'aggiornamento dell'anomalia.");
         }
     }
 
@@ -319,7 +330,8 @@ class MezziController {
             $stmt->execute([$data['id']]);
             Response::json(true, "Anomalia eliminata");
         } catch (PDOException $e) {
-            Response::json(false, "Errore DB: " . $e->getMessage());
+            error_log('[MezziController::deleteAnomaly] ' . $e->getMessage());
+            Response::json(false, "Errore durante l'eliminazione dell'anomalia.");
         }
     }
 }

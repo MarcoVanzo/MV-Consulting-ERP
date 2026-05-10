@@ -103,7 +103,7 @@ class AdminController {
         $id = $data['id'] ?? null;
         if (!$id) Response::json(false, 'ID utente mancante');
 
-        $tempPassword = bin2hex(random_bytes(4));
+        $tempPassword = Security::generateTempPassword();
         $hash = password_hash($tempPassword, PASSWORD_DEFAULT);
         
         $this->pdo->prepare("UPDATE {$this->prefix}users SET password = ? WHERE id = ?")->execute([$hash, $id]);

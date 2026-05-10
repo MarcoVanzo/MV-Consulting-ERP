@@ -85,6 +85,16 @@ class Auth {
                         'samesite' => 'Lax'
                     ]);
                     
+                    // CSRF Double Submit Cookie — leggibile da JS, non da cross-origin
+                    $csrfToken = bin2hex(random_bytes(32));
+                    setcookie('csrf_token', $csrfToken, [
+                        'expires' => time() + $jwtExpiration,
+                        'path' => '/',
+                        'httponly' => false,  // JS deve poterlo leggere
+                        'secure' => $isSecure,
+                        'samesite' => 'Strict'  // MAI inviato in richieste cross-origin
+                    ]);
+                    
                     // Audit fallback since we don't have the Audit class imported properly
                     if (class_exists('Audit')) {
                         Audit::log('LOGIN', 'users', (string)$user['id'], null, null, ['email' => $user['email']]);
@@ -156,7 +166,7 @@ class Auth {
         }
 
         // History check
-        $stmtHist = $this->db->prepare("SELECT password_hash FROM {$prefix}password_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 5");
+        $stmtHist = $this->db->prepare("SELECT pwd_hash FROM {$prefix}password_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 5");
         $stmtHist->execute([$userId]);
         $history = $stmtHist->fetchAll(PDO::FETCH_COLUMN);
         foreach ($history as $oldHash) {
@@ -168,7 +178,7 @@ class Auth {
         $hash = password_hash($newPwd, PASSWORD_DEFAULT);
         $this->db->prepare("UPDATE {$prefix}users SET password = ?, last_password_change = NOW(), must_change_password = 0 WHERE id = ?")->execute([$hash, $userId]);
         
-        $this->db->prepare("INSERT INTO {$prefix}password_history (user_id, password_hash) VALUES (?, ?)")->execute([$userId, $hash]);
+        $this->db->prepare("INSERT INTO {$prefix}password_history (user_id, pwd_hash) VALUES (?, ?)")->execute([$userId, $hash]);
         $this->db->prepare("DELETE FROM {$prefix}password_history WHERE user_id = ? AND id NOT IN (SELECT id FROM (SELECT id FROM {$prefix}password_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 5) AS recent)")->execute([$userId, $userId]);
 
         return true;

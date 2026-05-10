@@ -226,7 +226,9 @@ class TrasferteController {
             try {
                 $res = $this->calcolaKmPerData($date);
                 if ($res['success']) $countAffected += $res['data']['aggiornate'] ?? 0;
-            } catch (\Exception $e) {}
+            } catch (\Exception $e) {
+                error_log("[Trasferte::calcolaTuttiKm] Errore per data $date: " . $e->getMessage());
+            }
         }
         Response::json(true, "Calcolo eseguito per tutte le trasferte del periodo selezionato ($countAffected aggiornate).");
     }
@@ -315,7 +317,7 @@ class TrasferteController {
         }
 
         // Indirizzo base (Partenza e Rientro)
-        $baseAddr = "Via Manzoni 5, Zero Branco, TV";
+        $baseAddr = getenv('BASE_ADDRESS') ?: "Via Manzoni 5, Zero Branco, TV";
         $baseCoord = $geocode($baseAddr);
         
         if (!$baseCoord) {

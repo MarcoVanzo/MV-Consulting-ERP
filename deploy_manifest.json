@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-05-02T06:40:28.187Z",
+  "generated_at": "2026-05-10T08:11:38.392Z",
   "file_count": 35,
   "files": [
     {
@@ -9,7 +9,7 @@
     },
     {
       "path": "api/Controllers/AdminController.php",
-      "hash": "c4f4868b1d4d7c65d58c4ee6f7ae6f110618b5d358628250e4ea15c7a373bc3d"
+      "hash": "3ef688cebf5e20553b2fadf8a1fe85a47b96083fc05e55493fc31799f87c5728"
     },
     {
       "path": "api/Controllers/ClientiController.php",
@@ -25,11 +25,11 @@
     },
     {
       "path": "api/Controllers/IncarchiController.php",
-      "hash": "80265c3ec959f7c405f5efe553319e0a04a96706633e4f7aafb93149a692a890"
+      "hash": "95b46d7841979b8cba263a5b9505d72b83f9108386e6dc96ce965be78f2a1c4e"
     },
     {
       "path": "api/Controllers/MezziController.php",
-      "hash": "9d1130ff3a953e6f6c82507a7f5f20b7781e42208df551e42a6ec64df4b6073b"
+      "hash": "377c6e18e65dec1e5fddd29a3c4bd913e66214809b9d9389c7e43638afc845e8"
     },
     {
       "path": "api/Controllers/SottoclientiController.php",
@@ -37,7 +37,7 @@
     },
     {
       "path": "api/Controllers/TrasferteController.php",
-      "hash": "02a0a8d5a035d1bd6444b6da5ee696ed6814aee358a2a64e3dfe590287e48148"
+      "hash": "e4e118c6016d1668c0a32c42505079dc886186cba2782a4f9ef3350bed3701b0"
     },
     {
       "path": "api/health.php",
@@ -49,7 +49,7 @@
     },
     {
       "path": "api/router.php",
-      "hash": "64e9ee86516ed6e00d25a74a09b3ff95a5bf27ba967dd1a82282db35605e7171"
+      "hash": "fa7ef7cc07f393f5c118e837f8b121070fb58e3b29a541222a082b42e650a8dc"
     },
     {
       "path": "api/Shared/Audit.php",
@@ -57,7 +57,7 @@
     },
     {
       "path": "api/Shared/Auth.php",
-      "hash": "31c91fb97e1cc22d59a5409930b47534cd08f20ab03c12455dcec2985cf29efc"
+      "hash": "519ad5aef529f10450fbec0faa32d9abb6955d6624a5a8a8e275fa02cc486946"
     },
     {
       "path": "api/Shared/BackupService.php",
@@ -101,11 +101,11 @@
     },
     {
       "path": "index.html",
-      "hash": "2f695b5258caf49d70f4bc02a4459d240e0cfd962a9febe4e99a9423798372df"
+      "hash": "0955731d5332ae6a4e054d7099f1e5f25164798ffe1253139b88e12e3f927688"
     },
     {
       "path": "js/app.js",
-      "hash": "85036ae0d3f424b783ba25035e9e249f776f19c24f1e6f1718576497cf995725"
+      "hash": "e71bc3aa973678fd870de8edd9375a3afdf89d1203c51ae19bcd56134f545bfc"
     },
     {
       "path": "js/core/auth.js",
@@ -113,7 +113,7 @@
     },
     {
       "path": "js/core/store.js",
-      "hash": "0a9a1c71113344d4a6fa672c718d23d7cf10af9be71e94be1af357eb9d434f18"
+      "hash": "91903f92f0ae7f1c22312fdd8c9b12ee5aef306f1d00aba563acd44401464bfe"
     },
     {
       "path": "js/core/ui.js",

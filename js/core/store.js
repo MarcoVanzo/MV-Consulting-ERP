@@ -4,6 +4,12 @@
  * Store — API wrapper con supporto FormData e GET params
  */
 const Store = (() => {
+    /** Legge un cookie per nome (usato per CSRF token) */
+    function _getCookie(name) {
+        const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+        return match ? decodeURIComponent(match[2]) : '';
+    }
+
     async function api(action, module = 'auth', payload = {}, options = {}) {
         // Compatibilità con vecchio parametro method passato come stringa
         if (typeof options === 'string') {
@@ -22,9 +28,13 @@ const Store = (() => {
             }
 
             const headers = {};
-            const token = localStorage.getItem('erp_token');
-            if (token) {
-                headers['Authorization'] = 'Bearer ' + token;
+            // Auth gestita SOLO via cookie HttpOnly (credentials: 'include')
+            // Nessun token in localStorage — previene XSS token theft
+            
+            // CSRF Double Submit: leggi il token dal cookie e invialo come header
+            const csrfToken = _getCookie('csrf_token');
+            if (csrfToken) {
+                headers['X-CSRF-Token'] = csrfToken;
             }
 
             const fetchOptions = {
@@ -54,7 +64,6 @@ const Store = (() => {
             }
 
             if (response.status === 401 || (result && result.message === 'Token non valido o scaduto')) {
-                localStorage.removeItem('erp_token');
                 localStorage.removeItem('erp_user');
                 window.location.reload();
                 return;
