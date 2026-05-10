@@ -239,7 +239,45 @@ class TrasferteController {
     public function calcolaKmPerData($date) {
         if (!$date) return ['success' => false, 'message' => "Data mancante"];
 
-        // Recupera trasferte della giornata
+        $trasferte = $this->fetchTrasferteConIndirizzi($date);
+        if (empty($trasferte)) {
+            return ['success' => false, 'message' => "Nessuna trasferta trovata per questa data."];
+        }
+
+        $baseAddr = getenv('BASE_ADDRESS') ?: "Via Manzoni 5, Zero Branco, TV";
+        $baseCoord = $this->geocode($baseAddr);
+        if (!$baseCoord) {
+            return ['success' => false, 'message' => "Errore nella geocodifica dell'indirizzo base."];
+        }
+
+        $prevPernottamento = $this->fetchPreviousOvernightStay($date);
+        $startCoord = $this->resolveStartCoord($baseCoord, $prevPernottamento);
+        $tappe = $this->getTrasferteTappe($trasferte, $date);
+        $oggiPernotta = $this->hasPernottamento($trasferte);
+        $wpResult = $this->buildWaypoints($startCoord, $baseCoord, $tappe, $oggiPernotta);
+
+        if (!$wpResult['hasClient']) {
+            $this->zeroKmForDate($date);
+            return ['success' => true, 'message' => "Clienti privi di indirizzo. KM azzerati.", 'data' => ['totale_km' => 0, 'aggiornate' => count($trasferte)]];
+        }
+
+        $routeResult = $this->fetchOsrmRoute($wpResult['waypoints'], $date);
+        if (!$routeResult['success']) return $routeResult;
+
+        $affectedIds = $this->collectAffectedIds($tappe, $trasferte);
+        if (empty($affectedIds)) {
+            return ['success' => false, 'message' => "Nessun cliente valido geocodificato per il calcolo."];
+        }
+
+        $totKm = $routeResult['totKm'];
+        $this->distributeKm($date, $affectedIds, $totKm, $oggiPernotta, $prevPernottamento);
+        $count = count($affectedIds);
+        return ['success' => true, 'message' => "KM calcolati automaticamente: $totKm km totali ($count trasferte aggiornate).", 'data' => ['totale_km' => $totKm, 'aggiornate' => $count]];
+    }
+
+    // ── Private helpers ──────────────────────────────────
+
+    private function fetchTrasferteConIndirizzi(string $date): array {
         $sql = "SELECT t.*, c.indirizzo, c.citta, sc.indirizzo as sc_indirizzo, sc.citta as sc_citta 
                 FROM {$this->prefix}trasferte t
                 LEFT JOIN {$this->prefix}clienti c ON c.id = t.cliente_id
@@ -247,245 +285,139 @@ class TrasferteController {
                 WHERE data_trasferta = ?";
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([$date]);
-        $trasferte = $stmt->fetchAll();
+        return $stmt->fetchAll();
+    }
 
-        // Se non abbiamo trasferte, non facciamo nulla. Ma magari stiamo cancellando, in tal caso restano 0 km.
-        if (empty($trasferte)) {
-            return ['success' => false, 'message' => "Nessuna trasferta trovata per questa data."];
+    private function geocode(string $address): ?array {
+        $cacheKey = md5(strtolower(trim($address)));
+        if (isset(self::$geocodeCache[$cacheKey])) return self::$geocodeCache[$cacheKey];
+
+        usleep(1100000); // Rate limit Nominatim (1 req/sec)
+
+        $url = "https://nominatim.openstreetmap.org/search?q=" . urlencode($address) . "&format=json&limit=1&countrycodes=it";
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_USERAGENT, "MV-Consulting-ERP/1.0 (marco@mv-consulting.it)");
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+        $res = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = curl_error($ch);
+        curl_close($ch);
+
+        if ($curlErr) { error_log("[Trasferte] Geocode CURL error: $curlErr"); return self::$geocodeCache[$cacheKey] = null; }
+        if ($httpCode !== 200) { error_log("[Trasferte] Geocode HTTP $httpCode for '$address'"); return self::$geocodeCache[$cacheKey] = null; }
+
+        $data = json_decode($res, true);
+        if (!empty($data) && isset($data[0]['lat'], $data[0]['lon'])) {
+            return self::$geocodeCache[$cacheKey] = ['lat' => floatval($data[0]['lat']), 'lon' => floatval($data[0]['lon'])];
         }
+        error_log("[Trasferte] Geocode: nessun risultato per '$address'");
+        return self::$geocodeCache[$cacheKey] = null;
+    }
 
-        // Funzione helper locale per il geocoding (Nominatim OpenStreetMap)
-        // Usa cache in-memory per evitare chiamate ripetute e rispetta il rate limit (1 req/sec)
-        $geocode = function($address) {
-            $cacheKey = md5(strtolower(trim($address)));
-            if (isset(self::$geocodeCache[$cacheKey])) {
-                return self::$geocodeCache[$cacheKey];
-            }
-
-            // Rispetta il rate limit di Nominatim (max 1 req/sec)
-            usleep(1100000); // 1.1 secondi
-
-            $url = "https://nominatim.openstreetmap.org/search?q=" . urlencode($address) . "&format=json&limit=1&countrycodes=it";
-            $ch = curl_init($url);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_USERAGENT, "MV-Consulting-ERP/1.0 (marco@mv-consulting.it)");
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-            $res = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $curlErr = curl_error($ch);
-            curl_close($ch);
-
-            if ($curlErr) {
-                error_log("[Trasferte] Geocode CURL error for '$address': $curlErr");
-                return null;
-            }
-            if ($httpCode !== 200) {
-                error_log("[Trasferte] Geocode HTTP $httpCode for '$address'");
-                return null;
-            }
-
-            $data = json_decode($res, true);
-            if (!empty($data) && isset($data[0]['lat'], $data[0]['lon'])) {
-                $result = ['lat' => floatval($data[0]['lat']), 'lon' => floatval($data[0]['lon'])];
-                self::$geocodeCache[$cacheKey] = $result;
-                return $result;
-            }
-
-            error_log("[Trasferte] Geocode: nessun risultato per '$address'");
-            self::$geocodeCache[$cacheKey] = null; // cache anche i miss per non riprovare
-            return null;
-        };
-
-        // Controlla se la data precedente aveva pernottamento (fino a 4 giorni prima per gestire i weekend)
-        $sqlPrev = "SELECT t.*, c.indirizzo, c.citta, sc.indirizzo as sc_indirizzo, sc.citta as sc_citta 
+    private function fetchPreviousOvernightStay(string $date) {
+        $sql = "SELECT t.*, c.indirizzo, c.citta, sc.indirizzo as sc_indirizzo, sc.citta as sc_citta 
                 FROM {$this->prefix}trasferte t
                 LEFT JOIN {$this->prefix}clienti c ON c.id = t.cliente_id
                 LEFT JOIN {$this->prefix}sottoclienti sc ON sc.id = t.sottocliente_id
-                WHERE data_trasferta < ?
-                ORDER BY data_trasferta DESC, t.fascia_oraria DESC LIMIT 1";
-        $stmtPrev = $this->pdo->prepare($sqlPrev);
-        $stmtPrev->execute([$date]);
-        $lastTrasferta = $stmtPrev->fetch();
-
-        $prevPernottamento = false;
-        if ($lastTrasferta && ($lastTrasferta['pernottamento'] == 1 || floatval($lastTrasferta['alloggio'] ?? 0) > 0)) {
-            $diffDays = round((strtotime($date) - strtotime($lastTrasferta['data_trasferta'])) / 86400);
-            if ($diffDays <= 4) {
-                $prevPernottamento = $lastTrasferta;
-            }
+                WHERE data_trasferta < ? ORDER BY data_trasferta DESC, t.fascia_oraria DESC LIMIT 1";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([$date]);
+        $last = $stmt->fetch();
+        if ($last && ($last['pernottamento'] == 1 || floatval($last['alloggio'] ?? 0) > 0)) {
+            if (round((strtotime($date) - strtotime($last['data_trasferta'])) / 86400) <= 4) return $last;
         }
+        return false;
+    }
 
-        // Indirizzo base (Partenza e Rientro)
-        $baseAddr = getenv('BASE_ADDRESS') ?: "Via Manzoni 5, Zero Branco, TV";
-        $baseCoord = $geocode($baseAddr);
-        
-        if (!$baseCoord) {
-            return ['success' => false, 'message' => "Errore nella geocodifica dell'indirizzo base."];
-        }
+    private function resolveStartCoord(array $baseCoord, $prevPernottamento): array {
+        if (!$prevPernottamento) return $baseCoord;
+        $addr = $this->extractAddress($prevPernottamento);
+        if ($addr) { $c = $this->geocode($addr); if ($c) return $c; }
+        return $baseCoord;
+    }
 
-        $startCoord = $baseCoord;
-        if ($prevPernottamento) {
-            $prevInd = !empty($prevPernottamento['sc_indirizzo']) ? $prevPernottamento['sc_indirizzo'] : $prevPernottamento['indirizzo'];
-            $prevCit = !empty($prevPernottamento['sc_citta']) ? $prevPernottamento['sc_citta'] : $prevPernottamento['citta'];
-            $prevAddr = trim(($prevInd ?? '') . ' ' . ($prevCit ?? ''));
-            if ($prevAddr) {
-                $c = $geocode($prevAddr);
-                if ($c) $startCoord = $c;
-            }
-        }
+    private function extractAddress(array $row): string {
+        $ind = !empty($row['sc_indirizzo']) ? $row['sc_indirizzo'] : ($row['indirizzo'] ?? '');
+        $cit = !empty($row['sc_citta']) ? $row['sc_citta'] : ($row['citta'] ?? '');
+        return trim("$ind $cit");
+    }
 
-        // Dividi in mattino e pomeriggio per stabilire l'ordine della rotta
-        $mattino = null;
-        $pomeriggio = null;
-        $fallback = []; 
-        
+    private function getTrasferteTappe(array $trasferte, string $date): array {
+        $mattino = null; $pomeriggio = null; $fallback = [];
         foreach ($trasferte as $t) {
-            $ind = !empty($t['sc_indirizzo']) ? $t['sc_indirizzo'] : $t['indirizzo'];
-            $cit = !empty($t['sc_citta']) ? $t['sc_citta'] : $t['citta'];
-            $addr = trim(($ind ?? '') . ' ' . ($cit ?? ''));
-            error_log("[Trasferte] Data $date, Trasferta ID {$t['id']}: indirizzo=[$ind] citta=[$cit] addr_completo=[$addr]");
-            if (empty($addr)) {
-                error_log("[Trasferte] Data $date, Trasferta ID {$t['id']}: SKIP - indirizzo vuoto");
-                continue;
-            }
-            
-            $coord = $geocode($addr);
-            if (!$coord) {
-                error_log("[Trasferte] Data $date, Trasferta ID {$t['id']}: SKIP - geocoding fallito per '$addr'");
-                continue;
-            }
-
+            $addr = $this->extractAddress($t);
+            if (empty($addr)) continue;
+            $coord = $this->geocode($addr);
+            if (!$coord) continue;
             $item = ['id' => $t['id'], 'coord' => $coord];
-            if ($t['fascia_oraria'] === 'mattino') {
-                $mattino = $item;
-            } elseif ($t['fascia_oraria'] === 'pomeriggio') {
-                $pomeriggio = $item;
-            } else {
-                $fallback[] = $item;
-            }
+            if ($t['fascia_oraria'] === 'mattino') $mattino = $item;
+            elseif ($t['fascia_oraria'] === 'pomeriggio') $pomeriggio = $item;
+            else $fallback[] = $item;
         }
-        
-        error_log("[Trasferte] Data $date: mattino=" . ($mattino ? "SI (ID {$mattino['id']})" : "NO") . " pomeriggio=" . ($pomeriggio ? "SI (ID {$pomeriggio['id']})" : "NO") . " fallback=" . count($fallback));
+        return compact('mattino', 'pomeriggio', 'fallback');
+    }
 
-        // Verifica se OGGI c'è un pernottamento
-        $oggiPernotta = false;
+    private function hasPernottamento(array $trasferte): bool {
         foreach ($trasferte as $t) {
-            if ($t['pernottamento'] == 1 || floatval($t['alloggio'] ?? 0) > 0) {
-                $oggiPernotta = true;
-                break;
-            }
+            if ($t['pernottamento'] == 1 || floatval($t['alloggio'] ?? 0) > 0) return true;
         }
+        return false;
+    }
 
+    private function buildWaypoints(array $startCoord, array $baseCoord, array $tappe, bool $oggiPernotta): array {
         $waypoints = [$startCoord];
-        $hasClientWaypoint = false;
+        $hasClient = false;
+        $fb = $tappe['fallback'];
 
-        if ($mattino) { $waypoints[] = $mattino['coord']; $hasClientWaypoint = true; }
-        if (empty($mattino) && !empty($fallback)) {
-            $waypoints[] = $fallback[0]['coord'];
-            $hasClientWaypoint = true;
-            array_shift($fallback);
-        }
-        
-        if ($pomeriggio) { $waypoints[] = $pomeriggio['coord']; $hasClientWaypoint = true; }
-        if (empty($pomeriggio) && !empty($fallback)) {
-            $waypoints[] = $fallback[0]['coord'];
-            $hasClientWaypoint = true;
-            array_shift($fallback);
-        }
-        
-        if (!$oggiPernotta) {
-            $waypoints[] = $baseCoord;
-        }
+        if ($tappe['mattino']) { $waypoints[] = $tappe['mattino']['coord']; $hasClient = true; }
+        elseif (!empty($fb)) { $waypoints[] = array_shift($fb)['coord']; $hasClient = true; }
 
-        // Se non abbiamo nessuna tappa cliente (solo partenza/rientro senza destinazioni) -> azzeriamo i km
-        if (!$hasClientWaypoint) {
-            $sqlUpd = "UPDATE {$this->prefix}trasferte SET km_andata = 0, km_ritorno = 0 WHERE data_trasferta = ? AND km_bloccati = 0";
-            $this->pdo->prepare($sqlUpd)->execute([$date]);
-            error_log("[Trasferte] Data $date: clienti privi di indirizzo valido, KM azzerati per le non-bloccate.");
-            return ['success' => true, 'message' => "Clienti privi di indirizzo. KM azzerati.", 'data' => ['totale_km' => 0, 'aggiornate' => count($trasferte)]];
-        }
+        if ($tappe['pomeriggio']) { $waypoints[] = $tappe['pomeriggio']['coord']; $hasClient = true; }
+        elseif (!empty($fb)) { $waypoints[] = array_shift($fb)['coord']; $hasClient = true; }
 
-        // Creazione url OSRM
-        $points = [];
-        foreach ($waypoints as $wp) {
-            $points[] = $wp['lon'] . "," . $wp['lat'];
-        }
-        $coordStr = implode(";", $points);
+        if (!$oggiPernotta) $waypoints[] = $baseCoord;
+        return ['waypoints' => $waypoints, 'hasClient' => $hasClient];
+    }
 
-        $osrmUrl = "https://router.project-osrm.org/route/v1/driving/$coordStr?overview=false";
-        
-        $ch = curl_init($osrmUrl);
+    private function zeroKmForDate(string $date): void {
+        $this->pdo->prepare("UPDATE {$this->prefix}trasferte SET km_andata = 0, km_ritorno = 0 WHERE data_trasferta = ? AND km_bloccati = 0")->execute([$date]);
+    }
+
+    private function fetchOsrmRoute(array $waypoints, string $date): array {
+        $points = array_map(fn($wp) => $wp['lon'] . "," . $wp['lat'], $waypoints);
+        $url = "https://router.project-osrm.org/route/v1/driving/" . implode(";", $points) . "?overview=false";
+        $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 15);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-        $osrmRes = curl_exec($ch);
-        $osrmErr = curl_error($ch);
-        $osrmHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $res = curl_exec($ch);
+        $err = curl_error($ch);
         curl_close($ch);
+        if ($err) { error_log("[Trasferte] OSRM CURL error: $err"); return ['success' => false, 'message' => "Errore routing: $err"]; }
+        $data = json_decode($res, true);
+        if (!isset($data['routes'][0])) { error_log("[Trasferte] OSRM nessun percorso per $date"); return ['success' => false, 'message' => "Impossibile calcolare il percorso."]; }
+        return ['success' => true, 'totKm' => round($data['routes'][0]['distance'] / 1000, 1)];
+    }
 
-        if ($osrmErr) {
-            error_log("[Trasferte] OSRM CURL error for date $date: $osrmErr");
-            return ['success' => false, 'message' => "Errore connessione al servizio di routing: $osrmErr"];
+    private function collectAffectedIds(array $tappe, array $trasferte): array {
+        $ids = array_filter([$tappe['mattino']['id'] ?? null, $tappe['pomeriggio']['id'] ?? null]);
+        if (empty($ids)) {
+            foreach ($trasferte as $t) { if ($this->extractAddress($t) !== '') $ids[] = $t['id']; }
         }
-        
-        $osrmData = json_decode($osrmRes, true);
-        error_log("[Trasferte] OSRM response for date $date (HTTP $osrmHttpCode): " . substr($osrmRes, 0, 300));
-        
-        if (!isset($osrmData['routes'][0])) {
-            error_log("[Trasferte] OSRM nessun percorso per data $date (HTTP $osrmHttpCode). URL: $osrmUrl Response: " . substr($osrmRes, 0, 500));
-            return ['success' => false, 'message' => "Impossibile calcolare il percorso su strada."];
-        }
+        return $ids;
+    }
 
-        $distanceMeters = $osrmData['routes'][0]['distance'];
-        $totKm = round($distanceMeters / 1000, 1);
+    private function distributeKm(string $date, array $ids, float $totKm, bool $oggiPernotta, $prevPernottamento): void {
+        $n = count($ids);
+        if ($oggiPernotta && !$prevPernottamento)      { $a = round($totKm / $n, 1); $r = 0; }
+        elseif (!$oggiPernotta && $prevPernottamento)   { $a = 0; $r = round($totKm / $n, 1); }
+        elseif ($oggiPernotta && $prevPernottamento)    { $a = round($totKm / $n, 1); $r = 0; }
+        else                                            { $a = round(($totKm / 2) / $n, 1); $r = $a; }
 
-        $affectedIds = array_filter([$mattino['id'] ?? null, $pomeriggio['id'] ?? null]);
-        if (empty($affectedIds)) {
-            foreach ($trasferte as $t) {
-                $ind = !empty($t['sc_indirizzo']) ? $t['sc_indirizzo'] : $t['indirizzo'];
-                $cit = !empty($t['sc_citta']) ? $t['sc_citta'] : $t['citta'];
-                if (trim(($ind ?? '') . ($cit ?? '')) !== '') {
-                    $affectedIds[] = $t['id'];
-                }
-            }
-        }
-
-        $count = count($affectedIds);
-        if ($count == 0) {
-            return ['success' => false, 'message' => "Nessun cliente valido geocodificato per il calcolo."];
-        }
-
-        // Ripartizione km su Andata / Ritorno in base ai pernottamenti
-        if ($oggiPernotta && !$prevPernottamento) {
-            // Giorno 1 (Partenza da casa, niente ritorno) -> tutto in andata
-            $kmPerTappaAndata = round($totKm / $count, 1);
-            $kmPerTappaRitorno = 0;
-        } else if (!$oggiPernotta && $prevPernottamento) {
-            // Giorno Finale (Partenza dal cliente precedente, ritorno a casa) -> tutto in ritorno
-            $kmPerTappaAndata = 0;
-            $kmPerTappaRitorno = round($totKm / $count, 1);
-        } else if ($oggiPernotta && $prevPernottamento) {
-            // Giorno Intermedio (Partenza dal cliente, no ritorno) -> tutto in andata
-            $kmPerTappaAndata = round($totKm / $count, 1);
-            $kmPerTappaRitorno = 0;
-        } else {
-            // Giorno Singolo Normale (Casa -> Clienti -> Casa)
-            $kmPerTappaAndata = round(($totKm / 2) / $count, 1);
-            $kmPerTappaRitorno = round(($totKm / 2) / $count, 1);
-        }
-
-        // Update in DB solo delle tappe valide E non bloccate (le altre a zero se non bloccate)
-        $sqlZero = "UPDATE {$this->prefix}trasferte SET km_andata = 0, km_ritorno = 0 WHERE data_trasferta = ? AND km_bloccati = 0";
-        $this->pdo->prepare($sqlZero)->execute([$date]);
-
-        $sqlUpd = "UPDATE {$this->prefix}trasferte SET km_andata = ?, km_ritorno = ? WHERE id = ? AND km_bloccati = 0";
-        $stmtUpd = $this->pdo->prepare($sqlUpd);
-        
-        foreach ($affectedIds as $tid) {
-            $stmtUpd->execute([$kmPerTappaAndata, $kmPerTappaRitorno, $tid]);
-        }
-
-        return ['success' => true, 'message' => "KM calcolati automaticamente: $totKm km totali ($count trasferte aggiornate).", 'data' => ['totale_km' => $totKm, 'aggiornate' => $count]];
+        $this->zeroKmForDate($date);
+        $stmt = $this->pdo->prepare("UPDATE {$this->prefix}trasferte SET km_andata = ?, km_ritorno = ? WHERE id = ? AND km_bloccati = 0");
+        foreach ($ids as $tid) $stmt->execute([$a, $r, $tid]);
     }
 }
