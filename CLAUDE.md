@@ -11,11 +11,34 @@ API in `api/`, gestione pagamenti/PDF (`PDF Pagamenti`, `tmp_pdf_parse`). Repo G
 - `.agents/workflows/deploy.md` — workflow di deploy.
 - `.env.example` per le variabili attese; `deploy.config` per la configurazione di deploy.
 
-## Deploy (pull-based, come MV-ERP)
-Deploy via `deploy.py` / `deploy_update.php` con manifest (`deploy_manifest.json`) e cache
-(`.deploy_cache.json`), storico in `.deploy_history.log`. Segreti in `.env` / `.env.deploy`
-**non tracciati** — non committarli. **Avvisami quando il deploy finisce**
-(`gh run watch`/`gh run list` in background).
+## Deploy — attenzione: due meccanismi diversi coesistono
+
+**1. GitHub Actions (quello che va davvero in produzione).**
+`.github/workflows/deploy-ftp.yml` — **FTP push** con `SamKirkland/FTP-Deploy-Action`.
+Trigger: `push` su `main` **oppure** `workflow_dispatch`. Secret: `FTP_SERVER`, `FTP_USERNAME`,
+`FTP_PASSWORD`, `FTP_PATH`.
+
+> ⚠️ **Nessun gate**: niente test, niente lint, nessun health check, **nessun rollback e nessun
+> backup**. Un `git push origin main` è già la produzione.
+> ⚠️ Il workflow **ignora** `deploy_manifest.json`: i due meccanismi possono divergere.
+
+```bash
+gh workflow run deploy-ftp.yml --ref main   # oppure git push origin main
+gh run list --workflow deploy-ftp.yml --limit 1 && gh run watch <id>
+```
+
+**2. Pipeline locale pull-based** (alternativa, non usata dalle Actions).
+`./deploy` → `deploy.py` (FTP-TLS multi-worker, pre-flight, security scan, lock, health check su
+`APP_URL`, storico in `.deploy_history.log`) e `deploy_update.php` con manifest
+(`deploy_manifest.json`) e cache (`.deploy_cache.json`). Questo è l'unico percorso che ha
+backup e rollback.
+
+> ⚠️ `./deploy` fa `git add .` + commit + push **automatici**: con il working tree sporco
+> pubblica tutto. Verifica `git status` prima di lanciarlo.
+
+Migrazioni DB: **mai automatiche**, si lanciano a mano via `api/migrate.php` (HTTP).
+Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
+**Avvisami quando il deploy finisce** (`gh run watch`/`gh run list` in background).
 
 ## Note
 - Cartelle `tmp_*` (`tmp_pdf_parse`, `tmp_root_redirect`, `tmp_venv`) sono di lavoro: non versionare artefatti.
