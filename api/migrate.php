@@ -606,7 +606,11 @@ $queries = [
     "ALTER TABLE {$prefix}trasferte ADD KEY idx_trasferte_data (data_trasferta), ADD KEY idx_trasferte_calendario (google_calendar_id, data_trasferta)",
 
     // v070: spese dell'estratto conto della carta di credito (fuori da categorie e grafici: sul conto c'è l'addebito mensile)
-    "ALTER TABLE {$prefix}movimenti_banca MODIFY origine ENUM('estratto_conto','avviso_pagamento','estratto_carta') NOT NULL DEFAULT 'estratto_conto'"
+    "ALTER TABLE {$prefix}movimenti_banca MODIFY origine ENUM('estratto_conto','avviso_pagamento','estratto_carta') NOT NULL DEFAULT 'estratto_conto'",
+
+    // v071–v072: nuovi tipi di commessa (consulenza NIS 2, ICT, digital, sviluppo software) su incarichi e offerte
+    "ALTER TABLE {$prefix}incarichi MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software') NOT NULL DEFAULT 'assistenza'",
+    "ALTER TABLE {$prefix}offerte MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software') NOT NULL DEFAULT 'assistenza'"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
 

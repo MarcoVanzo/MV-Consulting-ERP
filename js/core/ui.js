@@ -201,6 +201,16 @@ const UI = (() => {
         toast('Copiato negli appunti');
     }
 
+    // Tipi di commessa di offerte e incarichi: codice nel DB → etichetta (stesso elenco in CommessaService::TIPI)
+    const TIPI_COMMESSA = {
+        assistenza: 'Assistenza', dpo: 'DPO', formazione: 'Formazione', nis2: 'Consulenza NIS 2',
+        ict: 'Consulenza ICT', digital: 'Consulenza Digital', sviluppo_software: 'Sviluppo Software',
+    };
+    const tipoCommessa = t => TIPI_COMMESSA[t] || String(t || '');
+    /** <option> dei tipi di commessa, con quello scelto selezionato. */
+    const tipiCommessaOptions = scelto => Object.entries(TIPI_COMMESSA)
+        .map(([v, l]) => `<option value="${v}" ${v === (scelto || 'assistenza') ? 'selected' : ''}>${esc(l)}</option>`).join('');
+
     function isModalOpen() {
         return document.getElementById('modal-overlay').classList.contains('active');
     }
@@ -208,7 +218,7 @@ const UI = (() => {
     return {
         toast, openModal, closeModal, initModalEvents, copyText, isModalOpen,
         formatCurrency, formatDate, formatNumber,
-        statoBadge, populateYearSelect, esc, safeUrl, todayLocal
+        statoBadge, populateYearSelect, esc, safeUrl, todayLocal, tipoCommessa, tipiCommessaOptions
     };
 })();
 

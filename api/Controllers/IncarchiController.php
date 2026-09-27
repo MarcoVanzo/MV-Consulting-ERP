@@ -87,7 +87,7 @@ class IncarchiController {
             'cliente_id'           => !empty($data['cliente_id']) ? (int)$data['cliente_id'] : null,
             'sottocliente_id'      => !empty($data['sottocliente_id']) ? (int)$data['sottocliente_id'] : null,
             'data_incarico'        => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($data['data_incarico'] ?? '')) ? $data['data_incarico'] : date('Y-m-d'),
-            'tipo_commessa'        => in_array($data['tipo_commessa'] ?? '', ['assistenza', 'dpo', 'formazione'], true) ? $data['tipo_commessa'] : 'assistenza',
+            'tipo_commessa'        => in_array($data['tipo_commessa'] ?? '', array_keys(CommessaService::TIPI), true) ? $data['tipo_commessa'] : 'assistenza',
             'numero_protocollo'    => !empty($data['numero_protocollo']) ? trim($data['numero_protocollo']) : null,
             'descrizione'          => trim((string)($data['descrizione'] ?? '')) ?: null,
             'num_giornate'         => floatval($data['num_giornate'] ?? 0),

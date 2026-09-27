@@ -15,7 +15,7 @@ class OfferteController {
     private $prefix;
 
     private const STATI = ['bozza', 'inviata', 'accettata', 'rifiutata', 'scaduta', 'sostituita'];
-    private const TIPI = ['assistenza', 'dpo', 'formazione'];
+    private const TIPI = ['assistenza', 'dpo', 'formazione', 'nis2', 'ict', 'digital', 'sviluppo_software'];
 
     public function __construct() {
         $this->pdo = Database::getConnection();
