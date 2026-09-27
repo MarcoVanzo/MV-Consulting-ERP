@@ -122,7 +122,7 @@ const ModOfferte = (() => {
         const bloccata = ['accettata', 'sostituita'].includes(d.stato);
         const clienti = ModClienti.getClienti();
         const cOpts = clienti.map(c => `<option value="${UI.esc(c.id)}" ${c.id == d.cliente_id ? 'selected' : ''}>${UI.esc(c.ragione_sociale)}</option>`).join('');
-        const tOpts = ['assistenza', 'dpo', 'formazione'].map(t => `<option value="${t}" ${t === d.tipo_commessa ? 'selected' : ''}>${t.toUpperCase()}</option>`).join('');
+        const tOpts = UI.tipiCommessaOptions(d.tipo_commessa);
         const html = `
             ${d.note && d.origine === 'cowork' && d.stato === 'bozza' ? `<div class="notice">${UI.esc(d.note)}</div>` : ''}
             ${bloccata ? `<div class="notice">Offerta ${UI.esc(d.stato)}: per cambiarla crea una nuova versione.</div>` : ''}

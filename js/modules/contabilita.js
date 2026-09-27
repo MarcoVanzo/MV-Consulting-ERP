@@ -120,7 +120,7 @@ const ModContabilita = (() => {
                 const residuo = UI.formatCurrency((parseFloat(i.importo_totale)||0)-(parseFloat(i.importo_fatturato)||0));
                 const o = document.createElement('option');
                 o.value = i.id;
-                o.textContent = `${i.tipo_commessa.toUpperCase()} ${UI.formatDate(i.data_incarico)} — Residuo: ${residuo}${i.sottocliente_nome?' ('+i.sottocliente_nome+')':''}`;
+                o.textContent = `${UI.tipoCommessa(i.tipo_commessa)} ${UI.formatDate(i.data_incarico)} — Residuo: ${residuo}${i.sottocliente_nome?' ('+i.sottocliente_nome+')':''}`;
                 if (i.id==selId) o.selected = true;
                 sel.appendChild(o);
             });
