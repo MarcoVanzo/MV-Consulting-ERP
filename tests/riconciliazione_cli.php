@@ -608,6 +608,8 @@ check('carta: spese negative, rimborso positivo', array_column($carta['movimenti
 check('carta: valuta estera nella descrizione', $carta['movimenti'][1]['descrizione'] === 'SOFTWARE BETA SAN FRANCISCO CA (20,00 USD)');
 check('carta: data acquisto e data registrazione', $carta['movimenti'][1]['data_operazione'] === '2026-07-02' && $carta['movimenti'][1]['data_valuta'] === '2026-07-03');
 check('carta: banca dal numero mascherato', $carta['banca'] === 'CartaBCC 1234 **** 9876', $carta['banca']);
+check('carta: riconosciuta anche se caricata come estratto conto', EstrattoContoParser::eEstrattoCarta($paginaCarta)
+    && !EstrattoContoParser::eEstrattoCarta("DATA OPERAZIONE DATA VALUTA DESCRIZIONE\n01/07/2026 01/07/2026 ADDEBITO CARTA DI CREDITO NUMIA 128,80"));
 $sbagliata = EstrattoContoParser::parseEstrattoCarta([str_replace('128,80', '999,00', $paginaCarta)]);
 check('carta: totale diverso → avviso', count($sbagliata['avvisi']) === 1);
 $pdo->beginTransaction();

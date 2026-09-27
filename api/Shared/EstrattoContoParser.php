@@ -242,6 +242,16 @@ class EstrattoContoParser
         return ['banca' => $banca, 'iban' => '', 'metodo' => 'carta', 'movimenti' => $movimenti, 'avvisi' => $avvisi];
     }
 
+    /**
+     * Il testo è un estratto della carta di credito (intestazione "DATA ACQUISTO ... DATA REGISTR." o emittente Numia/CartaBCC)?
+     * Serve a non importarlo come estratto conto: le spese si sommerebbero all'addebito mensile già sul conto.
+     */
+    public static function eEstrattoCarta(string $testo): bool
+    {
+        return (bool)preg_match('/DATA\s+ACQUISTO\s+DATA\s+REGISTR/i', $testo)
+            || (preg_match('/NUMIA|CARTA\s*BCC/i', $testo) && preg_match('/CARTA\s+NUMERO/i', $testo));
+    }
+
     public static function riconosciBanca(string $testo): string
     {
         $note = ['Centromarca Banca' => '/CENTROMARCA/i', 'Intesa Sanpaolo' => '/INTESA\s*SANPAOLO/i', 'UniCredit' => '/UNICREDIT/i',
