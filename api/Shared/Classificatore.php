@@ -85,6 +85,8 @@ class Classificatore
         return implode(' ', array_slice(array_filter(explode(' ', $d)), 0, 3));
     }
 
+    public const MAX_CHIAVE = 150;
+
     /** Una chiave troppo corta o fatta di sole parole generiche catturerebbe movimenti a caso. */
     public static function chiaveValida(string $chiave): bool
     {
@@ -94,15 +96,26 @@ class Classificatore
         return false;
     }
 
-    /** La regola vale per il movimento? {chiave, codice_operazione, segno} contro {importo, descrizione, controparte, codice_operazione} */
+    /** Chiave normalizzata e tagliata a parola intera entro MAX_CHIAVE caratteri (colonna VARCHAR(150)). */
+    public static function preparaChiave(string $chiave): string
+    {
+        $k = self::testoNormalizzato($chiave);
+        if (strlen($k) <= self::MAX_CHIAVE) return $k;
+        $k = substr($k, 0, self::MAX_CHIAVE + 1);
+        return rtrim(substr($k, 0, (int)strrpos($k, ' ')));
+    }
+
+    /**
+     * La regola vale per il movimento? {chiave, codice_operazione, segno} contro {importo, descrizione, controparte, codice_operazione}.
+     * La chiave è obbligatoria; il codice operazione è solo una restrizione in più.
+     */
     public static function regolaCorrisponde(array $r, array $mov): bool
     {
         if ((int)$r['segno'] !== ((float)$mov['importo'] >= 0 ? 1 : -1)) return false;
         $chiave = (string)$r['chiave'];
         $codice = (string)$r['codice_operazione'];
-        if ($chiave === '' && $codice === '') return false;
+        if (!self::chiaveValida($chiave)) return false;
         if ($codice !== '' && $codice !== (string)($mov['codice_operazione'] ?? '')) return false;
-        if ($chiave === '') return true;
         $testo = ' ' . self::testoNormalizzato(($mov['controparte'] ?? '') . ' ' . $mov['descrizione']) . ' ';
         return strpos($testo, ' ' . $chiave . ' ') !== false;
     }
@@ -112,12 +125,30 @@ class Classificatore
     {
         $valide = array_values(array_filter($regole, fn($r) => self::regolaCorrisponde($r, $mov)));
         if (!$valide) return null;
-        $peso = fn($r) => strlen((string)$r['chiave']) + ((string)$r['codice_operazione'] !== '' ? 1000 : 0);
+        // Peso = lunghezza della chiave, +1 se è limitata a un codice operazione
+        $peso = fn($r) => strlen((string)$r['chiave']) + ((string)$r['codice_operazione'] !== '' ? 1 : 0);
         usort($valide, fn($a, $b) => $peso($b) <=> $peso($a));
         if (count($valide) > 1 && $peso($valide[0]) === $peso($valide[1]) && (int)$valide[0]['categoria_id'] !== (int)$valide[1]['categoria_id']) {
             return null;
         }
         return $valide[0];
+    }
+
+    /**
+     * Variante più specifica di una regola per il movimento: prima il codice operazione, poi una parola
+     * in più accanto alla chiave nel testo del movimento. null se non se ne può fare una.
+     */
+    public static function piuSpecifica(array $mov, string $chiave, string $codice): ?array
+    {
+        if ($codice === '' && (string)($mov['codice_operazione'] ?? '') !== '') return [$chiave, (string)$mov['codice_operazione']];
+        $parole = explode(' ', self::testoNormalizzato(($mov['controparte'] ?? '') . ' ' . $mov['descrizione']));
+        $k = explode(' ', $chiave);
+        for ($i = 0; $i + count($k) <= count($parole); $i++) {
+            if (array_slice($parole, $i, count($k)) !== $k) continue;
+            if (isset($parole[$i + count($k)])) return [$chiave . ' ' . $parole[$i + count($k)], $codice];
+            if ($i > 0) return [$parole[$i - 1] . ' ' . $chiave, $codice];
+        }
+        return null;
     }
 
     /** Codice della categoria indicata dalle euristiche, se una sola scatta. */
@@ -139,13 +170,16 @@ class Classificatore
      * classificati dalla fattura, che cambiano se la riconciliazione viene annullata).
      * $ids limita ai movimenti indicati. Restituisce i conteggi per fonte.
      */
-    public function classifica(?array $ids = null): array
+    public function classifica(?array $ids = null, bool $ancheAutomatiche = false): array
     {
         $cat = $this->codiciCategorie();
         $regole = $this->regole();
         $simili = $this->categoriePerChiave();
+        // Con $ancheAutomatiche (dopo una riconciliazione) si rivedono anche le categorie da regola/euristica/AI:
+        // la fattura ha la precedenza. Le scelte dell'utente non si toccano mai.
+        $fonti = $ancheAutomatiche ? "'fattura','regola','codice_banca','ai'" : "'fattura'";
         $sql = "SELECT m.* FROM {$this->p}movimenti_banca m WHERE m.origine = 'estratto_conto'
-            AND (m.classificazione = 'da_classificare' OR m.categoria_fonte = 'fattura')";
+            AND (m.classificazione = 'da_classificare' OR m.categoria_fonte IN ($fonti))";
         $params = [];
         if ($ids !== null) {
             $ids = array_values(array_filter(array_map('intval', $ids)));
@@ -165,12 +199,17 @@ class Classificatore
                 $out['fattura']++;
                 continue;
             }
-            if ($m['categoria_fonte'] === 'fattura') $this->azzera($id); // riconciliazione annullata
+            if (in_array($m['categoria_fonte'], ['fattura', 'regola', 'codice_banca', 'ai'], true)) {
+                if ($m['categoria_fonte'] === 'fattura') $this->azzera($id); // riconciliazione annullata
+                else $m['categoria_proposta_id'] = null;
+            }
             // (b) regole
             $r = self::sceltaRegola($regole, $m);
             if ($r) {
+                if ($m['categoria_fonte'] !== 'regola' || (int)$m['regola_id'] !== (int)$r['id']) {
+                    $this->pdo->prepare("UPDATE {$this->p}regole_categoria SET utilizzi = utilizzi + 1 WHERE id = ?")->execute([(int)$r['id']]);
+                }
                 $this->applica($id, (int)$r['categoria_id'], 'regola', (int)$r['id']);
-                $this->pdo->prepare("UPDATE {$this->p}regole_categoria SET utilizzi = utilizzi + 1 WHERE id = ?")->execute([(int)$r['id']]);
                 $out['regola']++;
                 continue;
             }
@@ -182,6 +221,7 @@ class Classificatore
                 continue;
             }
             // Da chiedere all'utente: proposta da un movimento simile già classificato (se non ce n'è già una)
+            if ($m['classificazione'] === 'classificato') $this->azzera($id);
             $out['da_classificare']++;
             $segno = (float)$m['importo'] >= 0 ? 1 : -1;
             $k = $segno . '|' . self::chiaveSuggerita((string)$m['descrizione'], $m['controparte']);
@@ -196,10 +236,11 @@ class Classificatore
     /**
      * Scelta dell'utente. $opz: applica_simili (bool), chiave (string), usa_codice (bool), aggiorna_regola (bool).
      * Con applica_simili crea (o aggiorna) la regola e la applica subito ai movimenti ancora da classificare;
-     * con aggiorna_regola cambia la regola che aveva classificato il movimento e tutti i movimenti che ne derivano.
+     * con aggiorna_regola cambia la regola che aveva classificato il movimento e i movimenti che ne derivano.
+     * Chi non è admin non modifica regole create da altri: al loro posto nasce una regola più specifica.
      * @return array{regola_id: ?int, aggiornati: int}
      */
-    public function classificaUtente(int $movimentoId, int $categoriaId, array $opz, ?int $userId): array
+    public function classificaUtente(int $movimentoId, int $categoriaId, array $opz, ?int $userId, bool $admin = false): array
     {
         $m = $this->movimento($movimentoId);
         $c = $this->categoria($categoriaId);
@@ -214,33 +255,55 @@ class Classificatore
         if ($avviaTx) $this->pdo->beginTransaction();
         try {
             if (!empty($opz['aggiorna_regola']) && $m['categoria_fonte'] === 'regola' && (int)$m['regola_id']) {
-                $regolaId = (int)$m['regola_id'];
-                $this->pdo->prepare("UPDATE {$this->p}regole_categoria SET categoria_id = ? WHERE id = ?")->execute([$categoriaId, $regolaId]);
-                $st = $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET categoria_id = ? WHERE regola_id = ? AND categoria_fonte = 'regola' AND id <> ?");
-                $st->execute([$categoriaId, $regolaId, $movimentoId]);
-                $aggiornati = $st->rowCount();
+                $r = $this->regola((int)$m['regola_id']);
+                if ($r) $regolaId = $this->salvaRegola((string)$r['chiave'], (string)$r['codice_operazione'], $segno, $categoriaId, $userId, $admin, $m);
             } elseif (!empty($opz['applica_simili'])) {
-                $chiave = self::testoNormalizzato((string)($opz['chiave'] ?? ''));
+                $chiave = self::preparaChiave((string)($opz['chiave'] ?? ''));
                 $codice = !empty($opz['usa_codice']) ? (string)($m['codice_operazione'] ?? '') : '';
-                if (!self::chiaveValida($chiave) && $codice === '') {
+                if (!self::chiaveValida($chiave)) {
                     throw new RuntimeException('Chiave troppo generica: indica almeno una parola che identifichi la controparte');
                 }
-                $regola = ['chiave' => $chiave, 'codice_operazione' => $codice, 'segno' => $segno];
-                if (!self::regolaCorrisponde($regola, $m)) throw new RuntimeException('La chiave non compare in questo movimento');
-                $regolaId = $this->salvaRegola($chiave, $codice, $segno, $categoriaId, $userId);
+                if (!self::regolaCorrisponde(['chiave' => $chiave, 'codice_operazione' => $codice, 'segno' => $segno], $m)) {
+                    throw new RuntimeException('La chiave non compare in questo movimento');
+                }
+                $regolaId = $this->salvaRegola($chiave, $codice, $segno, $categoriaId, $userId, $admin, $m);
             }
             $this->applica($movimentoId, $categoriaId, 'utente', null);
-            if ($regolaId && empty($opz['aggiorna_regola'])) {
-                $prima = $this->contaPerRegola($regolaId);
-                $this->classifica(null);
-                $aggiornati = $this->contaPerRegola($regolaId) - $prima;
-            }
+            if ($regolaId) $aggiornati = $this->applicaRegola($regolaId, $movimentoId);
             if ($avviaTx) $this->pdo->commit();
         } catch (Throwable $e) {
             if ($avviaTx && $this->pdo->inTransaction()) $this->pdo->rollBack();
             throw $e;
         }
         return ['regola_id' => $regolaId, 'aggiornati' => $aggiornati];
+    }
+
+    /**
+     * Applica una regola ai movimenti da classificare e a quelli già classificati da regole (mai alle scelte
+     * dell'utente), dove è la regola più specifica. Una sola query di lettura. Restituisce quanti ne cambiano.
+     */
+    public function applicaRegola(int $regolaId, int $escludi = 0): int
+    {
+        $regole = $this->regole();
+        $r = null;
+        foreach ($regole as $x) if ((int)$x['id'] === $regolaId) $r = $x;
+        if (!$r) return 0;
+        $stmt = $this->pdo->prepare("SELECT * FROM {$this->p}movimenti_banca WHERE origine = 'estratto_conto' AND id <> ?
+            AND (classificazione = 'da_classificare' OR categoria_fonte = 'regola') AND " . ((int)$r['segno'] === 1 ? 'importo > 0' : 'importo < 0'));
+        $stmt->execute([$escludi]);
+        $cat = $this->codiciCategorie();
+        $n = 0;
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $m) {
+            $scelta = self::sceltaRegola($regole, $m);
+            if (!$scelta || (int)$scelta['id'] !== $regolaId) continue;
+            if ($m['categoria_fonte'] === 'regola' && (int)$m['regola_id'] === $regolaId && (int)$m['categoria_id'] === (int)$r['categoria_id']) continue;
+            // La fattura riconciliata ha la precedenza anche sulle regole
+            if ($this->categoriaDaFattura($m, $cat)) continue;
+            $this->applica((int)$m['id'], (int)$r['categoria_id'], 'regola', $regolaId);
+            $n++;
+        }
+        if ($n) $this->pdo->prepare("UPDATE {$this->p}regole_categoria SET utilizzi = utilizzi + ? WHERE id = ?")->execute([$n, $regolaId]);
+        return $n;
     }
 
     /**
@@ -286,18 +349,35 @@ class Classificatore
             JOIN {$this->p}categorie_movimento c ON c.id = r.categoria_id ORDER BY r.utilizzi DESC, r.id")->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function salvaRegola(string $chiave, string $codice, int $segno, int $categoriaId, ?int $userId): int
+    /**
+     * Crea la regola o, se esiste già con la stessa chiave, codice e segno, ne cambia la categoria
+     * (e con applicaRegola cambiano anche i movimenti che classifica). Una regola creata da altri la
+     * modifica solo un admin: per gli altri nasce una regola più specifica ($mov serve a costruirla).
+     */
+    public function salvaRegola(string $chiave, string $codice, int $segno, int $categoriaId, ?int $userId, bool $admin = true, ?array $mov = null): int
     {
-        $stmt = $this->pdo->prepare("SELECT id FROM {$this->p}regole_categoria WHERE chiave = ? AND codice_operazione = ? AND segno = ?");
-        $stmt->execute([$chiave, $codice, $segno]);
-        $id = (int)$stmt->fetchColumn();
-        if ($id) {
-            $this->pdo->prepare("UPDATE {$this->p}regole_categoria SET categoria_id = ? WHERE id = ?")->execute([$categoriaId, $id]);
-            return $id;
+        $chiave = self::preparaChiave($chiave);
+        if (!self::chiaveValida($chiave)) throw new RuntimeException('Chiave della regola non valida');
+        for ($tentativi = 0; $tentativi < 4; $tentativi++) {
+            $stmt = $this->pdo->prepare("SELECT * FROM {$this->p}regole_categoria WHERE chiave = ? AND codice_operazione = ? AND segno = ?");
+            $stmt->execute([$chiave, $codice, $segno]);
+            $r = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$r) {
+                $this->pdo->prepare("INSERT INTO {$this->p}regole_categoria (chiave, codice_operazione, segno, categoria_id, created_by) VALUES (?, ?, ?, ?, ?)")
+                    ->execute([$chiave, $codice, $segno, $categoriaId, $userId]);
+                return (int)$this->pdo->lastInsertId();
+            }
+            if ((int)$r['categoria_id'] === $categoriaId) return (int)$r['id'];
+            $mia = $userId !== null && (int)$r['created_by'] === $userId;
+            if ($admin || $mia) {
+                $this->pdo->prepare("UPDATE {$this->p}regole_categoria SET categoria_id = ? WHERE id = ?")->execute([$categoriaId, (int)$r['id']]);
+                return (int)$r['id'];
+            }
+            $variante = $mov ? self::piuSpecifica($mov, $chiave, $codice) : null;
+            if (!$variante || strlen($variante[0]) > self::MAX_CHIAVE) break;
+            [$chiave, $codice] = $variante;
         }
-        $this->pdo->prepare("INSERT INTO {$this->p}regole_categoria (chiave, codice_operazione, segno, categoria_id, created_by) VALUES (?, ?, ?, ?, ?)")
-            ->execute([$chiave, $codice, $segno, $categoriaId, $userId]);
-        return (int)$this->pdo->lastInsertId();
+        throw new RuntimeException('Esiste già una regola di un altro utente per questi movimenti: chiedi a un amministratore di modificarla');
     }
 
     /** Elimina una regola: i movimenti che classificava restano nella loro categoria, ma diventano scelte dell'utente. */
@@ -367,13 +447,6 @@ class Classificatore
         return $out;
     }
 
-    private function contaPerRegola(int $regolaId): int
-    {
-        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM {$this->p}movimenti_banca WHERE regola_id = ? AND categoria_fonte = 'regola'");
-        $stmt->execute([$regolaId]);
-        return (int)$stmt->fetchColumn();
-    }
-
     private function movimento(int $id): array
     {
         $stmt = $this->pdo->prepare("SELECT * FROM {$this->p}movimenti_banca WHERE id = ?");
@@ -381,6 +454,13 @@ class Classificatore
         $m = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$m) throw new RuntimeException('Movimento non trovato');
         return $m;
+    }
+
+    private function regola(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare("SELECT * FROM {$this->p}regole_categoria WHERE id = ?");
+        $stmt->execute([$id]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
     private function categoria(int $id): ?array

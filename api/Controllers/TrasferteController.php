@@ -79,7 +79,8 @@ class TrasferteController {
             'note_spese'       => trim($data['note_spese'] ?? ''),
             'pernottamento'    => !empty($data['pernottamento']) ? 1 : 0,
             'km_bloccati'      => !empty($data['km_bloccati']) ? 1 : 0,
-            'mezzo_id'         => !empty($data['mezzo_id']) ? (int)$data['mezzo_id'] : null
+            // '' / null / 0 = nessun mezzo: in update toglie il mezzo assegnato
+            'mezzo_id'         => (int)($data['mezzo_id'] ?? 0) > 0 ? (int)$data['mezzo_id'] : null
         ];
 
         $isUpdate = (bool)$id;
@@ -310,9 +311,17 @@ class TrasferteController {
         }
 
         $totKm = $routeResult['totKm'];
-        $this->distributeKm($date, $affectedIds, $totKm, $oggiPernotta, $prevPernottamento);
+        // I km delle trasferte bloccate sono già fissati: si distribuisce solo il resto del percorso
+        $kmBloccati = 0.0;
+        foreach ($trasferte as $t) {
+            if (!empty($t['km_bloccati'])) $kmBloccati += (float)$t['km_andata'] + (float)$t['km_ritorno'];
+        }
+        $daDistribuire = max(0.0, round($totKm - $kmBloccati, 1));
+        $this->distributeKm($date, $affectedIds, $daDistribuire, $oggiPernotta, $prevPernottamento);
         $count = count($affectedIds);
-        return ['success' => true, 'message' => "KM calcolati automaticamente: $totKm km totali ($count trasferte aggiornate).", 'data' => ['totale_km' => $totKm, 'aggiornate' => $count]];
+        $msg = "KM calcolati automaticamente: $totKm km totali ($count trasferte aggiornate)";
+        if ($kmBloccati > 0) $msg .= ", di cui $kmBloccati km già fissati sulle trasferte bloccate";
+        return ['success' => true, 'message' => $msg . '.', 'data' => ['totale_km' => $totKm, 'km_bloccati' => $kmBloccati, 'distribuiti' => $daDistribuire, 'aggiornate' => $count]];
     }
 
     // ── Private helpers ──────────────────────────────────

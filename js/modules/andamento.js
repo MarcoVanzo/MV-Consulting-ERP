@@ -9,7 +9,7 @@ const ModAndamento = (() => {
     const colore = c => /^#[0-9A-Fa-f]{6}$/.test(c || '') ? c : '#64748B';
     const breve = v => {
         const a = Math.abs(v);
-        const s = a >= 1e6 ? (a / 1e6).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + ' M' : a >= 1e3 ? Math.round(a / 1e3).toLocaleString('it-IT') + ' k' : Math.round(a).toLocaleString('it-IT');
+        const s = a >= 1e6 ? (a / 1e6).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + ' M' : a >= 1e3 ? (a / 1e3).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + ' k' : Math.round(a).toLocaleString('it-IT');
         return (v < 0 ? '−' : '') + s + ' €';
     };
 
@@ -53,7 +53,10 @@ const ModAndamento = (() => {
 
     /** Barre affiancate entrate/uscite per mese, con la linea del saldo netto. */
     function graficoMesi(mesi) {
-        if (!mesi.length) return '<div style="color:var(--text-muted);padding:30px;text-align:center">Nessun dato</div>';
+        if (!mesi.length || mesi.every(m => !m.entrate && !m.uscite)) return '<div style="color:var(--text-muted);padding:30px;text-align:center">Nessun movimento nel periodo</div>';
+        // Il saldo netto si ferma al mese in corso: i mesi futuri non sono "zero", non ci sono ancora
+        const oggi = new Date();
+        const meseCorrente = `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, '0')}`;
         const W = 720, H = 280, L = 64, R = 12, T = 12, B = 30;
         // Scala con tacche "tonde" (1, 2, 5 × 10^n)
         const alto = Math.max(1, ...mesi.map(m => Math.max(m.entrate, m.uscite, m.netto)));
@@ -80,7 +83,7 @@ const ModAndamento = (() => {
                 <rect x="${cx + 1}" y="${y(m.uscite)}" width="${bw}" height="${Math.max(0, y(0) - y(m.uscite))}" rx="2" fill="#EF4444"/>
                 <rect x="${cx - slot / 2}" y="${T}" width="${slot}" height="${H - T - B}" fill="transparent"/></g>
                 <text x="${cx}" y="${H - 10}" text-anchor="middle" font-size="11" fill="currentColor" fill-opacity="0.6">${MESI[+mm - 1]}</text>`;
-            punti.push(`${cx},${y(m.netto)}`);
+            if (m.mese <= meseCorrente) punti.push(`${cx},${y(m.netto)}`);
         });
         svg += `<polyline points="${punti.join(' ')}" fill="none" stroke="#60A5FA" stroke-width="2"/>`
             + punti.map((p, i) => `<circle cx="${p.split(',')[0]}" cy="${p.split(',')[1]}" r="3" fill="#60A5FA"><title>${UI.esc('Netto ' + UI.formatCurrency(mesi[i].netto))}</title></circle>`).join('');

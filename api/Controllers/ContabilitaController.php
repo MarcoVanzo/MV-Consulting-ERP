@@ -68,9 +68,15 @@ class ContabilitaController {
 
         if ($id) {
             // Incarico collegato prima della modifica: se cambia va ricalcolato anche il vecchio
-            $stmtOld = $this->pdo->prepare("SELECT incarico_id FROM {$this->prefix}fatture WHERE id = ?");
+            $stmtOld = $this->pdo->prepare("SELECT incarico_id, stato, importo_totale FROM {$this->prefix}fatture WHERE id = ?");
             $stmtOld->execute([$id]);
-            $oldIncaricoId = $stmtOld->fetchColumn() ?: null;
+            $old = $stmtOld->fetch() ?: [];
+            $oldIncaricoId = $old['incarico_id'] ?? null;
+            // Pagamento registrato da un movimento bancario: stato e importo si cambiano annullando la riconciliazione
+            if ($old && $this->riconciliazioni((int)$id)
+                && ((($old['stato'] ?? '') === 'pagata' && $fields['stato'] !== 'pagata') || abs((float)$old['importo_totale'] - $importoTotale) > 0.005)) {
+                Response::json(false, 'La fattura è abbinata a un movimento bancario: per cambiarne stato o importo annulla prima la riconciliazione (Contabilità › Riconciliazione).');
+            }
 
             $sets = [];
             $vals = [];
@@ -107,6 +113,9 @@ class ContabilitaController {
     }
 
     public function delete($id) {
+        if ($this->riconciliazioni((int)$id)) {
+            Response::json(false, 'La fattura è abbinata a un movimento bancario: annulla prima la riconciliazione (Contabilità › Riconciliazione).');
+        }
         // Prima recupera l'incarico_id per ricalcolo successivo
         $stmtInc = $this->pdo->prepare("SELECT incarico_id FROM {$this->prefix}fatture WHERE id = ?");
         $stmtInc->execute([$id]);
@@ -333,18 +342,15 @@ class ContabilitaController {
             return;
         }
 
-        // Dati Generali
-        $numeroFattura = (string)($body->DatiGenerali->DatiGeneraliDocumento->Numero ?? '');
-        $dataEmissione = (string)($body->DatiGenerali->DatiGeneraliDocumento->Data ?? date('Y-m-d'));
-        // TD04 = nota di credito: importi salvati in negativo
-        $tipoDocumento = strtoupper(trim((string)($body->DatiGenerali->DatiGeneraliDocumento->TipoDocumento ?? 'TD01')));
-        $isNotaCredito = ($tipoDocumento === 'TD04');
-        $segno = $isNotaCredito ? -1 : 1;
-
-        if (!$numeroFattura) {
+        // Un file può essere un lotto con più documenti (più FatturaElettronicaBody): si importano tutti
+        $bodies = [];
+        foreach ($xml->FatturaElettronicaBody as $b) $bodies[] = $b;
+        $numeroFattura = (string)($bodies[0]->DatiGenerali->DatiGeneraliDocumento->Numero ?? '');
+        if (!array_filter($bodies, fn($b) => (string)($b->DatiGenerali->DatiGeneraliDocumento->Numero ?? '') !== '')) {
             Response::json(false, 'Numero fattura non trovato nell\'XML');
             return;
         }
+        $conTipoDoc = $this->colonnaTipoDocumento();
 
         // Pre-carico tutti i clienti e sottoclienti
         $stmtClienti = $this->pdo->query("SELECT id, partita_iva, codice_fiscale FROM {$this->prefix}clienti");
@@ -403,6 +409,12 @@ class ContabilitaController {
                 $errors[] = "Impossibile creare il Cliente: P.IVA o CF mancanti nell'XML.";
             }
 
+            foreach ($bodies as $body) {
+            [$numeroFattura, $dataEmissione, $tipoDocumento, $isNotaCredito, $segno, $dataScadenza] = $this->datiDocumento($body);
+            if ($numeroFattura === '') {
+                $errors[] = 'Un documento del lotto non ha il numero: saltato.';
+                continue;
+            }
             // 2. Analisi delle righe e raggruppamento per Sottocliente
             $raggruppamenti = [];
 
@@ -608,6 +620,14 @@ class ContabilitaController {
                     $chkSql .= " AND sottocliente_id IS NULL";
                 }
 
+                // Stesso numero ma tipo diverso (fattura / nota di credito): documenti diversi
+                if ($conTipoDoc) {
+                    $chkSql .= " AND (tipo_documento = ? OR (tipo_documento IS NULL AND importo_totale " . ($segno < 0 ? '<' : '>=') . " 0))";
+                    $chkParams[] = $tipoDocumento;
+                } else {
+                    $chkSql .= " AND importo_totale " . ($segno < 0 ? '<' : '>=') . " 0";
+                }
+
                 $stmtCheck = $this->pdo->prepare($chkSql);
                 $stmtCheck->execute($chkParams);
                 $existing = $stmtCheck->fetchColumn();
@@ -618,9 +638,12 @@ class ContabilitaController {
                 } else {
                     // Insert con eventuale incarico_id collegato
                     $stmtIns = $this->pdo->prepare("INSERT INTO {$this->prefix}fatture 
-                        (numero_fattura, data_emissione, cliente_id, sottocliente_id, incarico_id, imponibile, iva_percentuale, importo_iva, importo_totale, stato, descrizione)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'emessa', ?)");
-                    $stmtIns->execute([$numeroFattura, $dataEmissione, $clienteId, $sid, $incaricoId, $imponibile, $ivaPerc, $importoIva, $importoTotale, $testoDesc]);
+                        (numero_fattura, data_emissione, cliente_id, sottocliente_id, incarico_id, imponibile, iva_percentuale, importo_iva, importo_totale, stato, descrizione, data_scadenza"
+                        . ($conTipoDoc ? ', tipo_documento' : '') . ")
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'emessa', ?, ?" . ($conTipoDoc ? ', ?' : '') . ")");
+                    $valori = [$numeroFattura, $dataEmissione, $clienteId, $sid, $incaricoId, $imponibile, $ivaPerc, $importoIva, $importoTotale, $testoDesc, $dataScadenza];
+                    if ($conTipoDoc) $valori[] = $tipoDocumento;
+                    $stmtIns->execute($valori);
                     $newFatturaId = $this->pdo->lastInsertId();
                     $imported++;
 
@@ -630,6 +653,8 @@ class ContabilitaController {
                     }
                 }
             }
+
+            } // fine documenti del lotto
 
             $this->pdo->commit();
         } catch (\Throwable $e) {
@@ -805,18 +830,8 @@ class ContabilitaController {
                 if ($ric) {
                     // Riconciliazione attiva: l'avviso diventa un movimento atteso con le sue riconciliazioni
                     // (una voce per documento: le righe con lo stesso numero_fattura/anno/cliente)
-                    $visti = [];
-                    $numRighe = 0;
-                    foreach ($righeDb as $r) {
-                        if ($r['stato'] === 'pagata') continue;
-                        $numRighe++;
-                        $visti[$r['numero_fattura'] . '|' . $r['cliente_id']] ??= (int)$r['id'];
-                    }
-                    // Un solo documento: si registra l'importo dell'avviso (entro la tolleranza di 2 €), altrimenti i residui
-                    $unico = count($visti) === 1;
-                    foreach ($visti as $primoId) {
-                        $docsAvviso[] = ['tipo' => 'fattura', 'id' => $primoId, 'importo' => $unico ? $importo : null];
-                    }
+                    $numRighe = count(array_filter($righeDb, fn($r) => $r['stato'] !== 'pagata'));
+                    array_push($docsAvviso, ...$ric->vociAvviso($righeDb, $importo));
                     $matched += $numRighe;
                     $numeriAvviso[] = $numFattura;
                     $details[] = "✅ Fattura n. {$numFattura} — €" . number_format($importo, 2, ',', '.') . " → {$numRighe} righe aggiornate come Pagate ({$dataPagamento})";
@@ -855,12 +870,22 @@ class ContabilitaController {
             // Avviso → movimento atteso + riconciliazioni; se l'accredito è già sull'estratto conto viene collegato
             if ($ric && $docsAvviso) {
                 $totaleAvviso = $totalePagamento > 0 ? $totalePagamento : array_sum(array_column($righe, 'importo'));
-                $movimentoId = $ric->registraAvviso([
-                    'data' => $dataPagamento,
-                    'importo' => $totaleAvviso,
-                    'descrizione' => 'Avviso di pagamento — fatture ' . implode(', ', $numeriAvviso),
-                    'file_nome' => trim((string)($data['file_nome'] ?? '')),
-                ], $docsAvviso, isset($GLOBALS['userContext']['id']) ? (int)$GLOBALS['userContext']['id'] : null, 2.0);
+                try {
+                    $movimentoId = $ric->registraAvviso([
+                        'data' => $dataPagamento,
+                        'importo' => $totaleAvviso,
+                        'descrizione' => 'Avviso di pagamento — fatture ' . implode(', ', $numeriAvviso),
+                        'file_nome' => trim((string)($data['file_nome'] ?? '')),
+                    ], $docsAvviso, isset($GLOBALS['userContext']['id']) ? (int)$GLOBALS['userContext']['id'] : null, 2.0);
+                } catch (RuntimeException $e) {
+                    // Un documento incoerente non deve far fallire l'intero import: si segnala e basta
+                    $matched = 0;
+                    $details = [];
+                    $notFound[] = 'Pagamenti non registrati: ' . $e->getMessage();
+                    $docsAvviso = [];
+                }
+            }
+            if ($ric && $movimentoId) {
                 // L'accredito collegato all'avviso diventa "Incassi clienti"
                 RiconciliazioneController::classifica($this->pdo, $this->prefix);
                 foreach ($ric->documenti()->delMovimento($movimentoId) as $d) {
@@ -892,6 +917,41 @@ class ContabilitaController {
             'movimento_id' => $movimentoId,
             'messages' => $messages
         ]);
+    }
+
+    /**
+     * Dati di un documento del file: [numero, data, tipo, nota di credito?, segno, scadenza].
+     * TD04 e TD08 sono note di credito (importi salvati in negativo); la scadenza è la prima
+     * DataScadenzaPagamento indicata (come nell'import delle fatture dei fornitori).
+     */
+    private function datiDocumento(SimpleXMLElement $body): array {
+        $gen = $body->DatiGenerali->DatiGeneraliDocumento;
+        $tipo = strtoupper(trim((string)($gen->TipoDocumento ?? 'TD01'))) ?: 'TD01';
+        $nc = in_array($tipo, ['TD04', 'TD08'], true);
+        $scadenza = null;
+        foreach ($body->DatiPagamento as $dp) {
+            foreach ($dp->DettaglioPagamento as $det) {
+                $d = (string)($det->DataScadenzaPagamento ?? '');
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) && (!$scadenza || $d < $scadenza)) $scadenza = $d;
+            }
+        }
+        return [trim((string)($gen->Numero ?? '')), (string)($gen->Data ?? date('Y-m-d')), $tipo, $nc, $nc ? -1 : 1, $scadenza];
+    }
+
+    /** Colonna fatture.tipo_documento presente? (migrazione v065) */
+    private function colonnaTipoDocumento(): bool {
+        try {
+            $this->pdo->query("SELECT tipo_documento FROM {$this->prefix}fatture WHERE 1 = 0");
+            return true;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /** Riconciliazioni bancarie del record: se ce ne sono, cancellarlo o riaprirlo le lascerebbe orfane. */
+    private function riconciliazioni(int $fatturaId): int {
+        require_once __DIR__ . '/../Shared/Riconciliatore.php';
+        return Riconciliatore::riconciliazioniDi($this->pdo, $this->prefix, 'fattura', $fatturaId);
     }
 
     /**

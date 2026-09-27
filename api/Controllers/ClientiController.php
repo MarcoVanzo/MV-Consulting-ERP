@@ -79,16 +79,18 @@ class ClientiController {
     }
 
     public function delete($id) {
-        // Incarichi (FK CASCADE) e fatture (FK SET NULL) verrebbero persi o scollegati: si blocca
+        // Incarichi (FK CASCADE), fatture e offerte (FK SET NULL) verrebbero persi o scollegati: si blocca
         $stmt = $this->pdo->prepare("SELECT
                 (SELECT COUNT(*) FROM {$this->prefix}incarichi WHERE cliente_id = ?) AS n_incarichi,
-                (SELECT COUNT(*) FROM {$this->prefix}fatture WHERE cliente_id = ?) AS n_fatture");
-        $stmt->execute([$id, $id]);
+                (SELECT COUNT(*) FROM {$this->prefix}fatture WHERE cliente_id = ?) AS n_fatture,
+                (SELECT COUNT(*) FROM {$this->prefix}offerte WHERE cliente_id = ? AND deleted_at IS NULL) AS n_offerte");
+        $stmt->execute([$id, $id, $id]);
         $cnt = $stmt->fetch();
         $nInc = (int)($cnt['n_incarichi'] ?? 0);
         $nFat = (int)($cnt['n_fatture'] ?? 0);
-        if ($nInc > 0 || $nFat > 0) {
-            Response::json(false, "Il cliente ha {$nInc} incarichi e {$nFat} fatture: eliminali prima", null, 409);
+        $nOff = (int)($cnt['n_offerte'] ?? 0);
+        if ($nInc > 0 || $nFat > 0 || $nOff > 0) {
+            Response::json(false, "Il cliente ha {$nInc} incarichi, {$nFat} fatture e {$nOff} offerte: eliminali prima", null, 409);
         }
 
         $stmt = $this->pdo->prepare("DELETE FROM {$this->prefix}clienti WHERE id = ?");

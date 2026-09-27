@@ -94,7 +94,7 @@ class MovimentiController {
                 'chiave' => (string)($data['chiave'] ?? ''),
                 'usa_codice' => $si('usa_codice'),
                 'aggiorna_regola' => $si('aggiorna_regola'),
-            ], $this->userId());
+            ], $this->userId(), ($GLOBALS['userContext']['role'] ?? '') === 'admin');
         } catch (RuntimeException $e) {
             Response::json(false, $e->getMessage());
         }

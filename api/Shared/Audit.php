@@ -7,6 +7,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/Database.php';
+require_once __DIR__ . '/Security.php';
 
 class Audit
 {
@@ -56,7 +57,8 @@ class Audit
             $role = $user['role'] ?? null;
             $resolvedTenantId = $tenantId ?? 1;
 
-            $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+            // Stesso IP del rate limit: X-Forwarded-For solo da proxy fidati
+            $ip = Security::clientIp();
             $id = 'AUD_' . bin2hex(random_bytes(4));
 
             $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? null;

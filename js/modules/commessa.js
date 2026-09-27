@@ -109,11 +109,19 @@ const ModCommessa = (() => {
             }).join('')}</tbody></table></div>
             <div class="rows-total">
                 <button type="button" class="chip-btn" id="cm-add"><i class="ph ph-plus"></i> Rata</button>
-                <span>Totale rate <b class="${Math.abs(somma - valore) > 0.01 ? 'text-danger' : 'text-ok'}">${UI.formatCurrency(somma)}</b> su ${UI.formatCurrency(valore)}</span>
+                <span>Totale rate <b id="cm-rate-tot" class="${Math.abs(somma - valore) > 0.01 ? 'text-danger' : 'text-ok'}">${UI.formatCurrency(somma)}</b> su ${UI.formatCurrency(valore)}</span>
                 <button type="button" class="btn btn-sm btn-primary" id="cm-save-rate"><i class="ph ph-floppy-disk"></i> Salva piano</button>
             </div>`;
 
-        box.querySelectorAll('input[data-r]').forEach(inp => inp.addEventListener('change', () => { _rate[inp.dataset.r][inp.dataset.k] = inp.value; renderRate(); }));
+        // Sul change si aggiorna solo il totale: ridisegnare la tabella farebbe perdere il fuoco (Tab)
+        box.querySelectorAll('input[data-r]').forEach(inp => inp.addEventListener('change', () => {
+            _rate[inp.dataset.r][inp.dataset.k] = inp.value;
+            if (inp.dataset.k !== 'importo') return;
+            const somma = _rate.reduce((a, r) => a + num(r.importo), 0);
+            const tot = document.getElementById('cm-rate-tot');
+            tot.textContent = UI.formatCurrency(somma);
+            tot.className = Math.abs(somma - valore) > 0.01 ? 'text-danger' : 'text-ok';
+        }));
         box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => { _rate.splice(b.dataset.del, 1); renderRate(); }));
         document.getElementById('cm-add').addEventListener('click', () => {
             const residuo = Math.max(0, num(_d.incarico.importo_totale) - _rate.reduce((a, r) => a + num(r.importo), 0));

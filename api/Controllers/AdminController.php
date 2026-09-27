@@ -65,8 +65,12 @@ class AdminController {
             Response::json(false, 'Email e Nome completi sono obbligatori');
         }
 
-        $email = trim($data['email']);
-        $name = trim($data['full_name']);
+        $email = trim((string)$data['email']);
+        $name = trim((string)$data['full_name']);
+        // L'email finisce negli invii SMTP: niente CR/LF e formato valido
+        if (preg_match('/[\r\n]/', $email . $name) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            Response::json(false, 'Email non valida');
+        }
         // Whitelist ruoli: niente valori arbitrari
         $role = $data['role'] ?? Auth::DEFAULT_ROLE;
         if (!in_array($role, Auth::ROLES, true)) {

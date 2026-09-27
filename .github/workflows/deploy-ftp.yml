@@ -18,7 +18,9 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           server-dir: ${{ secrets.FTP_PATH }}/
-          # FTP esplicito su TLS: credenziali e file non viaggiano in chiaro
+          # FTP esplicito su TLS: credenziali e file non viaggiano in chiaro.
+          # Niente "security: strict": il certificato del server è per ftplnx02.aruba.it,
+          # non per ftp.mv-consulting.it (hostname mismatch), e la verifica fallirebbe.
           protocol: ftps
           exclude: |
             **/.git*
@@ -50,6 +52,7 @@ jobs:
             db_dump*
             delete_token*
             _autodeploy.php
+            deploy_update.php
             **/*.md
             .agents/**
             scripts/**

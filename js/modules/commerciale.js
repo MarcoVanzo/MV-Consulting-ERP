@@ -157,7 +157,8 @@ const ModCommerciale = (() => {
 
     // Testo pronto da ricopiare nella fattura su Sistemi
     function testoSistemi(r) {
-        const iva = parseFloat(r.iva_percentuale) || 22;
+        // 22 solo se l'aliquota manca: 0 (esente / non imponibile) è un valore valido
+        const iva = (r.iva_percentuale === null || r.iva_percentuale === undefined || r.iva_percentuale === '') ? 22 : (parseFloat(r.iva_percentuale) || 0);
         const imp = parseFloat(r.importo) || 0;
         return [
             `Cliente: ${r.cliente_nome || ''}`,

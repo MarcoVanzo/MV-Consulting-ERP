@@ -7,9 +7,10 @@ const ModContabilita = (() => {
     let _fatture = [], _kpis = {}, _mensile = [], _statoFilter = '', _activeTab = 'tab-incarichi';
 
     async function load() {
+        // Badge "Da classificare" aggiornato qualunque tab si apra
+        if (window.ModMovimenti) ModMovimenti.aggiornaBadge();
         if (_activeTab === 'tab-incarichi') { ModIncarichi.load(); return; }
         if (_activeTab === 'tab-verifica') { loadVerifica(); return; }
-        if (window.ModMovimenti) ModMovimenti.aggiornaBadge();
         if (_activeTab === 'tab-riconciliazione') { ModRiconciliazione.load(); return; }
         if (_activeTab === 'tab-classificare') { ModMovimenti.loadCoda(); return; }
         if (_activeTab === 'tab-andamento') { ModAndamento.load(); return; }
@@ -232,7 +233,9 @@ const ModContabilita = (() => {
         if(!Array.isArray(files))files=[files];
         const valid=files.filter(f=>f.type==='application/pdf'||f.name.endsWith('.pdf'));
         if(!valid.length){UI.toast('Seleziona PDF validi','error');return;}
-        const btn=document.getElementById('btn-import-payment-pdf'); const prev=btn.innerHTML; btn.disabled=true;
+        // Stesso import dalla scheda Fatture o da Riconciliazione: lo spinner va sul pulsante di chi l'ha lanciato
+        const btn=document.getElementById(_activeTab==='tab-riconciliazione'?'btn-ric-avviso':'btn-import-payment-pdf')||document.getElementById('btn-import-payment-pdf');
+        const prev=btn.innerHTML; btn.disabled=true;
         let totalM=0,totalAP=0,totalNF=0,msgs=[];
         try {
             for(let i=0;i<valid.length;i++){

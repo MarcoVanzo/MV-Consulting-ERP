@@ -20,8 +20,10 @@ require_once __DIR__ . '/../Controllers/RiconciliazioneController.php';
 require_once __DIR__ . '/../Controllers/MovimentiController.php';
 
 class ApiRouter {
-    // Rate limit per IP condiviso da login e reset_password: max 10 tentativi in 15 minuti
-    private const LOGIN_MAX_ATTEMPTS = 10;
+    // Rate limit per IP condiviso da login e reset password: max 5 tentativi in 15 minuti.
+    // Sotto la soglia di blocco account (Security::ACCOUNT_MAX_FAILED = 10): da un solo IP
+    // non si riesce a bloccare l'account di un altro.
+    private const LOGIN_MAX_ATTEMPTS = 5;
     private const LOGIN_WINDOW = 900;
     // request_reset: max 5 richieste/ora per IP, max 3/ora per email
     private const RESET_MAX_PER_IP = 5;
@@ -62,6 +64,31 @@ class ApiRouter {
             }
             Response::json(false, 'Troppi tentativi di accesso. Riprovare tra qualche minuto.', null, 429);
         }
+    }
+
+    /**
+     * Risponde subito al client e poi esegue $dopo (es. invio email): la durata dell'invio
+     * non si vede nei tempi di risposta. Senza PHP-FPM ripiega su flush().
+     */
+    private static function rispondiEPoi(bool $success, string $message, callable $dopo): void {
+        ignore_user_abort(true);
+        http_response_code(200);
+        $body = json_encode(['success' => $success, 'message' => $message]);
+        header('Content-Length: ' . strlen($body));
+        header('Connection: close');
+        echo $body;
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        } else {
+            while (ob_get_level() > 0) @ob_end_flush();
+            @flush();
+        }
+        try {
+            $dopo();
+        } catch (Throwable $e) {
+            error_log('[rispondiEPoi] ' . $e->getMessage());
+        }
+        exit;
     }
 
     /**
@@ -127,14 +154,14 @@ class ApiRouter {
                 Response::json(false, 'Credenziali non valide');
             }
 
-            // Rate Limiting: max 10 tentativi per IP in 15 minuti
+            // Rate Limiting: max 5 tentativi falliti per IP in 15 minuti
             self::enforceLoginRateLimit($email);
             $ip = Security::clientIp();
 
             $auth = new Auth();
             $user = $auth->login($email, $password);
             if ($user) {
-                Security::rateLimitReset('login', $ip);
+                // Il bucket IP non si azzera: un login riuscito non regala altri tentativi
                 Response::json(true, 'Login effettuato', $user);
             } else {
                 Security::rateLimitHit('login', $ip, self::LOGIN_WINDOW);
@@ -161,8 +188,13 @@ class ApiRouter {
             }
             Security::rateLimitHit('reset_email', $emailKey, self::RESET_WINDOW);
             $auth = new Auth();
-            $auth->requestPasswordReset($email);
-            Response::json(true, $okMsg);
+            $mail = $auth->preparePasswordReset($email);
+            // Stessa risposta, e subito, che l'utente esista o no: l'email parte dopo
+            self::rispondiEPoi(true, $okMsg, function () use ($mail) {
+                if (!$mail) return;
+                require_once __DIR__ . '/Mailer.php';
+                Mailer::send($mail['to'], $mail['name'], $mail['subject'], $mail['message']);
+            });
         } elseif ($action === 'reset_password') {
             $userId = $data['user_id'] ?? '';
             $currentPwd = $data['current_password'] ?? '';
@@ -176,7 +208,6 @@ class ApiRouter {
             $auth = new Auth();
             try {
                 $auth->resetPassword($userId, $currentPwd, $newPwd);
-                Security::rateLimitReset('login', $ip);
                 Response::json(true, 'Password aggiornata con successo. Effettua il login.');
             } catch (Exception $e) {
                 Security::rateLimitHit('login', $ip, self::LOGIN_WINDOW);
@@ -208,13 +239,21 @@ class ApiRouter {
                 'name'  => $ctx['name'] ?? $ctx['email'] ?? 'User'
             ]);
         } elseif ($action === 'logout') {
-            $isSecure = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on');
+            $isSecure = Security::isHttps();
             setcookie('auth_token', '', [
                 'expires'  => time() - 3600,
                 'path'     => '/',
                 'httponly' => true,
                 'secure'   => $isSecure,
                 'samesite' => 'Lax'
+            ]);
+            // Anche il token CSRF: stessi attributi con cui è stato creato al login
+            setcookie('csrf_token', '', [
+                'expires'  => time() - 3600,
+                'path'     => '/',
+                'httponly' => false,
+                'secure'   => $isSecure,
+                'samesite' => 'Strict'
             ]);
             Response::json(true, 'Logout effettuato');
         } else {
@@ -228,7 +267,7 @@ class ApiRouter {
             case 'list':       $ctrl->list(); break;
             case 'get':        $ctrl->get($data['id'] ?? $_GET['id'] ?? 0); break;
             case 'save':       $ctrl->save($data); break;
-            case 'delete':     $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
+            case 'delete':     Auth::richiediAdmin(); $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
             case 'lookup-vat': $ctrl->lookupVat($data['vat'] ?? $_GET['vat'] ?? ''); break;
             default:           Response::json(false, "Azione clienti non supportata: $action");
         }
@@ -239,7 +278,7 @@ class ApiRouter {
         switch ($action) {
             case 'list':   $ctrl->listByCliente($data['cliente_id'] ?? $_GET['cliente_id'] ?? 0); break;
             case 'save':   $ctrl->save($data); break;
-            case 'delete': $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
+            case 'delete': Auth::richiediAdmin(); $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
             default:       Response::json(false, "Azione sottoclienti non supportata: $action");
         }
     }
@@ -265,7 +304,7 @@ class ApiRouter {
             case 'getVehicleById':      $ctrl->getVehicleById($data); break;
             case 'createVehicle':       $ctrl->createVehicle($data); break;
             case 'updateVehicle':       $ctrl->updateVehicle($data); break;
-            case 'deleteVehicle':       $ctrl->deleteVehicle($data); break;
+            case 'deleteVehicle':       Auth::richiediAdmin(); $ctrl->deleteVehicle($data); break;
             case 'addMaintenance':      $ctrl->addMaintenance($data); break;
             case 'updateMaintenance':   $ctrl->updateMaintenance($data); break;
             case 'deleteMaintenance':   $ctrl->deleteMaintenance($data); break;
@@ -292,11 +331,11 @@ class ApiRouter {
         switch ($action) {
             case 'list':            $ctrl->list(); break;
             case 'save':            $ctrl->save($data); break;
-            case 'delete':          $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
+            case 'delete':          Auth::richiediAdmin(); $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
             case 'overview':        $ctrl->overview(); break;
             case 'import_pdf':      $ctrl->importPdf($data); break;
             case 'get_by_cliente':  $ctrl->getByCliente(); break;
-            case 'recalculate_all': $ctrl->recalculateAll(); break;
+            case 'recalculate_all': Auth::richiediAdmin(); $ctrl->recalculateAll(); break;
             case 'documento':       $ctrl->documento($data['id'] ?? $_GET['id'] ?? 0); break;
             default:                Response::json(false, "Azione incarichi non supportata: $action");
         }
@@ -323,7 +362,7 @@ class ApiRouter {
             case 'get':             $ctrl->get($data['id'] ?? $_GET['id'] ?? 0); break;
             case 'prossimo_numero': $ctrl->prossimoNumero(); break;
             case 'save':            $ctrl->save($data); break;
-            case 'delete':          $ctrl->delete($data['id'] ?? 0); break;
+            case 'delete':          Auth::richiediAdmin(); $ctrl->delete($data['id'] ?? 0); break;
             case 'set_stato':       $ctrl->setStato($data); break;
             case 'accetta':         $ctrl->accetta($data); break;
             case 'nuova_versione':  $ctrl->nuovaVersione($data); break;
@@ -338,7 +377,7 @@ class ApiRouter {
         switch ($action) {
             case 'list':            $ctrl->list(); break;
             case 'save':            $ctrl->save($data); break;
-            case 'delete':          $ctrl->delete($data['id'] ?? 0); break;
+            case 'delete':          Auth::richiediAdmin(); $ctrl->delete($data['id'] ?? 0); break;
             case 'save_costo':      $ctrl->saveCosto($data); break;
             case 'delete_costo':    $ctrl->deleteCosto($data['id'] ?? 0); break;
             case 'costi_fornitore': $ctrl->costiFornitore(); break;
@@ -352,7 +391,7 @@ class ApiRouter {
         switch ($action) {
             case 'list':        $ctrl->list(); break;
             case 'save':        $ctrl->save($data); break;
-            case 'delete':      $ctrl->delete($data['id'] ?? 0); break;
+            case 'delete':      Auth::richiediAdmin(); $ctrl->delete($data['id'] ?? 0); break;
             case 'set_pagata':  $ctrl->setPagata($data); break;
             case 'import_xml':  $ctrl->importXml($data); break;
             default:            Response::json(false, "Azione fatture fornitori non supportata: $action");
@@ -407,10 +446,7 @@ class ApiRouter {
     private static function handleAdmin(string $action, array $data, bool $isDeployKeyAuth): void {
         // RBAC: solo admin può accedere a questo modulo
         if (!$isDeployKeyAuth) {
-            $userCtx = $GLOBALS['userContext'] ?? [];
-            if (($userCtx['role'] ?? '') !== 'admin') {
-                Response::json(false, 'Accesso negato. Permessi insufficienti.', null, 403);
-            }
+            Auth::richiediAdmin();
         }
         $ctrl = new AdminController();
         switch ($action) {
@@ -435,7 +471,19 @@ class ApiRouter {
                 ob_start();
                 require_once __DIR__ . '/../migrate.php';
                 $output = ob_get_clean();
-                Response::json(true, 'Migrazione eseguita', ['output' => $output]);
+                header('Content-Type: application/json; charset=utf-8');
+                // L'esito reale viene dall'output di migrate.php; 'output' resta per compatibilità
+                $esito = json_decode((string)$output, true);
+                if (!is_array($esito)) {
+                    Response::json(false, 'Migrazione: output non interpretabile', ['output' => $output], 500);
+                }
+                $errori = array_values(array_filter($esito['migrations'] ?? [], fn($m) => ($m['status'] ?? '') === 'ERROR'));
+                $ok = empty($errori) && ($esito['success'] ?? false) === true;
+                Response::json($ok, $ok ? 'Migrazione eseguita' : 'Migrazione con errori (' . count($errori) . ')', [
+                    'output' => $output,
+                    'newly_applied' => $esito['newly_applied'] ?? 0,
+                    'errors' => $errori,
+                ], $ok ? 200 : 500);
                 break;
             
             default:

@@ -359,7 +359,7 @@ const ModTrasferte = (() => {
                     descrizione: t.descrizione,
                     pernottamento: t.pernottamento,
                     km_bloccati: t.km_bloccati,
-                    mezzo_id: mezzoId || null
+                    mezzo_id: mezzoId || '' // '' = nessun mezzo (Store.api scarta i null)
                 });
             }
             // Update local cache
@@ -388,7 +388,7 @@ const ModTrasferte = (() => {
             descrizione: document.getElementById('f-t-desc').value,
             pernottamento: parseInt(document.getElementById('f-t-pernottamento').value) || 0,
             km_bloccati: document.getElementById('f-t-km-bloccati').checked ? 1 : 0,
-            mezzo_id: document.getElementById('trasferte-mezzo').value || null
+            mezzo_id: document.getElementById('trasferte-mezzo').value || '' // '' = nessun mezzo
         };
         try {
             await Store.api('save', 'trasferte', payload);

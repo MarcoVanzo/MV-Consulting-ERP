@@ -22,4 +22,10 @@ jobs:
             echo "::notice::Secret PROMEMORIA_CRON_TOKEN non impostato: promemoria non attivo"
             exit 0
           fi
-          curl -fsS --max-time 120 -X POST -H "X-Cron-Token: $TOKEN" "$URL"
+          # Repository pubblico: la risposta (dati dello scadenzario) non va nei log, solo il codice HTTP
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 120 -X POST -H "X-Cron-Token: $TOKEN" "$URL" || true)
+          echo "Risposta ERP: HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "::error::Promemoria non riuscito (HTTP $code)"
+            exit 1
+          fi

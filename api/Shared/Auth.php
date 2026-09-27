@@ -11,6 +11,17 @@ class Auth {
         return in_array($role, self::ROLES, true) ? $role : self::DEFAULT_ROLE;
     }
 
+    /** Ferma la richiesta con 403 se l'utente corrente (middleware di router.php) non è admin */
+    public static function richiediAdmin(): void {
+        $ctx = $GLOBALS['userContext'] ?? [];
+        if (($ctx['role'] ?? '') !== 'admin') {
+            Response::json(false, 'Accesso negato. Operazione riservata agli amministratori.', null, 403);
+        }
+    }
+
+    /** Hash fittizio: con un'email inesistente il login impiega lo stesso tempo (niente enumerazione) */
+    private const DUMMY_HASH = '$2y$10$FceZ5vwVRPTBneQswTlFwOP.MuRl/tzHNRsLcsd3.pRdP2RvV8eZm';
+
     private $db;
 
     public function __construct() {
@@ -82,15 +93,18 @@ class Auth {
                     }
                     
                     $jwtExpiration = (int)(getenv('JWT_EXPIRATION') ?: 86400 * 30);
+                    // iat: i token emessi prima di un cambio password vengono rifiutati (router.php)
                     $payload = [
                         'id' => $user['id'],
                         'email' => $user['email'],
                         'role' => self::normalizeRole($user['role'] ?? null),
+                        'iat' => time(),
                         'exp' => time() + $jwtExpiration
                     ];
                     $token = JWT::encode($payload, $secret);
                     
-                    $isSecure = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on');
+                    // Secure anche quando l'HTTPS termina sul proxy di Aruba
+                    $isSecure = Security::isHttps();
                     setcookie('auth_token', $token, [
                         'expires' => time() + $jwtExpiration,
                         'path' => '/',
@@ -128,6 +142,8 @@ class Auth {
                     // Blocco temporaneo (non più blocked = 1 permanente)
                     Security::registerFailedAttempt($this->db, $prefix, $user['id']);
                 }
+            } else {
+                password_verify((string)$password, self::DUMMY_HASH);
             }
         } catch (PDOException $e) {
             error_log("Login DB Error: " . $e->getMessage());
@@ -142,10 +158,12 @@ class Auth {
     private const RESET_TOKEN_TTL_MINUTES = 60;
 
     /**
-     * Invia un link di reset valido un'ora. La password NON cambia finché il link non
-     * viene usato: chi conosce solo l'email non può più buttare fuori un utente.
+     * Prepara un link di reset valido un'ora e restituisce l'email da inviare (null se l'utente
+     * non c'è o non è attivo). L'invio lo fa il router DOPO aver risposto, così i tempi di
+     * risposta non rivelano se l'indirizzo esiste. La password NON cambia finché il link non
+     * viene usato: chi conosce solo l'email non può buttare fuori un utente.
      */
-    public function requestPasswordReset($email) {
+    public function preparePasswordReset($email): ?array {
         $prefix = getenv('DB_PREFIX') ?: 'mv_';
         $stmt = $this->db->prepare("SELECT * FROM {$prefix}users WHERE email = :email LIMIT 1");
         $stmt->execute(['email' => $email]);
@@ -164,10 +182,9 @@ class Auth {
                 . "Apri questo link entro " . self::RESET_TOKEN_TTL_MINUTES . " minuti e scegli la nuova password:\n"
                 . $link . "\n\n"
                 . "Se non sei stato tu, ignora questa email: la password attuale resta valida.";
-            require_once __DIR__ . '/Mailer.php';
-            Mailer::send($user['email'], $user['full_name'] ?? $user['name'] ?? null, $subject, $message);
+            return ['to' => $user['email'], 'name' => $user['full_name'] ?? $user['name'] ?? null, 'subject' => $subject, 'message' => $message];
         }
-        return true;
+        return null;
     }
 
     /** Imposta la nuova password a partire dal token ricevuto via email */
@@ -176,8 +193,9 @@ class Auth {
         if (!preg_match('/^[a-f0-9]{64}$/', $token)) {
             throw new Exception("Link non valido o scaduto. Richiedi un nuovo reset.");
         }
+        $hash = hash('sha256', $token);
         $stmt = $this->db->prepare("SELECT * FROM {$prefix}users WHERE verification_token = ? AND token_expires_at > NOW() LIMIT 1");
-        $stmt->execute([hash('sha256', $token)]);
+        $stmt->execute([$hash]);
         $user = $stmt->fetch();
         if (!$user) {
             throw new Exception("Link non valido o scaduto. Richiedi un nuovo reset.");
@@ -186,9 +204,23 @@ class Auth {
             throw new Exception("Account non attivo. Contattare l'amministratore.");
         }
 
-        $this->applyNewPassword($user['id'], $newPwd);
-        // Link monouso; il reset via email sblocca anche un eventuale blocco temporaneo
-        $this->db->prepare("UPDATE {$prefix}users SET verification_token = NULL, token_expires_at = NULL WHERE id = ?")->execute([$user['id']]);
+        // Link monouso in modo atomico: di due richieste concorrenti con lo stesso token ne passa una.
+        // Nella transazione: se la nuova password è rifiutata (complessità, storico) il link resta valido.
+        $this->db->beginTransaction();
+        try {
+            $upd = $this->db->prepare("UPDATE {$prefix}users SET verification_token = NULL, token_expires_at = NULL
+                WHERE id = ? AND verification_token = ? AND token_expires_at > NOW()");
+            $upd->execute([$user['id'], $hash]);
+            if ($upd->rowCount() !== 1) {
+                throw new Exception("Link non valido o scaduto. Richiedi un nuovo reset.");
+            }
+            $this->applyNewPassword($user['id'], $newPwd);
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+        // Il reset via email sblocca anche un eventuale blocco temporaneo
         Security::unlockAccount($user['id']);
         return true;
     }

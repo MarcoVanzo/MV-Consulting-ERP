@@ -4,12 +4,19 @@
  * App — Main orchestrator per MV Consulting ERP
  */
 document.addEventListener('DOMContentLoaded', async () => {
-    // Link di reset password ricevuto via email
-    const resetMatch = window.location.hash.match(/reset-token=([a-f0-9]{64})/);
-    if (resetMatch) {
-        AuthFlow.showTokenResetScreen(resetMatch[1]);
-        return;
+    // Link di reset password ricevuto via email. Va gestito anche quando il link
+    // viene aperto in una scheda dove l'ERP è già caricato (cambia solo l'hash).
+    // Il token resta nella chiusura del form di reset: in caso di errore si può riprovare.
+    function checkResetLink() {
+        const m = window.location.hash.match(/reset-token=([a-f0-9]{64})/);
+        if (!m) return false;
+        document.getElementById('app-shell')?.classList.add('hidden');
+        UI.closeModal();
+        AuthFlow.showTokenResetScreen(m[1]);
+        return true;
     }
+    window.addEventListener('hashchange', checkResetLink);
+    if (checkResetLink()) return;
 
     // Autenticazione basata SOLO su cookie HttpOnly.
     // erp_user in localStorage è usato solo per dati di visualizzazione (nome, iniziali),
