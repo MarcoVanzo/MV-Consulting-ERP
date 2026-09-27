@@ -291,6 +291,7 @@ const ModOfferte = (() => {
         if (!fields.oggetto.trim()) { UI.toast('Scrivi l\'oggetto', 'error'); return; }
         const res = await Store.upload('save', 'offerte', fd);
         UI.toast(fields.id ? 'Offerta aggiornata' : 'Offerta creata');
+        if (!fields.cliente_id) await ModClienti.load(); // il prospect è entrato in anagrafica
         load();
         if (!fields.id && res?.id) edit(res.id); // riapre per aggiungere i partner
         else UI.closeModal();
@@ -365,7 +366,7 @@ const ModOfferte = (() => {
             fd.append('file', file);
             const res = await Store.upload('importa', 'offerte', fd);
             UI.toast('Offerta importata in bozza: verificala');
-            await load();
+            await Promise.all([load(), ModClienti.load()]);
             if (res?.id) edit(res.id);
         } catch (e) {
             UI.toast(e.message || 'Import non riuscito', 'error');
