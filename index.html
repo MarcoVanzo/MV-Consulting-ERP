@@ -17,6 +17,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
     <link rel="stylesheet" href="css/style.css?v=1778402325">
+    <link rel="stylesheet" href="css/commerciale.css?v=1790500000">
 
     <style>
         /* ── Auth Screen (inline for instant render) ── */
@@ -163,6 +164,10 @@
                 <div class="nav-item active" data-view="clienti" id="nav-clienti">
                     <i class="ph ph-buildings"></i>
                     <span>Clienti</span>
+                </div>
+                <div class="nav-item" data-view="commerciale" id="nav-commerciale">
+                    <i class="ph ph-handshake"></i>
+                    <span>Commerciale</span>
                 </div>
                 <div class="nav-item" data-view="trasferte" id="nav-trasferte">
                     <i class="ph ph-car-profile"></i>
@@ -318,6 +323,26 @@
                 <div id="trasferte-mezzi" class="tab-content hidden" style="display: none; width: 100%;">
                     <!-- Il modulo Mezzi renderizzerà qui la sua UI -->
                 </div>
+            </section>
+
+            <!-- ═══ VIEW: COMMERCIALE ═══ -->
+            <section class="view-section" id="view-commerciale">
+                <div class="page-header">
+                    <h1 class="page-title"><i class="ph ph-handshake"></i> Commerciale</h1>
+                    <div class="page-actions">
+                        <select class="form-control" id="commerciale-year" style="width: auto;" aria-label="Anno"></select>
+                    </div>
+                </div>
+                <div class="comm-tabs" id="commerciale-tabs" role="tablist">
+                    <button class="comm-tab active" data-tab="scadenzario" type="button"><i class="ph ph-bell-ringing"></i> Scadenzario <span class="comm-count hidden" id="comm-scad-count"></span></button>
+                    <button class="comm-tab" data-tab="offerte" type="button"><i class="ph ph-file-text"></i> Offerte</button>
+                    <button class="comm-tab" data-tab="partner" type="button"><i class="ph ph-users-three"></i> Partner</button>
+                    <button class="comm-tab" data-tab="margini" type="button"><i class="ph ph-chart-pie-slice"></i> Margini</button>
+                </div>
+                <div class="comm-pane active" id="comm-scadenzario"></div>
+                <div class="comm-pane" id="comm-offerte"></div>
+                <div class="comm-pane" id="comm-partner"></div>
+                <div class="comm-pane" id="comm-margini"></div>
             </section>
 
             <!-- ═══ VIEW: CONTABILITÀ ═══ -->
@@ -506,14 +531,18 @@
     <!-- Core Scripts -->
     <script src="js/core/store.js?v=1778402325" defer></script>
     <script src="js/core/auth.js?v=1778402325" defer></script>
-    <script src="js/core/ui.js?v=1778402325" defer></script>
+    <script src="js/core/ui.js?v=1790500000" defer></script>
     <script src="js/modules/clienti.js?v=1778402325" defer></script>
     <script src="js/modules/trasferte.js?v=1778402325" defer></script>
     <script src="js/modules/mezzi.js?v=1778402325" defer></script>
-    <script src="js/modules/incarichi.js?v=1778402325" defer></script>
+    <script src="js/modules/incarichi.js?v=1790500000" defer></script>
     <script src="js/modules/contabilita.js?v=1778402325" defer></script>
     <script src="js/modules/admin.js?v=1778402325" defer></script>
-    <script src="js/app.js?v=1778402325" defer></script>
+    <script src="js/modules/commerciale.js?v=1790500000" defer></script>
+    <script src="js/modules/offerte.js?v=1790500000" defer></script>
+    <script src="js/modules/partner.js?v=1790500000" defer></script>
+    <script src="js/modules/commessa.js?v=1790500000" defer></script>
+    <script src="js/app.js?v=1790500000" defer></script>
 
 </body>
 </html>

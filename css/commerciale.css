@@ -1,0 +1,206 @@
+/* ═══════════════════════════════════════════════════
+   COMMERCIALE — offerte, scheda commessa, scadenzario, partner
+   (file separato: style.css è già oltre le 600 righe)
+   ═══════════════════════════════════════════════════ */
+
+.modal.modal-wide { max-width: 1040px; }
+
+/* Tab della vista Commerciale */
+.comm-tabs {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.comm-tabs::-webkit-scrollbar { display: none; }
+.comm-tab {
+  padding: 12px 0;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.comm-tab.active { color: var(--accent-primary); border-bottom-color: var(--accent-primary); }
+.comm-tab .comm-count {
+  background: var(--accent-red);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  padding: 1px 7px;
+}
+.comm-pane { display: none; }
+.comm-pane.active { display: block; }
+
+.comm-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.comm-toolbar .spacer { flex: 1; }
+
+/* Blocchi dello scadenzario */
+.scad-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 16px;
+}
+.scad-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+}
+.scad-card h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.scad-card h3 .badge { margin-left: auto; }
+.scad-item {
+  padding: 10px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.scad-item:first-of-type { border-top: none; }
+.scad-item .scad-main { flex: 1; min-width: 0; }
+.scad-item .scad-title { color: var(--text-primary); font-weight: 500; font-size: 0.88rem; }
+.scad-item .scad-sub { color: var(--text-muted); font-size: 0.78rem; margin-top: 2px; overflow-wrap: anywhere; }
+.scad-item .scad-amount { color: var(--text-primary); font-weight: 600; white-space: nowrap; font-size: 0.88rem; }
+.scad-item .scad-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.scad-empty { color: var(--text-muted); font-size: 0.82rem; padding: 6px 0; }
+.text-danger { color: #FCA5A5; }
+.text-ok { color: #6EE7B7; }
+
+/* Editor di righe (offerta, piano rate) */
+.rows-editor { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.rows-editor th {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  text-align: left;
+  padding: 4px 6px;
+  font-weight: 600;
+}
+.rows-editor td { padding: 3px 4px; vertical-align: middle; }
+.rows-editor .form-control { padding: 7px 9px; font-size: 0.82rem; }
+.rows-editor .num { width: 90px; text-align: right; }
+.rows-editor .num-s { width: 70px; text-align: right; }
+.rows-total {
+  display: flex;
+  justify-content: flex-end;
+  gap: 18px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+.rows-total b { color: var(--text-primary); }
+.rows-total b.text-ok { color: #6EE7B7; }
+.rows-total b.text-danger { color: #FCA5A5; }
+.comm-pane .td-mono { white-space: nowrap; }
+.section-title {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin: 22px 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title .btn { margin-left: auto; }
+.preset-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.chip-btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  border-radius: 14px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  font-family: var(--font-body);
+}
+.chip-btn:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
+
+/* Riquadri margine */
+.margin-boxes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 8px 0 4px;
+}
+.margin-box {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+.margin-box .mb-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.margin-box .mb-value { font-size: 1.25rem; font-weight: 700; margin-top: 4px; color: var(--text-primary); }
+.margin-box .mb-sub { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 16px;
+  font-size: 0.85rem;
+}
+.info-grid .k { color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.info-grid .v { color: var(--text-primary); }
+
+.notice {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #FCD34D;
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  margin-bottom: 14px;
+  white-space: pre-line;
+}
+
+.inline-form {
+  display: grid;
+  grid-template-columns: 1.3fr 1.6fr 0.8fr 1fr 1fr auto;
+  gap: 6px;
+  align-items: end;
+  margin-top: 8px;
+}
+.inline-form .form-control { padding: 7px 9px; font-size: 0.82rem; }
+.inline-form label { font-size: 0.7rem; color: var(--text-muted); display: block; margin-bottom: 2px; }
+
+@media (max-width: 768px) {
+  .scad-grid { grid-template-columns: 1fr; }
+  .inline-form { grid-template-columns: 1fr 1fr; }
+  .comm-tabs { gap: 16px; }
+  .rows-editor .num { width: 70px; }
+}
+
+@media (max-width: 480px) {
+  #view-commerciale .kpi-grid { grid-template-columns: 1fr; }
+  #view-commerciale .kpi-value { font-size: 1.4rem; }
+  #view-commerciale .page-title { font-size: 1.35rem; }
+  .scad-item { flex-wrap: wrap; }
+  .modal.modal-wide { width: 96%; }
+}

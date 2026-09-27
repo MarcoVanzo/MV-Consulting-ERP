@@ -42,3 +42,16 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
 
 ## Note
 - Cartelle `tmp_*` (`tmp_pdf_parse`, `tmp_root_redirect`, `tmp_venv`) sono di lavoro: non versionare artefatti.
+
+## Modulo commerciale (offerte → incarico → rate → fatture, partner, margini)
+- Logica condivisa in `api/Shared/CommessaService.php` (margine, rate, abbinamento fattura↔rata) e
+  `api/Shared/Scadenzario.php`: il margine si calcola solo lì.
+- Le fatture si emettono in **Sistemi** (nessuna integrazione): l'ERP prepara il testo con il riferimento
+  `Rif. OFF-AAAA-NNN`, e l'import XML lo usa per riagganciare la fattura alla commessa e alla rata.
+- Lettura AI (lettere d'incarico Unindustria, preventivi Cowork): `api/Shared/DocumentAi.php` via
+  `ClaudeClient.php` (HTTP diretto, niente composer). Senza `ANTHROPIC_API_KEY` si ripiega sul parser a regole.
+- Documenti allegati in `storage/documenti/` con nome casuale, scaricabili solo dall'API autenticata.
+- Promemoria email: `.github/workflows/promemoria.yml` → router `module=cron&action=promemoria` con
+  `X-Cron-Token` (`PROMEMORIA_CRON_TOKEN` nel `.env` del server e nei secret del repo).
+- Tabelle: migrazioni v047–v056 in `api/migrate.php`.
+
