@@ -582,6 +582,16 @@ class ContabilitaController {
                     }
                 }
 
+                // 3a-bis. Riferimento all'offerta ("Rif. OFF-2026-004"), suggerito dall'ERP nel testo della fattura
+                if (!$incaricoId) {
+                    require_once __DIR__ . '/../Shared/CommessaService.php';
+                    $incaricoId = (new CommessaService($this->pdo, $this->prefix))
+                        ->trovaIncaricoPerRiferimento(implode("\n", $data['descrizioni']), $clienteId ? (int)$clienteId : null);
+                    if ($incaricoId) {
+                        $errors[] = "Fattura n. $numeroFattura collegata all'incarico #$incaricoId dal riferimento all'offerta.";
+                    }
+                }
+
                 // 3b. Verifica esistenza di questa riga (Fattura + Cliente + EventualSottocliente)
                 $chkSql = "SELECT id FROM {$this->prefix}fatture WHERE numero_fattura = ? AND YEAR(data_emissione) = YEAR(?)";
                 $chkParams = [$numeroFattura, $dataEmissione];
@@ -842,7 +852,12 @@ class ContabilitaController {
         $stmt = $this->pdo->prepare("SELECT incarico_id FROM {$this->prefix}fatture WHERE id = ?");
         $stmt->execute([$fatturaId]);
         $incaricoId = $stmt->fetchColumn();
+        // Se la fattura ha cambiato incarico, la rata della commessa precedente torna libera
+        $this->pdo->prepare("UPDATE {$this->prefix}incarichi_rate SET fattura_id = NULL WHERE fattura_id = ? AND incarico_id <> ?")
+            ->execute([$fatturaId, (int)$incaricoId]);
         if ($incaricoId) {
+            require_once __DIR__ . '/../Shared/CommessaService.php';
+            (new CommessaService($this->pdo, $this->prefix))->collegaFatturaARata((int)$fatturaId);
             require_once __DIR__ . '/IncarchiController.php';
             $incCtrl = new IncarchiController();
             $incCtrl->recalculate($incaricoId);

@@ -12,6 +12,10 @@ require_once __DIR__ . '/../Controllers/ContabilitaController.php';
 require_once __DIR__ . '/../Controllers/IncarchiController.php';
 require_once __DIR__ . '/../Controllers/AdminController.php';
 require_once __DIR__ . '/../Controllers/GoogleAuthController.php';
+require_once __DIR__ . '/../Controllers/OfferteController.php';
+require_once __DIR__ . '/../Controllers/FornitoriController.php';
+require_once __DIR__ . '/../Controllers/FatturePassiveController.php';
+require_once __DIR__ . '/../Controllers/CommesseController.php';
 
 class ApiRouter {
     // Rate limit per IP condiviso da login e reset_password: max 10 tentativi in 15 minuti
@@ -32,8 +36,12 @@ class ApiRouter {
         'sottoclienti' => ['list'],
         'trasferte'    => ['list', 'rendiconto'],
         'mezzi'        => ['getAllVehicles', 'getVehicleById'],
-        'incarichi'    => ['list', 'overview', 'get_by_cliente'],
+        'incarichi'    => ['list', 'overview', 'get_by_cliente', 'documento'],
         'contabilita'  => ['list', 'overview'],
+        'offerte'      => ['list', 'get', 'prossimo_numero', 'documento'],
+        'fornitori'    => ['list', 'costi_fornitore', 'documento_costo'],
+        'passive'      => ['list'],
+        'commesse'     => ['get', 'margini', 'scadenzario', 'fatture_libere'],
         'admin'        => ['listUsers', 'listBackups', 'downloadBackup', 'listLogs'],
     ];
 
@@ -80,6 +88,18 @@ class ApiRouter {
                 break;
             case 'contabilita':
                 self::handleContabilita($action, $data);
+                break;
+            case 'offerte':
+                self::handleOfferte($action, $data);
+                break;
+            case 'fornitori':
+                self::handleFornitori($action, $data);
+                break;
+            case 'passive':
+                self::handlePassive($action, $data);
+                break;
+            case 'commesse':
+                self::handleCommesse($action, $data);
                 break;
             case 'admin':
                 self::handleAdmin($action, $data, $isDeployKeyAuth);
@@ -267,6 +287,7 @@ class ApiRouter {
             case 'import_pdf':      $ctrl->importPdf($data); break;
             case 'get_by_cliente':  $ctrl->getByCliente(); break;
             case 'recalculate_all': $ctrl->recalculateAll(); break;
+            case 'documento':       $ctrl->documento($data['id'] ?? $_GET['id'] ?? 0); break;
             default:                Response::json(false, "Azione incarichi non supportata: $action");
         }
     }
@@ -282,6 +303,63 @@ class ApiRouter {
             case 'import_xml':         $ctrl->importXmlData($data); break;
             case 'import_payment_pdf': $ctrl->importPaymentPdf($data); break;
             default:                   Response::json(false, "Azione contabilità non supportata: $action");
+        }
+    }
+
+    private static function handleOfferte(string $action, array $data): void {
+        $ctrl = new OfferteController();
+        switch ($action) {
+            case 'list':            $ctrl->list(); break;
+            case 'get':             $ctrl->get($data['id'] ?? $_GET['id'] ?? 0); break;
+            case 'prossimo_numero': $ctrl->prossimoNumero(); break;
+            case 'save':            $ctrl->save($data); break;
+            case 'delete':          $ctrl->delete($data['id'] ?? 0); break;
+            case 'set_stato':       $ctrl->setStato($data); break;
+            case 'accetta':         $ctrl->accetta($data); break;
+            case 'nuova_versione':  $ctrl->nuovaVersione($data); break;
+            case 'importa':         $ctrl->importa(); break;
+            case 'documento':       $ctrl->documento($data['id'] ?? $_GET['id'] ?? 0); break;
+            default:                Response::json(false, "Azione offerte non supportata: $action");
+        }
+    }
+
+    private static function handleFornitori(string $action, array $data): void {
+        $ctrl = new FornitoriController();
+        switch ($action) {
+            case 'list':            $ctrl->list(); break;
+            case 'save':            $ctrl->save($data); break;
+            case 'delete':          $ctrl->delete($data['id'] ?? 0); break;
+            case 'save_costo':      $ctrl->saveCosto($data); break;
+            case 'delete_costo':    $ctrl->deleteCosto($data['id'] ?? 0); break;
+            case 'costi_fornitore': $ctrl->costiFornitore(); break;
+            case 'documento_costo': $ctrl->documentoCosto($data['id'] ?? $_GET['id'] ?? 0); break;
+            default:                Response::json(false, "Azione fornitori non supportata: $action");
+        }
+    }
+
+    private static function handlePassive(string $action, array $data): void {
+        $ctrl = new FatturePassiveController();
+        switch ($action) {
+            case 'list':        $ctrl->list(); break;
+            case 'save':        $ctrl->save($data); break;
+            case 'delete':      $ctrl->delete($data['id'] ?? 0); break;
+            case 'set_pagata':  $ctrl->setPagata($data); break;
+            case 'import_xml':  $ctrl->importXml($data); break;
+            default:            Response::json(false, "Azione fatture fornitori non supportata: $action");
+        }
+    }
+
+    private static function handleCommesse(string $action, array $data): void {
+        $ctrl = new CommesseController();
+        switch ($action) {
+            case 'get':             $ctrl->get($data['id'] ?? $_GET['id'] ?? 0); break;
+            case 'save_rate':       $ctrl->saveRate($data); break;
+            case 'collega_fattura': $ctrl->collegaFattura($data); break;
+            case 'fatture_libere':  $ctrl->fattureLibere(); break;
+            case 'margini':         $ctrl->margini(); break;
+            case 'segna_incassata': $ctrl->segnaIncassata($data); break;
+            case 'scadenzario':     $ctrl->scadenzario(); break;
+            default:                Response::json(false, "Azione commesse non supportata: $action");
         }
     }
 

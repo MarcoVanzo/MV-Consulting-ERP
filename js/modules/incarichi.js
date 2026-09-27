@@ -71,6 +71,7 @@ const ModIncarichi = (() => {
                 </td>
                 <td>${statoBadge(i.stato)}</td>
                 <td><div class="flex gap-2">
+                    <button class="btn btn-sm btn-primary" onclick="ModCommessa.open(${i.id}, ModIncarichi.load)" title="Scheda commessa: rate, partner, margine" aria-label="Scheda commessa"><i class="ph ph-folder-open"></i></button>
                     <button class="btn btn-sm btn-ghost" onclick="ModIncarichi.edit(${i.id})"><i class="ph ph-pencil-simple"></i></button>
                     <button class="btn btn-sm btn-danger" onclick="ModIncarichi.remove(${i.id})"><i class="ph ph-trash"></i></button>
                 </div></td>
@@ -91,8 +92,14 @@ const ModIncarichi = (() => {
             <div class="form-group"><label>N. Protocollo</label><input type="text" class="form-control" id="f-inc-protocollo" value="${UI.esc(d.numero_protocollo||'')}" placeholder="es. SZ.DPS.F142.26"></div>
             <div class="form-group"><label>N. Giornate</label><input type="number" class="form-control" id="f-inc-gg" value="${UI.esc(d.num_giornate||0)}" step="0.5"></div>
             <div class="form-group"><label>Importo Totale (€) *</label><input type="number" class="form-control" id="f-inc-importo" value="${UI.esc(d.importo_totale||0)}" step="0.01"></div>
+            <div class="form-group full-width"><label>Descrizione</label><input class="form-control" id="f-inc-desc" value="${UI.esc(d.descrizione||'')}"></div>
+            <div class="form-group"><label>Pagamento (gg data fattura)</label><input type="number" class="form-control" id="f-inc-giorni" value="${UI.esc(d.giorni_pagamento ?? 30)}"></div>
+            ${d.id ? '' : `<div class="form-group"><label>Da fatturare il</label><input type="date" class="form-control" id="f-inc-fatt" value="${UI.esc(d.data_fatturazione||'')}" title="Data della rata di saldo: lo scadenzario te la ricorda"></div>`}
+            <div class="form-group full-width"><label>Condizioni di pagamento</label><input class="form-control" id="f-inc-cond" value="${UI.esc(d.condizioni_pagamento||'')}"></div>
             <div class="form-group full-width"><label>Note</label><textarea class="form-control" id="f-inc-note">${UI.esc(d.note||'')}</textarea></div>
-        </div><input type="hidden" id="f-inc-id" value="${UI.esc(d.id||'')}">`;
+        </div><input type="hidden" id="f-inc-id" value="${UI.esc(d.id||'')}">
+        <input type="hidden" id="f-inc-pdf" value="${UI.esc(d.pdf_ref||'')}">
+        <input type="hidden" id="f-inc-sotto-nuovo" value="${UI.esc(d.sottocliente_nuovo||'')}">`;
     }
 
     function openNew() {
@@ -107,7 +114,12 @@ const ModIncarichi = (() => {
     }
     function initClienteWatch() {
         const sel = document.getElementById('f-inc-cliente');
-        if (sel) sel.addEventListener('change', () => loadSotto(sel.value));
+        if (sel) sel.addEventListener('change', () => {
+            // Il sottocliente letto dal PDF appartiene al cliente riconosciuto, non a quello scelto a mano
+            const nuovo = document.getElementById('f-inc-sotto-nuovo');
+            if (nuovo) nuovo.value = '';
+            loadSotto(sel.value);
+        });
     }
     async function loadSotto(cid, selId) {
         const sel = document.getElementById('f-inc-sotto');
@@ -117,12 +129,29 @@ const ModIncarichi = (() => {
             const subs = await Store.api('list','sottoclienti',{cliente_id:cid});
             if (subs?.length) subs.forEach(s => { const o=document.createElement('option'); o.value=s.id; o.textContent=s.nome; if(s.id==selId)o.selected=true; sel.appendChild(o); });
         } catch(e){}
+        // Sottocliente letto dal PDF ma non in anagrafica: si crea al salvataggio se resta selezionato
+        const nuovo = document.getElementById('f-inc-sotto-nuovo')?.value;
+        if (nuovo && !selId) {
+            const o = document.createElement('option');
+            o.value = '__nuovo__';
+            o.textContent = '+ Nuovo: ' + nuovo;
+            o.selected = true;
+            sel.appendChild(o);
+        }
     }
     async function saveForm() {
+        const sottoSel = document.getElementById('f-inc-sotto').value;
+        const fattEl = document.getElementById('f-inc-fatt');
         const p = {
             id: document.getElementById('f-inc-id').value||undefined,
             cliente_id: document.getElementById('f-inc-cliente').value,
-            sottocliente_id: document.getElementById('f-inc-sotto').value,
+            sottocliente_id: sottoSel === '__nuovo__' ? '' : sottoSel,
+            sottocliente_nuovo: sottoSel === '__nuovo__' ? document.getElementById('f-inc-sotto-nuovo').value : '',
+            descrizione: document.getElementById('f-inc-desc').value,
+            giorni_pagamento: document.getElementById('f-inc-giorni').value,
+            condizioni_pagamento: document.getElementById('f-inc-cond').value,
+            data_fatturazione: fattEl ? fattEl.value : '',
+            pdf_path: document.getElementById('f-inc-pdf').value,
             data_incarico: document.getElementById('f-inc-data').value,
             tipo_commessa: document.getElementById('f-inc-tipo').value,
             numero_protocollo: document.getElementById('f-inc-protocollo').value,
@@ -158,25 +187,30 @@ const ModIncarichi = (() => {
         if (!file||file.type!=='application/pdf') { UI.toast('Seleziona un PDF valido','error'); return; }
         const btn = document.getElementById('btn-import-pdf-incarico');
         const prev = btn.innerHTML;
-        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Analisi...'; btn.disabled = true;
+        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Lettura…'; btn.disabled = true;
         try {
+            // Testo con pdf.js per il metodo a regole di riserva; il PDF intero va all'AI
             const ab = await file.arrayBuffer();
-            const pdf = await pdfjsLib.getDocument({data:ab}).promise;
+            const pdf = await pdfjsLib.getDocument({data:ab.slice(0)}).promise;
             const pages = [];
             for (let i=1;i<=pdf.numPages;i++) { const pg=await pdf.getPage(i); const tc=await pg.getTextContent(); pages.push(tc.items.map(x=>x.str).join(' ')); }
-            // pages[] come array: FormData con CSRF tramite Store.upload
-            const res = await Store.upload('import_pdf', 'incarichi', Store.formDataFromArray('pages', pages));
+            const fd = Store.formDataFromArray('pages', pages);
+            fd.append('file', file);
+            const res = await Store.upload('import_pdf', 'incarichi', fd);
             if (res) {
-                UI.openModal('Nuovo Incarico (da PDF)', getFormHtml({
+                const avvisi = res.avvisi || [];
+                const intro = `<div class="notice">${res.metodo === 'ai' ? 'Dati letti dall\'AI dal PDF.' : 'Dati letti con il metodo a regole.'} Verificali prima di salvare.${avvisi.length ? '\n• ' + avvisi.map(UI.esc).join('\n• ') : ''}</div>`;
+                UI.openModal('Nuovo Incarico (da PDF)', intro + getFormHtml({
                     cliente_id: res.cliente_id, sottocliente_id: res.sottocliente_id,
                     data_incarico: res.data_incarico, importo_totale: res.importo_totale,
                     num_giornate: res.num_giornate, tipo_commessa: res.tipo_commessa,
-                    numero_protocollo: res.numero_protocollo
+                    numero_protocollo: res.numero_protocollo, descrizione: res.descrizione,
+                    condizioni_pagamento: res.condizioni_pagamento, giorni_pagamento: res.giorni_pagamento ?? 30,
+                    pdf_ref: res.pdf_path, sottocliente_nuovo: res.sottocliente_nuovo
                 }), saveForm);
                 setTimeout(() => { initClienteWatch(); if(res.cliente_id) loadSotto(res.cliente_id, res.sottocliente_id); }, 100);
-                UI.toast('Dati estratti dal PDF — verifica e salva');
             }
-        } catch(e) { UI.toast('Errore parsing PDF: '+e.message,'error'); }
+        } catch(e) { UI.toast('Errore lettura PDF: '+e.message,'error'); }
         finally { btn.innerHTML = prev; btn.disabled = false; }
     }
 
