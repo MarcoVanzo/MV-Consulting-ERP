@@ -10,14 +10,13 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>MV Consulting ERP</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Syne:wght@600;700&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/@phosphor-icons/web" defer></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
-    <link rel="stylesheet" href="css/style.css?v=1790530432">
-    <link rel="stylesheet" href="css/commerciale.css?v=1790530432">
+    <!-- Librerie servite in locale: la CSP del dominio ammette solo 'self' -->
+    <link rel="stylesheet" href="assets/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="assets/vendor/phosphor/style.css">
+    <script src="assets/vendor/pdfjs/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/vendor/pdfjs/pdf.worker.min.js';</script>
+    <link rel="stylesheet" href="css/style.css?v=1790531011">
+    <link rel="stylesheet" href="css/commerciale.css?v=1790531011">
 
     <style>
         /* ── Auth Screen (inline for instant render) ── */
@@ -529,20 +528,20 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- Core Scripts -->
-    <script src="js/core/store.js?v=1790530432" defer></script>
-    <script src="js/core/auth.js?v=1790530432" defer></script>
-    <script src="js/core/ui.js?v=1790530432" defer></script>
-    <script src="js/modules/clienti.js?v=1790530432" defer></script>
-    <script src="js/modules/trasferte.js?v=1790530432" defer></script>
-    <script src="js/modules/mezzi.js?v=1790530432" defer></script>
-    <script src="js/modules/incarichi.js?v=1790530432" defer></script>
-    <script src="js/modules/contabilita.js?v=1790530432" defer></script>
-    <script src="js/modules/admin.js?v=1790530432" defer></script>
-    <script src="js/modules/commerciale.js?v=1790530432" defer></script>
-    <script src="js/modules/offerte.js?v=1790530432" defer></script>
-    <script src="js/modules/partner.js?v=1790530432" defer></script>
-    <script src="js/modules/commessa.js?v=1790530432" defer></script>
-    <script src="js/app.js?v=1790530432" defer></script>
+    <script src="js/core/store.js?v=1790531011" defer></script>
+    <script src="js/core/auth.js?v=1790531011" defer></script>
+    <script src="js/core/ui.js?v=1790531011" defer></script>
+    <script src="js/modules/clienti.js?v=1790531011" defer></script>
+    <script src="js/modules/trasferte.js?v=1790531011" defer></script>
+    <script src="js/modules/mezzi.js?v=1790531011" defer></script>
+    <script src="js/modules/incarichi.js?v=1790531011" defer></script>
+    <script src="js/modules/contabilita.js?v=1790531011" defer></script>
+    <script src="js/modules/admin.js?v=1790531011" defer></script>
+    <script src="js/modules/commerciale.js?v=1790531011" defer></script>
+    <script src="js/modules/offerte.js?v=1790531011" defer></script>
+    <script src="js/modules/partner.js?v=1790531011" defer></script>
+    <script src="js/modules/commessa.js?v=1790531011" defer></script>
+    <script src="js/app.js?v=1790531011" defer></script>
 
 </body>
 </html>
