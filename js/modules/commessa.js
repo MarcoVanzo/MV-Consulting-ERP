@@ -46,7 +46,7 @@ const ModCommessa = (() => {
         body.innerHTML = `
             <div class="info-grid">
                 <div><div class="k">Cliente</div><div class="v">${UI.esc(i.cliente_nome || '—')}${i.sottocliente_nome ? ' / ' + UI.esc(i.sottocliente_nome) : ''}</div></div>
-                <div><div class="k">Oggetto</div><div class="v">${UI.esc(i.offerta_oggetto || i.descrizione || i.tipo_commessa)}</div></div>
+                <div><div class="k">Oggetto</div><div class="v">${UI.esc(i.offerta_oggetto || i.descrizione || UI.tipoCommessa(i.tipo_commessa))}</div></div>
                 <div><div class="k">Offerta</div><div class="v">${i.offerta_numero ? UI.esc(i.offerta_numero) + (i.offerta_versione > 1 ? ' v' + UI.esc(i.offerta_versione) : '') : '—'}</div></div>
                 <div><div class="k">Protocollo cliente</div><div class="v">${UI.esc(i.numero_protocollo || '—')}</div></div>
                 <div><div class="k">Data incarico</div><div class="v">${UI.formatDate(i.data_incarico)}</div></div>
@@ -180,7 +180,7 @@ const ModCommessa = (() => {
                     <th class="text-right">Margine prev.</th><th class="text-right">Fatturato</th><th class="text-right">Costi ricevuti</th><th class="text-right">Margine oggi</th></tr></thead><tbody>
                 ${rows.length ? rows.map(r => `<tr style="cursor:pointer" data-open="${r.id}">
                     <td class="td-primary">${UI.esc(r.cliente_nome || '—')}${r.sottocliente_nome ? ` <span style="color:var(--text-muted)">/ ${UI.esc(r.sottocliente_nome)}</span>` : ''}</td>
-                    <td>${UI.esc(r.descrizione || r.tipo_commessa)}</td>
+                    <td>${UI.esc(r.descrizione || UI.tipoCommessa(r.tipo_commessa))}</td>
                     <td>${UI.formatDate(r.data_incarico)}</td>
                     <td class="text-right">${UI.formatCurrency(r.ricavo_previsto)}</td>
                     <td class="text-right">${UI.formatCurrency(r.costi_previsti)}</td>

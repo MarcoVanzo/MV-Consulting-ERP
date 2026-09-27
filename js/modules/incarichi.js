@@ -30,8 +30,8 @@ const ModIncarichi = (() => {
         if (!data.length) { tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="ph ph-clipboard-text"></i><h3>Nessun incarico</h3></div></td></tr>'; return; }
 
         const tipoBadge = t => {
-            const colors = {assistenza:'#6366f1',dpo:'#f59e0b',formazione:'#10b981'};
-            return `<span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;background:${colors[t]||'#666'}22;color:${colors[t]||'#666'}">${UI.esc(String(t||'').toUpperCase())}</span>`;
+            const colors = {assistenza:'#6366f1',dpo:'#f59e0b',formazione:'#10b981',nis2:'#ef4444',ict:'#0ea5e9',digital:'#ec4899',sviluppo_software:'#8b5cf6'};
+            return `<span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;background:${colors[t]||'#666'}22;color:${colors[t]||'#666'}">${UI.esc(UI.tipoCommessa(t))}</span>`;
         };
         const statoBadge = s => {
             const c = {attivo:'#3b82f6',parziale:'#f59e0b',fatturato:'#8b5cf6',pagato:'#10b981'};
@@ -82,8 +82,7 @@ const ModIncarichi = (() => {
     function getFormHtml(d={}) {
         const clienti = ModClienti.getClienti();
         const cOpts = clienti.map(c => `<option value="${UI.esc(c.id)}" ${c.id==d.cliente_id?'selected':''}>${UI.esc(c.ragione_sociale)}</option>`).join('');
-        const tipi = ['assistenza','dpo','formazione'];
-        const tOpts = tipi.map(t => `<option value="${t}" ${t===(d.tipo_commessa||'assistenza')?'selected':''}>${t.charAt(0).toUpperCase()+t.slice(1)}</option>`).join('');
+        const tOpts = UI.tipiCommessaOptions(d.tipo_commessa);
         return `<div class="form-grid">
             <div class="form-group"><label>Cliente *</label><select class="form-control" id="f-inc-cliente"><option value="">— Seleziona —</option>${cOpts}</select></div>
             <div class="form-group"><label>Sottocliente</label><select class="form-control" id="f-inc-sotto"><option value="">— Nessuno —</option></select></div>
