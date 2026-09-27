@@ -673,6 +673,84 @@ class ContabilitaController {
     }
 
     /**
+     * Import della "Lista Fatture" di Sistemi (.xlsx, campo file): crea le fatture che mancano.
+     * Quelle già presenti (stesso numero, anno e verso) non si toccano: se il totale è diverso lo segnala.
+     * Il cliente si riconosce per nome; se non c'è in anagrafica la fattura entra senza cliente
+     * (crearlo solo dal nome lo duplicherebbe al primo import XML, che cerca per P.IVA).
+     */
+    public function importListaFatture() {
+        require_once __DIR__ . '/../Shared/ListaFattureParser.php';
+        require_once __DIR__ . '/../Shared/AnagraficaMatcher.php';
+        $f = $_FILES['file'] ?? null;
+        if (!$f || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) Response::json(false, 'Caricamento del file non riuscito');
+        if (strtolower(pathinfo((string)$f['name'], PATHINFO_EXTENSION)) !== 'xlsx') {
+            Response::json(false, 'Serve il file Excel .xlsx (il vecchio .xls va risalvato come .xlsx)');
+        }
+        try {
+            $letto = ListaFattureParser::fatture(ListaFattureParser::leggiXlsx($f['tmp_name']));
+        } catch (RuntimeException $e) {
+            Response::json(false, $e->getMessage());
+        }
+        if (!$letto['fatture']) Response::json(false, 'Nessuna fattura nel file', ['errors' => $letto['avvisi']]);
+
+        $conTipoDoc = $this->colonnaTipoDocumento();
+        $clienti = $this->pdo->query("SELECT id, partita_iva, codice_fiscale, ragione_sociale FROM {$this->prefix}clienti")->fetchAll(PDO::FETCH_ASSOC);
+        $perNome = [];
+        $out = ['num_imported' => 0, 'num_existing' => 0, 'num_different' => 0, 'num_without_client' => 0, 'errors' => $letto['avvisi']];
+        $senzaCliente = [];
+
+        $this->pdo->beginTransaction();
+        try {
+            // Stesso numero ma verso diverso (fattura / nota di credito): documenti diversi, come nell'import XML
+            $chk = fn(string $op) => $this->pdo->prepare("SELECT COUNT(*), COALESCE(SUM(importo_totale), 0) FROM {$this->prefix}fatture
+                WHERE numero_fattura = ? AND YEAR(data_emissione) = YEAR(?) AND importo_totale $op 0");
+            $chkNota = $chk('<');
+            $chkFattura = $chk('>=');
+            $ins = $this->pdo->prepare("INSERT INTO {$this->prefix}fatture
+                (numero_fattura, data_emissione, cliente_id, imponibile, iva_percentuale, importo_iva, importo_totale, stato, descrizione"
+                . ($conTipoDoc ? ', tipo_documento' : '') . ")
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'emessa', ?" . ($conTipoDoc ? ', ?' : '') . ")");
+            foreach ($letto['fatture'] as $d) {
+                $stmt = $d['nota_credito'] ? $chkNota : $chkFattura;
+                $stmt->execute([$d['numero'], $d['data']]);
+                [$n, $somma] = $stmt->fetch(PDO::FETCH_NUM);
+                if ((int)$n > 0) {
+                    $out['num_existing']++;
+                    if (abs((float)$somma - $d['totale']) > 0.01) {
+                        $out['num_different']++;
+                        $out['errors'][] = "Fattura {$d['numero']}: nell'ERP il totale è " . number_format((float)$somma, 2, ',', '.')
+                            . ', in Sistemi ' . number_format($d['totale'], 2, ',', '.') . '.';
+                    }
+                    continue;
+                }
+                $clienteId = $d['cliente'] === '' ? null
+                    : ($perNome[$d['cliente']] ??= AnagraficaMatcher::trovaTra($clienti, null, null, $d['cliente']));
+                if (!$clienteId) {
+                    $out['num_without_client']++;
+                    if ($d['cliente'] !== '') $senzaCliente[$d['cliente']] = true;
+                }
+                $ivaPerc = abs($d['imponibile']) > 0.004 ? round($d['iva'] / $d['imponibile'] * 100, 2) : 0.0;
+                $descr = ($d['nota_credito'] ? "[Nota di credito]\n" : '') . 'Importata dalla lista fatture di Sistemi'
+                    . ($d['registro'] !== '' ? " (registro {$d['registro']})" : '');
+                $valori = [$d['numero'], $d['data'], $clienteId, $d['imponibile'], $ivaPerc, $d['iva'], $d['totale'], $descr];
+                if ($conTipoDoc) $valori[] = $d['nota_credito'] ? 'TD04' : 'TD01';
+                $ins->execute($valori);
+                $out['num_imported']++;
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            error_log('[Contabilita::importListaFatture] ' . $e->getMessage());
+            Response::json(false, 'Import annullato: ' . $e->getMessage());
+        }
+        foreach (array_keys($senzaCliente) as $nome) {
+            $out['errors'][] = "Cliente \"$nome\" non trovato in anagrafica: fatture importate senza cliente, da completare.";
+        }
+        Audit::log('IMPORT', 'fatture', null, null, null, ['file' => (string)$f['name'], 'nuove' => $out['num_imported'], 'gia_presenti' => $out['num_existing']]);
+        Response::json(true, 'Lista fatture importata', $out);
+    }
+
+    /**
      * Import PDF di conferma pagamento (es. "Pagamento Fornitore")
      * Parsing specifico per bonifici ricevuti da clienti (es. Unindustria)
      * Aggiorna le fatture esistenti come "pagata"

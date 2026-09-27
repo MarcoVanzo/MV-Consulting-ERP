@@ -172,6 +172,76 @@ class EstrattoContoParser
         return null;
     }
 
+    /**
+     * Estratto conto della carta di credito (CartaBCC / Numia: "DATA ACQUISTO  DATA REGISTR.  DESCRIZIONE  IMPORTO IN EURO").
+     * Ogni riga comincia con due date; gli acquisti in valuta vanno a capo ("COGNITO-TEAM" / "39,00 USD" / "34,07"),
+     * così la riga si chiude al primo importo in euro. Importi positivi = spese (addebiti), negativi = rimborsi.
+     * Il "TOTALE OPERAZIONI" serve da controllo: se non torna, lo dice negli avvisi.
+     * @param string[] $pages testo di ogni pagina, righe separate da \n
+     * @return array{banca:string, iban:string, metodo:string, movimenti:array, avvisi:string[]}
+     */
+    public static function parseEstrattoCarta(array $pages): array
+    {
+        $testo = implode("\n", array_map('strval', $pages));
+        $avvisi = [];
+        $carta = preg_match('/CARTA\s+NUMERO\s*:?\s*(\d{4})[\s*X]+(\d{4})\b/i', $testo, $mc) ? "{$mc[1]} **** {$mc[2]}" : '';
+        $emittente = preg_match('/NUMIA|CARTABCC/i', $testo) ? 'CartaBCC' : 'Carta';
+        $banca = trim($emittente . ($carta !== '' ? ' ' . $carta : ''));
+
+        $reImp = '-?\s?\d{1,3}(?:\.\d{3})*,\d{2}';
+        $movimenti = [];
+        $aperta = null; // riga in costruzione: [data acquisto, data registrazione, testo, valuta estera, righe lette]
+        $chiudi = function (float $importo) use (&$aperta, &$movimenti) {
+            $descr = trim(preg_replace('/\s+/', ' ', $aperta[2]) ?? $aperta[2]);
+            if ($aperta[3] !== '') $descr .= ' (' . $aperta[3] . ')';
+            $movimenti[] = ['data_operazione' => $aperta[0], 'data_valuta' => $aperta[1], 'importo' => round(-$importo, 2),
+                'descrizione' => $descr, 'controparte' => mb_substr($descr, 0, 255, 'UTF-8'), 'segno_incerto' => false];
+            $aperta = null;
+        };
+        $totale = null;
+        foreach (preg_split('/\R/u', $testo) as $riga) {
+            $riga = trim(preg_replace('/\s+/u', ' ', $riga) ?? $riga);
+            if ($riga === '') continue;
+            if (preg_match('/^TOTALE\s+OPERAZIONI\s+(' . $reImp . ')$/i', $riga, $m)) {
+                $totale = self::importoIt($m[1]);
+                $aperta = null;
+                continue;
+            }
+            if (preg_match('/^(\d{2}\/\d{2}\/\d{4}) (\d{2}\/\d{2}\/\d{4})(?: (.*))?$/', $riga, $m)) {
+                if ($aperta) $avvisi[] = "Riga del {$aperta[0]} senza importo: saltata.";
+                $aperta = [self::data($m[1]), self::data($m[2]), '', '', 0];
+                if (!$aperta[0]) { $aperta = null; continue; }
+                $riga = $m[3] ?? '';
+                if ($riga === '') continue;
+            } elseif (!$aperta) {
+                continue;
+            }
+            // Importo estero ("39,00 USD"), da solo o in coda al testo
+            if (preg_match('/^(.*?)\s?(\d{1,3}(?:\.\d{3})*,\d{2}) ([A-Z]{3})$/', $riga, $m) && $m[3] !== 'EUR') {
+                $aperta[3] = $m[2] . ' ' . $m[3];
+                $aperta[2] .= ' ' . $m[1];
+            } elseif (preg_match('/^(.*?)\s?(' . $reImp . ')$/', $riga, $m) && ($imp = self::importoIt($m[2])) !== null) {
+                $aperta[2] .= ' ' . $m[1];
+                $chiudi($imp);
+                continue;
+            } else {
+                $aperta[2] .= ' ' . $riga;
+            }
+            if (++$aperta[4] > 4) { $avvisi[] = "Riga del {$aperta[0]} senza importo: saltata."; $aperta = null; }
+        }
+
+        if ($totale !== null) {
+            $somma = -array_sum(array_column($movimenti, 'importo'));
+            if (abs($somma - $totale) > 0.005) {
+                $avvisi[] = 'Il totale delle operazioni lette (' . number_format($somma, 2, ',', '.') . ') non corrisponde al totale dell\'estratto ('
+                    . number_format($totale, 2, ',', '.') . '): controlla le righe.';
+            }
+        } elseif ($movimenti) {
+            $avvisi[] = 'Totale operazioni non trovato: impossibile verificare che tutte le righe siano state lette.';
+        }
+        return ['banca' => $banca, 'iban' => '', 'metodo' => 'carta', 'movimenti' => $movimenti, 'avvisi' => $avvisi];
+    }
+
     public static function riconosciBanca(string $testo): string
     {
         $note = ['Centromarca Banca' => '/CENTROMARCA/i', 'Intesa Sanpaolo' => '/INTESA\s*SANPAOLO/i', 'UniCredit' => '/UNICREDIT/i',

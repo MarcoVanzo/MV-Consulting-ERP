@@ -603,7 +603,10 @@ $queries = [
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 
     // v069: le trasferte si leggono per intervallo di date e, nella sincronizzazione, per calendario
-    "ALTER TABLE {$prefix}trasferte ADD KEY idx_trasferte_data (data_trasferta), ADD KEY idx_trasferte_calendario (google_calendar_id, data_trasferta)"
+    "ALTER TABLE {$prefix}trasferte ADD KEY idx_trasferte_data (data_trasferta), ADD KEY idx_trasferte_calendario (google_calendar_id, data_trasferta)",
+
+    // v070: spese dell'estratto conto della carta di credito (fuori da categorie e grafici: sul conto c'è l'addebito mensile)
+    "ALTER TABLE {$prefix}movimenti_banca MODIFY origine ENUM('estratto_conto','avviso_pagamento','estratto_carta') NOT NULL DEFAULT 'estratto_conto'"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
 
