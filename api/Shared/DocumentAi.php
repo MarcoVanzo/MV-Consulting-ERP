@@ -102,6 +102,10 @@ Campi:
 - piano_rate: le rate di fatturazione previste (es. acconto 30% all'accettazione, saldo a fine lavori),
   con percentuale sul totale e, se si può dire, dopo quanti giorni dall'accettazione si fattura
   (0 = all'accettazione). Se c'è un pagamento unico, una sola rata al 100%.
+  Le percentuali devono sommare a 100 sull'intera offerta: se il documento le dà per fase o per voce
+  (es. "Fase 1: 40% all'affidamento, 40% alla consegna, 20% all'avvio"), convertile sul totale
+  (40% di una fase da 10.000 € su un'offerta da 20.000 € = 20%). In importo metti gli euro della rata
+  (IVA esclusa), se ricavabili; altrimenti null.
 - note_estrazione: dubbi o ambiguità da far verificare, altrimenti null.
 TXT;
         return self::normalizzaSoggetti(ClaudeClient::extractJson(self::SYSTEM, $instruction, $document, [
@@ -145,10 +149,11 @@ TXT;
                     'items' => [
                         'type' => 'object',
                         'additionalProperties' => false,
-                        'required' => ['descrizione', 'percentuale', 'giorni_da_accettazione'],
+                        'required' => ['descrizione', 'percentuale', 'importo', 'giorni_da_accettazione'],
                         'properties' => [
                             'descrizione' => ['type' => 'string'],
                             'percentuale' => ['type' => 'number'],
+                            'importo' => self::nullable('number'),
                             'giorni_da_accettazione' => self::nullable('integer'),
                         ],
                     ],

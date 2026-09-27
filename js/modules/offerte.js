@@ -247,6 +247,38 @@ const ModOfferte = (() => {
             b.textContent = UI.formatNumber(somma, 0) + '%';
             b.className = Math.abs(somma - 100) > 0.01 ? 'text-danger' : 'text-ok';
         }
+        const fasi = document.getElementById('of-piano-fasi');
+        if (fasi) fasi.hidden = !(Math.abs(somma - 100) > 0.01 && pianoPerFaseSulTotale());
+    }
+
+    /**
+     * Piano scritto per fase (es. "Fase 1 — 40% …" 40/40/20, "Fase 2 — …" 40/30/30): ogni fase somma a 100.
+     * Riporta le percentuali sul totale usando l'importo della riga corrispondente
+     * (per nome, oppure per ordine se fasi e righe sono tante quante). Null se non si può.
+     */
+    function pianoPerFaseSulTotale() {
+        const tot = totaleRighe();
+        if (tot <= 0) return null;
+        const fasi = [];
+        _piano.forEach((r, i) => {
+            const nome = String(r.descrizione || '').split(/\s+[—–-]\s+/)[0].trim().toLowerCase();
+            let f = fasi.find(x => x.nome === nome);
+            if (!f) fasi.push(f = { nome, idx: [], somma: 0 });
+            f.idx.push(i);
+            f.somma += num(r.percentuale);
+        });
+        if (fasi.length < 2 || fasi.some(f => Math.abs(f.somma - 100) > 0.01)) return null;
+        const righe = _righe.map(r => ({ nome: String(r.descrizione || '').toLowerCase(), imp: num(r.quantita) * num(r.prezzo_unitario) })).filter(r => r.imp > 0);
+        const perNome = fasi.map(f => righe.find(r => f.nome && (r.nome.startsWith(f.nome) || r.nome.includes(f.nome))));
+        const abbinate = perNome.every(Boolean) && new Set(perNome).size === fasi.length ? perNome
+            : (righe.length === fasi.length ? righe : null);
+        if (!abbinate) return null;
+        const nuovo = _piano.map(r => ({ ...r }));
+        fasi.forEach((f, k) => f.idx.forEach(i => { nuovo[i].percentuale = Math.round(num(_piano[i].percentuale) * abbinate[k].imp / tot * 100) / 100; }));
+        const scarto = Math.round((100 - nuovo.reduce((a, r) => a + num(r.percentuale), 0)) * 100) / 100;
+        if (Math.abs(scarto) > 0.5) return null; // le righe non coprono le fasi: meglio non indovinare
+        nuovo[nuovo.length - 1].percentuale = Math.round((num(nuovo[nuovo.length - 1].percentuale) + scarto) * 100) / 100;
+        return nuovo;
     }
 
     function renderPiano() {
@@ -262,7 +294,12 @@ const ModOfferte = (() => {
                 <td><button type="button" class="btn btn-sm btn-ghost" data-pdel="${i}" aria-label="Elimina rata"><i class="ph ph-x"></i></button></td></tr>`).join('')}
             </tbody></table>
             <div class="rows-total"><button type="button" class="chip-btn" id="of-add-rata"><i class="ph ph-plus"></i> Rata</button>
+            <button type="button" class="chip-btn" id="of-piano-fasi" title="Le percentuali sono per fase: riportale sul totale dell'offerta"${Math.abs(somma - 100) > 0.01 && pianoPerFaseSulTotale() ? '' : ' hidden'}><i class="ph ph-arrows-in"></i> Riporta al 100%</button>
             <span>Totale rate <b id="of-piano-tot" class="${Math.abs(somma - 100) > 0.01 ? 'text-danger' : 'text-ok'}">${UI.formatNumber(somma, 0)}%</b></span></div>`;
+        document.getElementById('of-piano-fasi')?.addEventListener('click', () => {
+            const nuovo = pianoPerFaseSulTotale();
+            if (nuovo) { _piano = nuovo; renderPiano(); }
+        });
         box.querySelectorAll('input[data-p]').forEach(inp => inp.addEventListener('change', () => {
             _piano[inp.dataset.p][inp.dataset.k] = inp.value;
             if (inp.dataset.k === 'percentuale') aggiornaImportiPiano();
