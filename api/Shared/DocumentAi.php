@@ -16,7 +16,8 @@ class DocumentAi
     private const SYSTEM = "Estrai dati strutturati da documenti commerciali italiani per il gestionale di "
         . "MV Consulting S.r.l., società di consulenza (privacy/GDPR, DPO, sicurezza, formazione). "
         . "Riporta solo ciò che il documento dice: se un dato manca, restituisci null e non dedurlo. "
-        . "Importi in euro come numeri (5.000,00 → 5000), date in formato AAAA-MM-GG.";
+        . "Importi in euro come numeri (5.000,00 → 5000), date in formato AAAA-MM-GG. "
+        . "Per partita_iva, codice_fiscale ed email di cliente e sottocliente, se il dato manca usa la stringa vuota.";
 
     /** Lettera d'incarico ricevuta da un cliente. */
     public static function estraiIncarico(array $document): array
@@ -48,7 +49,7 @@ Campi:
 - giorni_pagamento: giorni di pagamento dalla fattura, se indicati (es. "30 gg d.f." → 30).
 - note_estrazione: dubbi o ambiguità da far verificare a chi legge, altrimenti null.
 TXT;
-        return ClaudeClient::extractJson(self::SYSTEM, $instruction, $document, [
+        return self::normalizzaSoggetti(ClaudeClient::extractJson(self::SYSTEM, $instruction, $document, [
             'type' => 'object',
             'additionalProperties' => false,
             'required' => [
@@ -69,7 +70,7 @@ TXT;
                 'giorni_pagamento' => self::nullable('integer'),
                 'note_estrazione' => self::nullable('string'),
             ],
-        ]);
+        ]));
     }
 
     /** Preventivo che MV Consulting invia a un cliente (preparato con Cowork). */
@@ -100,7 +101,7 @@ Campi:
   (0 = all'accettazione). Se c'è un pagamento unico, una sola rata al 100%.
 - note_estrazione: dubbi o ambiguità da far verificare, altrimenti null.
 TXT;
-        return ClaudeClient::extractJson(self::SYSTEM, $instruction, $document, [
+        return self::normalizzaSoggetti(ClaudeClient::extractJson(self::SYSTEM, $instruction, $document, [
             'type' => 'object',
             'additionalProperties' => false,
             'required' => [
@@ -151,7 +152,7 @@ TXT;
                 ],
                 'note_estrazione' => self::nullable('string'),
             ],
-        ]);
+        ]));
     }
 
     /** Movimenti di un estratto conto bancario (testo estratto dal PDF). */
@@ -260,6 +261,10 @@ TXT;
         return trim(preg_replace("/\n{3,}/", "\n\n", $text) ?? $text);
     }
 
+    /**
+     * I dati facoltativi del soggetto sono stringhe (vuote se mancano) e non nullable:
+     * l'API accetta al massimo 16 campi con anyOf per schema, e il preventivo ne avrebbe 17.
+     */
     private static function soggetto(): array
     {
         return [
@@ -268,11 +273,27 @@ TXT;
             'required' => ['nome', 'partita_iva', 'codice_fiscale', 'email'],
             'properties' => [
                 'nome' => ['type' => 'string'],
-                'partita_iva' => self::nullable('string'),
-                'codice_fiscale' => self::nullable('string'),
-                'email' => self::nullable('string'),
+                'partita_iva' => ['type' => 'string'],
+                'codice_fiscale' => ['type' => 'string'],
+                'email' => ['type' => 'string'],
             ],
         ];
+    }
+
+    /** Riporta a null le stringhe vuote di cliente e sottocliente, come si aspettano i controller. */
+    private static function normalizzaSoggetti(array $dati): array
+    {
+        foreach (['cliente', 'sottocliente'] as $chiave) {
+            if (!is_array($dati[$chiave] ?? null)) {
+                continue;
+            }
+            foreach (['partita_iva', 'codice_fiscale', 'email'] as $campo) {
+                if (trim((string)($dati[$chiave][$campo] ?? '')) === '') {
+                    $dati[$chiave][$campo] = null;
+                }
+            }
+        }
+        return $dati;
     }
 
     private static function nullable(string $type): array
