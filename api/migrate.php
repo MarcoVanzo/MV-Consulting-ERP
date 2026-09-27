@@ -587,7 +587,23 @@ $queries = [
     "ALTER TABLE {$prefix}fatture ADD COLUMN tipo_documento VARCHAR(4) DEFAULT NULL",
 
     // v066: una fattura può chiudere più rate (es. acconto + saldo fatturati insieme): l'indice su fattura_id non è più unico
-    "ALTER TABLE {$prefix}incarichi_rate DROP INDEX uq_rate_fattura, ADD KEY idx_rate_fattura (fattura_id)"
+    "ALTER TABLE {$prefix}incarichi_rate DROP INDEX uq_rate_fattura, ADD KEY idx_rate_fattura (fattura_id)",
+
+    // v067: trasferta ritoccata a mano → la sincronizzazione Google non la riscrive né la elimina
+    "ALTER TABLE {$prefix}trasferte ADD COLUMN modifica_manuale TINYINT(1) NOT NULL DEFAULT 0",
+
+    // v068: coordinate degli indirizzi già geocodificati (Nominatim: 1 richiesta al secondo)
+    "CREATE TABLE IF NOT EXISTS {$prefix}geocache (
+        indirizzo_hash CHAR(32) NOT NULL PRIMARY KEY,
+        indirizzo VARCHAR(500) NOT NULL,
+        lat DECIMAL(10,7) DEFAULT NULL,
+        lon DECIMAL(10,7) DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+    // v069: le trasferte si leggono per intervallo di date e, nella sincronizzazione, per calendario
+    "ALTER TABLE {$prefix}trasferte ADD KEY idx_trasferte_data (data_trasferta), ADD KEY idx_trasferte_calendario (google_calendar_id, data_trasferta)"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
 

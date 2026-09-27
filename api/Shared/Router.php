@@ -38,7 +38,7 @@ class ApiRouter {
         'auth'         => ['verify'],
         'clienti'      => ['list', 'get', 'lookup-vat'],
         'sottoclienti' => ['list'],
-        'trasferte'    => ['list', 'rendiconto'],
+        'trasferte'    => ['list', 'rendiconto', 'impostazioni'],
         'mezzi'        => ['getAllVehicles', 'getVehicleById'],
         'incarichi'    => ['list', 'overview', 'get_by_cliente', 'documento'],
         'contabilita'  => ['list', 'overview'],
@@ -293,6 +293,9 @@ class ApiRouter {
             case 'calcolaKmGiorno':     $ctrl->calcolaKmGiorno(); break;
             case 'calcolaTuttiKm':      $ctrl->calcolaTuttiKm(); break;
             case 'togglePernottamento': $ctrl->togglePernottamento(); break;
+            case 'setMezzo':            $ctrl->setMezzo($data); break;
+            case 'impostazioni':        $ctrl->impostazioni(); break;
+            case 'salvaCostoKm':        $ctrl->salvaCostoKm($data); break;
             default:                    Response::json(false, "Azione trasferte non supportata: $action");
         }
     }

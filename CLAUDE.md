@@ -59,3 +59,14 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
 - Categorie dei movimenti (tab Da classificare / Andamento): `api/Shared/Classificatore.php` (fatture → regole apprese →
   euristiche; il resto lo chiede all'utente) e `CategorieMovimenti.php` (grafici). Tabelle v059–v063.
 
+
+## Trasferte (km, indennità, sincronizzazione Google Calendar)
+- Regole pure (giorni e fasce degli eventi in ora di Roma, ordine tappe, ripartizione km, indennità
+  46,48 / 30,99 / 15,49 €) in `api/Shared/TrasferteRegole.php`: l'indennità si calcola solo lì, il JS la legge da `list`.
+- Percorso della giornata: partenza dalla base o dal luogo del pernottamento della notte prima → tutte le tappe
+  (mattino, intere, pomeriggio) → base, salvo notte fuori con trasferta il giorno dopo. Ogni modifica ricalcola
+  anche il giorno prima e quello dopo (`ricalcolaIntorno`).
+- Coordinate in cache nella tabella `geocache` (`api/Shared/Percorsi.php`); routing su `OSRM_URL` (default: server demo pubblico).
+- Sync Google: `api/Shared/TrasferteSync.php` + `CalendarioMatcher.php`. Le righe con `modifica_manuale = 1` non vengono
+  riscritte né eliminate; le righe senza più un evento si eliminano solo se il calendario è stato letto per intero.
+- Costo al km nella tabella `settings` (chiave `trasferte_costo_km`). Migrazioni v067–v069. Prova: `php tests/trasferte_cli.php`.
