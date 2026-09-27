@@ -11,7 +11,7 @@ declare(strict_types=1);
 
 class Mailer
 {
-    public static function send(string $to, ?string $name, string $subject, string $message): bool
+    public static function send(string $to, ?string $name, string $subject, string $message, bool $html = false): bool
     {
         $root = dirname(__DIR__, 3);
         $libreria = $root . '/invio-smtp.php';
@@ -27,7 +27,7 @@ class Mailer
         $mittente = (string)($accesso['utente'] ?? '');
         $intestazioni = [
             'From: MV Consulting ERP <' . $mittente . '>',
-            'Content-Type: text/plain; charset=UTF-8',
+            'Content-Type: ' . ($html ? 'text/html' : 'text/plain') . '; charset=UTF-8',
         ];
 
         // Oggetto codificato: un accento in chiaro rende l'intestazione malformata

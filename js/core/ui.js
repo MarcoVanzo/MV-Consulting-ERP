@@ -22,7 +22,9 @@ const UI = (() => {
     // ── Modal System ──
     let _modalSaveCallback = null;
 
-    function openModal(title, bodyHtml, onSave) {
+    // opts.wide: modal largo (schede con tabelle); opts.readOnly: solo "Chiudi"
+    function openModal(title, bodyHtml, onSave, opts = {}) {
+        document.getElementById('modal').classList.toggle('modal-wide', !!opts.wide);
         document.getElementById('modal-title').textContent = title;
         document.getElementById('modal-body').innerHTML = bodyHtml;
         _modalSaveCallback = onSave;
@@ -31,6 +33,10 @@ const UI = (() => {
         if (saveBtn) saveBtn.style.display = '';
         const cancelBtn = document.getElementById('modal-cancel');
         if (cancelBtn) cancelBtn.textContent = 'Annulla';
+        if (opts.readOnly) {
+            if (saveBtn) saveBtn.style.display = 'none';
+            if (cancelBtn) cancelBtn.textContent = 'Chiudi';
+        }
         document.getElementById('modal-overlay').classList.add('active');
     }
 
@@ -141,8 +147,29 @@ const UI = (() => {
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     }
 
+    // ── Copia negli appunti (con ripiego per browser senza Clipboard API) ──
+    async function copyText(text) {
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch (e) {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+        }
+        toast('Copiato negli appunti');
+    }
+
+    function isModalOpen() {
+        return document.getElementById('modal-overlay').classList.contains('active');
+    }
+
     return {
-        toast, openModal, closeModal, initModalEvents,
+        toast, openModal, closeModal, initModalEvents, copyText, isModalOpen,
         formatCurrency, formatDate, formatNumber,
         statoBadge, populateYearSelect, esc, safeUrl, todayLocal
     };

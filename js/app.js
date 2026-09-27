@@ -101,6 +101,7 @@ function initApplication(userData) {
             switch (viewId) {
                 case 'clienti':     ModClienti.load(); break;
                 case 'trasferte':   ModTrasferte.load({ refreshMezzi: true }); break;
+                case 'commerciale': ModCommerciale.load(); break;
                 case 'contabilita': ModContabilita.load(); break;
                 case 'utenti':      ModAdmin.loadUsers(); break;
                 case 'backup':      ModAdmin.loadBackups(); break;
@@ -206,6 +207,7 @@ function initApplication(userData) {
     ModTrasferte.initFilters();
     ModContabilita.initFilters();
     ModClienti.initSearch();
+    ModCommerciale.init();
 
     // ── Load first view ──
     ModClienti.load();

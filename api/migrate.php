@@ -316,6 +316,159 @@ $queries = [
         status VARCHAR(20) DEFAULT 'ok',
         created_by INT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    // ═══ Modulo commerciale: offerte → incarico → rate → fatture, partner e margini ═══
+
+    // ── Offerte ai clienti ──
+    "CREATE TABLE IF NOT EXISTS {$prefix}offerte (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        numero VARCHAR(30) NOT NULL COMMENT 'es. OFF-2026-001',
+        versione INT NOT NULL DEFAULT 1,
+        cliente_id INT DEFAULT NULL,
+        cliente_nome VARCHAR(255) DEFAULT NULL COMMENT 'Prospect non ancora in anagrafica',
+        sottocliente_id INT DEFAULT NULL,
+        data_offerta DATE NOT NULL,
+        data_scadenza DATE DEFAULT NULL COMMENT 'Fine validità offerta',
+        oggetto VARCHAR(255) NOT NULL,
+        descrizione TEXT DEFAULT NULL,
+        tipo_commessa ENUM('assistenza','dpo','formazione') NOT NULL DEFAULT 'assistenza',
+        num_giornate DECIMAL(6,1) NOT NULL DEFAULT 0,
+        imponibile DECIMAL(15,2) NOT NULL DEFAULT 0,
+        iva_percentuale DECIMAL(5,2) NOT NULL DEFAULT 22.00,
+        condizioni_pagamento TEXT DEFAULT NULL,
+        giorni_pagamento INT NOT NULL DEFAULT 30,
+        piano_rate TEXT DEFAULT NULL COMMENT 'JSON: [{descrizione, percentuale, giorni_da_accettazione}]',
+        stato ENUM('bozza','inviata','accettata','rifiutata','scaduta','sostituita') NOT NULL DEFAULT 'bozza',
+        data_invio DATE DEFAULT NULL,
+        data_followup DATE DEFAULT NULL COMMENT 'Quando ricontattare il cliente',
+        data_esito DATE DEFAULT NULL,
+        motivo_esito VARCHAR(255) DEFAULT NULL,
+        incarico_id INT DEFAULT NULL,
+        file_path VARCHAR(255) DEFAULT NULL,
+        origine VARCHAR(20) NOT NULL DEFAULT 'manuale',
+        note TEXT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        deleted_at DATETIME DEFAULT NULL,
+        UNIQUE KEY uq_offerte_numero_versione (numero, versione),
+        KEY idx_offerte_stato (stato),
+        KEY idx_offerte_data (data_offerta),
+        CONSTRAINT fk_offerte_cliente FOREIGN KEY (cliente_id) REFERENCES {$prefix}clienti(id) ON DELETE SET NULL,
+        CONSTRAINT fk_offerte_sottocliente FOREIGN KEY (sottocliente_id) REFERENCES {$prefix}sottoclienti(id) ON DELETE SET NULL,
+        CONSTRAINT fk_offerte_incarico FOREIGN KEY (incarico_id) REFERENCES {$prefix}incarichi(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    "CREATE TABLE IF NOT EXISTS {$prefix}offerte_righe (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        offerta_id INT NOT NULL,
+        ordine INT NOT NULL DEFAULT 0,
+        descrizione TEXT NOT NULL,
+        quantita DECIMAL(10,2) NOT NULL DEFAULT 1,
+        unita VARCHAR(20) DEFAULT NULL,
+        prezzo_unitario DECIMAL(15,2) NOT NULL DEFAULT 0,
+        importo DECIMAL(15,2) NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        KEY idx_offerte_righe_offerta (offerta_id),
+        CONSTRAINT fk_offerte_righe_offerta FOREIGN KEY (offerta_id) REFERENCES {$prefix}offerte(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    // ── Incarichi: legame con l'offerta e termini di pagamento ──
+    "ALTER TABLE {$prefix}incarichi ADD COLUMN offerta_id INT DEFAULT NULL AFTER sottocliente_id",
+    "ALTER TABLE {$prefix}incarichi ADD CONSTRAINT fk_incarichi_offerta FOREIGN KEY (offerta_id) REFERENCES {$prefix}offerte(id) ON DELETE SET NULL",
+    "ALTER TABLE {$prefix}incarichi ADD COLUMN giorni_pagamento INT NOT NULL DEFAULT 30 AFTER importo_pagato",
+    "ALTER TABLE {$prefix}incarichi ADD COLUMN condizioni_pagamento TEXT DEFAULT NULL AFTER giorni_pagamento",
+
+    // ── Piano di fatturazione della commessa (acconto, SAL, saldo) ──
+    // Lo stato non si salva: deriva dalla fattura collegata (nessuna → da fatturare, pagata → incassata)
+    "CREATE TABLE IF NOT EXISTS {$prefix}incarichi_rate (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        incarico_id INT NOT NULL,
+        ordine INT NOT NULL DEFAULT 0,
+        descrizione VARCHAR(255) NOT NULL,
+        percentuale DECIMAL(5,2) DEFAULT NULL,
+        importo DECIMAL(15,2) NOT NULL DEFAULT 0,
+        data_prevista DATE DEFAULT NULL COMMENT 'Quando emettere la fattura',
+        giorni_pagamento INT NOT NULL DEFAULT 30,
+        fattura_id INT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        KEY idx_rate_incarico (incarico_id),
+        KEY idx_rate_data (data_prevista),
+        UNIQUE KEY uq_rate_fattura (fattura_id),
+        CONSTRAINT fk_rate_incarico FOREIGN KEY (incarico_id) REFERENCES {$prefix}incarichi(id) ON DELETE CASCADE,
+        CONSTRAINT fk_rate_fattura FOREIGN KEY (fattura_id) REFERENCES {$prefix}fatture(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    // ── Partner e fornitori ──
+    "CREATE TABLE IF NOT EXISTS {$prefix}fornitori (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        ragione_sociale VARCHAR(255) NOT NULL,
+        tipo ENUM('partner','fornitore') NOT NULL DEFAULT 'partner',
+        partita_iva VARCHAR(16) DEFAULT NULL,
+        codice_fiscale VARCHAR(20) DEFAULT NULL,
+        email VARCHAR(150) DEFAULT NULL,
+        pec VARCHAR(150) DEFAULT NULL,
+        telefono VARCHAR(30) DEFAULT NULL,
+        iban VARCHAR(34) DEFAULT NULL,
+        giorni_pagamento INT NOT NULL DEFAULT 30,
+        note TEXT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        deleted_at DATETIME DEFAULT NULL,
+        KEY idx_fornitori_piva (partita_iva)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    // ── Costi della commessa: cosa devo a un partner, con la sua offerta ──
+    // Nasce sull'offerta (costo previsto) e segue l'incarico quando l'offerta è accettata
+    "CREATE TABLE IF NOT EXISTS {$prefix}commessa_costi (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        incarico_id INT DEFAULT NULL,
+        offerta_id INT DEFAULT NULL,
+        fornitore_id INT DEFAULT NULL,
+        descrizione VARCHAR(255) NOT NULL,
+        importo_previsto DECIMAL(15,2) NOT NULL DEFAULT 0,
+        offerta_fornitore_numero VARCHAR(50) DEFAULT NULL,
+        offerta_fornitore_data DATE DEFAULT NULL,
+        offerta_fornitore_file VARCHAR(255) DEFAULT NULL,
+        condizione_pagamento ENUM('scadenza','back_to_back') NOT NULL DEFAULT 'scadenza' COMMENT 'back_to_back: pago il partner quando incasso',
+        giorni_pagamento INT NOT NULL DEFAULT 30,
+        note TEXT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        KEY idx_costi_incarico (incarico_id),
+        KEY idx_costi_offerta (offerta_id),
+        CONSTRAINT fk_costi_incarico FOREIGN KEY (incarico_id) REFERENCES {$prefix}incarichi(id) ON DELETE CASCADE,
+        CONSTRAINT fk_costi_offerta FOREIGN KEY (offerta_id) REFERENCES {$prefix}offerte(id) ON DELETE SET NULL,
+        CONSTRAINT fk_costi_fornitore FOREIGN KEY (fornitore_id) REFERENCES {$prefix}fornitori(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    // ── Fatture ricevute dai partner / fornitori ──
+    "CREATE TABLE IF NOT EXISTS {$prefix}fatture_passive (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        fornitore_id INT DEFAULT NULL,
+        incarico_id INT DEFAULT NULL,
+        costo_id INT DEFAULT NULL,
+        numero VARCHAR(50) NOT NULL,
+        data_emissione DATE NOT NULL,
+        descrizione TEXT DEFAULT NULL,
+        imponibile DECIMAL(15,2) NOT NULL DEFAULT 0,
+        importo_iva DECIMAL(15,2) NOT NULL DEFAULT 0,
+        ritenuta DECIMAL(15,2) NOT NULL DEFAULT 0,
+        importo_totale DECIMAL(15,2) NOT NULL DEFAULT 0 COMMENT 'Netto a pagare (totale documento meno ritenuta)',
+        data_scadenza DATE DEFAULT NULL,
+        data_pagamento DATE DEFAULT NULL,
+        stato ENUM('da_pagare','pagata') NOT NULL DEFAULT 'da_pagare',
+        note TEXT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_passive_fornitore_numero (fornitore_id, numero, data_emissione),
+        KEY idx_passive_scadenza (data_scadenza),
+        KEY idx_passive_incarico (incarico_id),
+        CONSTRAINT fk_passive_fornitore FOREIGN KEY (fornitore_id) REFERENCES {$prefix}fornitori(id) ON DELETE SET NULL,
+        CONSTRAINT fk_passive_incarico FOREIGN KEY (incarico_id) REFERENCES {$prefix}incarichi(id) ON DELETE SET NULL,
+        CONSTRAINT fk_passive_costo FOREIGN KEY (costo_id) REFERENCES {$prefix}commessa_costi(id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];

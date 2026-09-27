@@ -97,6 +97,23 @@ if ($module === 'admin' && $action === 'migrate') {
     }
 }
 
+// Promemoria giornaliero: lanciato da GitHub Actions con X-Cron-Token (niente crontab sull'hosting)
+if ($module === 'cron') {
+    $cronToken = $_SERVER['HTTP_X_CRON_TOKEN'] ?? '';
+    $serverToken = getenv('PROMEMORIA_CRON_TOKEN') ?: '';
+    if ($action !== 'promemoria' || !$cronToken || !$serverToken || !hash_equals($serverToken, $cronToken)) {
+        Response::json(false, 'Accesso negato', null, 403);
+    }
+    require_once __DIR__ . '/Shared/Promemoria.php';
+    try {
+        $esito = (new Promemoria(Database::getConnection(), $dbPrefix))->esegui();
+        Response::json(true, 'Promemoria eseguito', $esito);
+    } catch (Throwable $e) {
+        error_log('[cron/promemoria] ' . $e->getMessage());
+        Response::json(false, 'Errore durante il promemoria', null, 500);
+    }
+}
+
 /**
  * Valida il JWT (cookie HttpOnly o Authorization Bearer) e rilegge l'utente dal DB:
  * ruolo, blocco e disattivazione valgono subito, non alla scadenza del token.
