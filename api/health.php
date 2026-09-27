@@ -14,17 +14,8 @@ $checks['php'] = 'ok';
 try {
     require_once __DIR__ . '/Shared/Database.php';
 
-    $envPath = __DIR__ . '/../.env';
-    if (file_exists($envPath)) {
-        $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        foreach ($lines as $line) {
-            if (strpos(trim($line), '#') === 0) continue;
-            if (strpos($line, '=') === false) continue;
-            list($name, $value) = explode('=', $line, 2);
-            putenv(trim($name) . '=' . trim($value));
-            $_ENV[trim($name)] = trim($value);
-        }
-    }
+    require_once __DIR__ . '/Shared/Env.php';
+    Env::load(__DIR__ . '/../.env');
 
     $pdo = Database::getConnection();
     $dbStart = microtime(true);
@@ -34,7 +25,7 @@ try {
     $checks['db_latency_ms'] = $dbLatency;
 } catch (Throwable $e) {
     $checks['database'] = 'error';
-    $checks['db_error'] = $e->getMessage();
+    error_log('health: ' . $e->getMessage());
 }
 
 $checks['disk'] = is_writable(__DIR__ . '/../storage') ? 'ok' : 'warning';

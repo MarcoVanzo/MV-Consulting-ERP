@@ -19,6 +19,9 @@ class Env
         if (self::$loaded) return;
 
         $envPath = $path ?? dirname(__DIR__, 2) . '/.env';
+        // Sul server il .env sta in .env.php (prima riga: apertura PHP + exit): il web server
+        // statico di Aruba ignora .htaccess, un .env semplice sarebbe scaricabile.
+        if (file_exists($envPath . '.php')) $envPath .= '.php';
         if (!file_exists($envPath)) return;
 
         $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
