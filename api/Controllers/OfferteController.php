@@ -352,6 +352,7 @@ class OfferteController {
         foreach ($x['piano_rate'] ?? [] as $r) {
             $piano[] = ['descrizione' => $r['descrizione'], 'percentuale' => round((float)$r['percentuale'], 2), 'giorni_da_accettazione' => $r['giorni_da_accettazione']];
         }
+        $piano = $this->pianoSulTotale($piano, $x['piano_rate'] ?? [], $imponibile);
         if ($piano && abs(array_sum(array_column($piano, 'percentuale')) - 100) > 0.01) {
             $note[] = 'Le rate lette non sommano al 100%: sistemale prima di accettare.';
         }
@@ -472,6 +473,22 @@ class OfferteController {
             ];
         }
         return $out;
+    }
+
+    /**
+     * Se le percentuali lette non sommano a 100 (tipico dei piani per fase: 40/40/20 + 40/30/30)
+     * e ogni rata ha il suo importo, le ricalcola sul totale dell'offerta.
+     */
+    private function pianoSulTotale(array $piano, array $letti, float $imponibile): array {
+        if (!$piano || $imponibile <= 0 || abs(array_sum(array_column($piano, 'percentuale')) - 100) <= 0.01) return $piano;
+        $importi = array_map(fn($r) => (float)($r['importo'] ?? 0), $letti);
+        if (count($importi) !== count($piano) || min($importi) <= 0) return $piano;
+        foreach ($piano as $i => &$r) $r['percentuale'] = round($importi[$i] / $imponibile * 100, 2);
+        unset($r);
+        // Scarto di arrotondamento sull'ultima rata, solo se gli importi coprono davvero il totale
+        $scarto = round(100 - array_sum(array_column($piano, 'percentuale')), 2);
+        if ($scarto != 0.0 && abs($scarto) <= 0.05) $piano[count($piano) - 1]['percentuale'] += $scarto;
+        return $piano;
     }
 
     private function salvaRighe(int $offertaId, array $righe): void {
