@@ -55,7 +55,8 @@ const ModRiconciliazione = (() => {
         }
         tbody.innerHTML = _movimenti.map(m => {
             const s = STATI[m.stato] || { cls: 'badge-blue', label: m.stato };
-            const avviso = m.origine === 'avviso_pagamento' ? ' <span class="badge badge-blue">avviso</span>' : '';
+            const avviso = m.origine === 'avviso_pagamento' ? ' <span class="badge badge-blue">avviso</span>'
+                : m.origine === 'estratto_carta' ? ' <span class="badge badge-purple">carta</span>' : '';
             // Categoria (clic per cambiarla); "Da classificare" se il sistema non l'ha riconosciuta
             const categoria = m.origine !== 'estratto_conto' || !('classificazione' in m) || !window.ModMovimenti ? ''
                 : ` <span style="cursor:pointer" onclick="ModRiconciliazione.categoria(${m.id})" title="Cambia categoria">${m.categoria_id
@@ -190,13 +191,13 @@ const ModRiconciliazione = (() => {
     const ignora = id => invia('ignora', { movimento_id: id });
     const ripristina = id => invia('ignora', { movimento_id: id, ripristina: '1' });
 
-    // ── Import estratto conto ──
-    async function importa(file) {
+    // ── Import estratto conto (o della carta di credito: carta = true) ──
+    async function importa(file, carta = false) {
         if (!file) return;
-        const isXml = /\.xml$/i.test(file.name) || /xml/.test(file.type);
+        const isXml = !carta && (/\.xml$/i.test(file.name) || /xml/.test(file.type));
         const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
-        if (!isXml && !isPdf) { UI.toast('Carica l\'estratto conto XML (CBI) o PDF', 'error'); return; }
-        const btn = document.getElementById(isXml ? 'btn-import-estratto-xml' : 'btn-import-estratto-pdf');
+        if (!isXml && !isPdf) { UI.toast(carta ? 'Carica l\'estratto della carta in PDF' : 'Carica l\'estratto conto XML (CBI) o PDF', 'error'); return; }
+        const btn = document.getElementById(carta ? 'btn-import-estratto-carta' : isXml ? 'btn-import-estratto-xml' : 'btn-import-estratto-pdf');
         const prev = btn.innerHTML; btn.disabled = true;
         btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Lettura...';
         try {
@@ -206,13 +207,14 @@ const ModRiconciliazione = (() => {
                 fd.append('xml', await file.text());
             } else {
                 fd = Store.formDataFromArray('pages', await pagineConRighe(file));
+                if (carta) fd.append('tipo', 'carta');
             }
             fd.append('file_nome', file.name);
             btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Abbinamento...';
             const r = await Store.upload('import_estratto', 'riconciliazione', fd) || {};
-            mostraRiepilogo(r);
+            mostraRiepilogo(r, carta);
             load();
-        } catch (e) { UI.toast('Import estratto conto: ' + e.message, 'error'); }
+        } catch (e) { UI.toast((carta ? 'Import estratto carta: ' : 'Import estratto conto: ') + e.message, 'error'); }
         finally { btn.innerHTML = prev; btn.disabled = false; }
     }
 
@@ -235,7 +237,7 @@ const ModRiconciliazione = (() => {
         return pages;
     }
 
-    function mostraRiepilogo(r) {
+    function mostraRiepilogo(r, carta = false) {
         const box = (n, label, color) => `<div style="flex:1;min-width:110px;padding:12px;border:1px solid var(--border-subtle);border-radius:8px;text-align:center">
             <div style="font-size:1.6rem;font-weight:700;color:${color}">${UI.esc(n ?? 0)}</div><div style="font-size:0.75rem;color:var(--text-muted)">${UI.esc(label)}</div></div>`;
         const avvisi = (r.avvisi || []).map(a => `<div style="color:#f59e0b">${UI.esc(a)}</div>`).join('');
@@ -248,21 +250,23 @@ const ModRiconciliazione = (() => {
                 ${box(r.da_verificare, 'Da verificare (fatture)', '#f59e0b')}
                 ${r.classificazione ? box(r.classificazione.da_classificare, 'Da classificare', '#f59e0b') : ''}
             </div>
+            ${carta ? `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:8px">${UI.esc(r.senza_aggancio ?? 0)} spese senza un fornitore riconosciuto: le trovi nel filtro «Tutti». Le spese della carta restano fuori dai grafici, che contano già l'addebito mensile sul conto.</div>` : ''}
             ${r.classificazione ? `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:8px">Categorie: ${UI.esc(r.classificazione.fattura)} dalle fatture, ${UI.esc(r.classificazione.regola)} dalle regole, ${UI.esc(r.classificazione.codice_banca)} dal tipo di operazione${r.proposte_ai ? `, ${UI.esc(r.proposte_ai)} proposte dall'AI` : ''} · ${UI.esc(r.senza_aggancio ?? 0)} movimenti senza aggancio a fatture</div>` : ''}
             <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:8px">${UI.esc(r.banca || '')} · lettura: ${UI.esc(r.metodo || '')}${r.gia_presenti ? ` · ${UI.esc(r.gia_presenti)} già importati` : ''}</div>
             ${avvisi}${verifica ? `<div style="margin-top:10px;font-size:0.82rem;line-height:1.7"><strong>Da verificare</strong>${verifica}</div>` : ''}`;
-        UI.openModal('Import estratto conto', html, null, { readOnly: true });
+        UI.openModal(carta ? 'Import estratto carta' : 'Import estratto conto', html, null, { readOnly: true });
     }
 
     function init() {
-        const bind = (btnId, inputId) => {
+        const bind = (btnId, inputId, carta = false) => {
             const btn = document.getElementById(btnId), input = document.getElementById(inputId);
             if (!btn || !input) return;
             btn.addEventListener('click', () => input.click());
-            input.addEventListener('change', e => { if (e.target.files.length) importa(e.target.files[0]); e.target.value = ''; });
+            input.addEventListener('change', e => { if (e.target.files.length) importa(e.target.files[0], carta); e.target.value = ''; });
         };
         bind('btn-import-estratto-xml', 'input-estratto-xml');
         bind('btn-import-estratto-pdf', 'input-estratto-pdf');
+        bind('btn-import-estratto-carta', 'input-estratto-carta', true);
         // Avviso di pagamento del cliente: stesso import della scheda Fatture
         document.getElementById('btn-ric-avviso')?.addEventListener('click', () => document.getElementById('input-payment-pdf')?.click());
         document.querySelectorAll('#tab-riconciliazione .filter-chip').forEach(chip => {

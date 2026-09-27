@@ -170,6 +170,19 @@ function initApplication(userData) {
         });
     }
 
+    // ── Lista fatture di Sistemi (.xlsx) ──
+    const btnImportLista = document.getElementById('btn-import-lista-fatture');
+    const inputImportLista = document.getElementById('input-lista-fatture');
+    if (btnImportLista && inputImportLista) {
+        btnImportLista.addEventListener('click', () => inputImportLista.click());
+        inputImportLista.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                ModContabilita.importLista(e.target.files[0]);
+                e.target.value = ''; // Reset
+            }
+        });
+    }
+
     // ── Payment PDF Import ──
     const btnImportPayment = document.getElementById('btn-import-payment-pdf');
     const inputImportPayment = document.getElementById('input-payment-pdf');
