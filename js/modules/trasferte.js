@@ -6,25 +6,27 @@
 const ModTrasferte = (() => {
     let _trasferte = [];
     let _totali = {};
+    let _giornate = {};
     let _mezziCache = [];
+    let _richiesta = 0;
+    const DA_ASSEGNARE = '<span style="color: var(--danger); font-size: 0.8rem; font-weight: 500;">Da assegnare</span>';
 
     async function load(opts = {}) {
         // Entrando nella vista si ricaricano i mezzi (possono essere cambiati in "Gestione Mezzi")
         if (opts.refreshMezzi === true) _mezziCache = [];
         const year = document.getElementById('trasferte-year').value;
         const month = document.getElementById('trasferte-month').value;
+        // Cambi di filtro ravvicinati: vale solo la risposta dell'ultima richiesta
+        const richiesta = ++_richiesta;
         try {
             const params = { year };
             if (month) params.month = month;
             const data = await Store.api('list', 'trasferte', params);
+            if (richiesta !== _richiesta) return;
             _trasferte = data?.trasferte || [];
             _totali = data?.totali || {};
-            
-            // Sync costo km da localStorage prima del render
-            const storedCosto = localStorage.getItem('trasferte_costo_km');
-            if (storedCosto) {
-                document.getElementById('trasferte-costo-km').value = parseFloat(storedCosto).toFixed(4);
-            }
+            _giornate = data?.giornate || {};
+            await syncCostoKm(data?.costo_km);
 
             // Precarica mezzi se non ancora in cache
             if (!_mezziCache.length) {
@@ -46,19 +48,78 @@ const ModTrasferte = (() => {
         }
     }
 
-    function renderKpis() {
-        const costoKm = parseFloat(document.getElementById('trasferte-costo-km').value) || 0;
-        let totIndennita = 0;
-        
-        // Calcoliamo in modo grezzo le indennità totali
+    /**
+     * Costo al km: sta sul server, uguale per tutti i browser. Se il server non ce l'ha ancora
+     * e questo browser ne aveva uno nel localStorage (vecchia versione), lo si porta sul server.
+     */
+    async function syncCostoKm(costoServer) {
+        const input = document.getElementById('trasferte-costo-km');
+        let costo = costoServer;
+        if (costo === null || costo === undefined) {
+            const locale = localStorage.getItem('trasferte_costo_km');
+            if (locale && !isNaN(parseFloat(locale))) {
+                try {
+                    const r = await Store.api('salvaCostoKm', 'trasferte', { costo_km: parseFloat(locale) });
+                    costo = r?.costo_km ?? parseFloat(locale);
+                    localStorage.removeItem('trasferte_costo_km');
+                } catch (e) { costo = parseFloat(locale); }
+            }
+        } else {
+            localStorage.removeItem('trasferte_costo_km');
+        }
+        if (costo !== null && costo !== undefined && document.activeElement !== input) {
+            input.value = parseFloat(costo).toFixed(4);
+        }
+    }
+
+    let _timerCosto = null;
+    function salvaCostoKmDifferito() {
+        clearTimeout(_timerCosto);
+        _timerCosto = setTimeout(async () => {
+            const v = parseFloat(document.getElementById('trasferte-costo-km').value);
+            if (isNaN(v)) return;
+            try {
+                await Store.api('salvaCostoKm', 'trasferte', { costo_km: v });
+            } catch (err) {
+                UI.toast(err.message || 'Costo al km non salvato', 'error');
+            }
+        }, 700);
+    }
+
+    /** Indennità di una giornata: la calcola il server (TrasferteRegole), qui si legge soltanto */
+    function indennitaDi(data) {
+        return parseFloat(_giornate[data]?.indennita) || 0;
+    }
+
+    /**
+     * Trasferte raggruppate per giornata. Mattina: fascia mattino; pomeriggio: fascia pomeriggio;
+     * le giornate intere vanno nella colonna meno piena. Nessuna trasferta resta fuori.
+     */
+    function raggruppa() {
         const grouped = {};
         _trasferte.forEach(t => {
-            if (!grouped[t.data_trasferta]) grouped[t.data_trasferta] = false;
-            if (t.cliente_id || t.sottocliente_id) grouped[t.data_trasferta] = true;
+            const g = grouped[t.data_trasferta] ??= {
+                data: t.data_trasferta, mattina: [], pomeriggio: [], km_totali: 0,
+                vitto: 0, alloggio: 0, pernottamento: false, destinazioni: []
+            };
+            if (t.pernottamento == 1 || t.pernottamento == true) g.pernottamento = true;
+            const entry = { nome: t.sottocliente_nome || t.cliente_nome || '', id: t.id };
+            if (t.fascia_oraria === 'mattino') g.mattina.push(entry);
+            else if (t.fascia_oraria === 'pomeriggio') g.pomeriggio.push(entry);
+            else (g.mattina.length <= g.pomeriggio.length ? g.mattina : g.pomeriggio).push(entry);
+
+            const dest = t.sottocliente_citta || t.cliente_citta || t.luogo_arrivo || '';
+            if (dest && !g.destinazioni.includes(dest)) g.destinazioni.push(dest);
+            g.km_totali += (parseFloat(t.km_andata || 0) + parseFloat(t.km_ritorno || 0));
+            g.vitto += parseFloat(t.vitto || 0);
+            g.alloggio += parseFloat(t.alloggio || 0);
         });
-        Object.values(grouped).forEach(hasClient => {
-            if (hasClient) totIndennita += 46.48;
-        });
+        return Object.values(grouped);
+    }
+
+    function renderKpis() {
+        const costoKm = parseFloat(document.getElementById('trasferte-costo-km').value) || 0;
+        const totIndennita = parseFloat(_totali.indennita) || 0;
 
         const costoKmTotale = (_totali.km_totali || 0) * costoKm;
         const totaleComplessivo = (_totali.totale_spese || 0) + costoKmTotale + totIndennita;
@@ -90,95 +151,38 @@ const ModTrasferte = (() => {
             return;
         }
 
-        const grouped = {};
-        _trasferte.forEach(t => {
-            if (!grouped[t.data_trasferta]) {
-                grouped[t.data_trasferta] = {
-                    data: t.data_trasferta,
-                    mattina: { nome: '', id: null },
-                    pomeriggio: { nome: '', id: null },
-                    extra: [], // Per eventi aggiuntivi oltre 2 nella stessa giornata
-                    km_totali: 0,
-                    has_client: false,
-                    pernottamento: false
-                };
-            }
-            if (t.pernottamento == 1 || t.pernottamento == true) grouped[t.data_trasferta].pernottamento = true;
-            
-            const nome = t.sottocliente_nome ? UI.esc(t.sottocliente_nome) : (t.cliente_nome ? UI.esc(t.cliente_nome) : '');
-            if (nome) grouped[t.data_trasferta].has_client = true;
-            
-            const displayName = nome || '';
-            const entry = { nome: displayName, id: t.id };
-            
-            if (t.fascia_oraria === 'mattino') {
-                if (!grouped[t.data_trasferta].mattina.id) {
-                    grouped[t.data_trasferta].mattina = entry;
-                } else {
-                    grouped[t.data_trasferta].extra.push({ ...entry, fascia: 'mattino' });
-                }
-            } else if (t.fascia_oraria === 'pomeriggio') {
-                if (!grouped[t.data_trasferta].pomeriggio.id) {
-                    grouped[t.data_trasferta].pomeriggio = entry;
-                } else {
-                    grouped[t.data_trasferta].extra.push({ ...entry, fascia: 'pomeriggio' });
-                }
-            } else {
-                // "intera" → riempi prima mattina, poi pomeriggio, poi extra
-                if (!grouped[t.data_trasferta].mattina.id) {
-                    grouped[t.data_trasferta].mattina = entry;
-                } else if (!grouped[t.data_trasferta].pomeriggio.id) {
-                    grouped[t.data_trasferta].pomeriggio = entry;
-                } else {
-                    grouped[t.data_trasferta].extra.push({ ...entry, fascia: 'intera' });
-                }
-            }
-            
-            grouped[t.data_trasferta].km_totali += (parseFloat(t.km_andata || 0) + parseFloat(t.km_ritorno || 0));
-        });
-
-        const rows = Object.values(grouped).sort((a, b) => b.data.localeCompare(a.data));
+        const rows = raggruppa().sort((a, b) => b.data.localeCompare(a.data));
         const costoKm = parseFloat(document.getElementById('trasferte-costo-km').value) || 0;
 
+        const cella = (entries) => entries.map(e => `
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="flex: 1;">${e.nome ? UI.esc(e.nome) : DA_ASSEGNARE}</span>
+                        <div class="flex gap-1" style="flex-shrink: 0;">
+                            <button class="btn btn-sm btn-ghost" style="padding: 2px" title="Modifica" onclick="ModTrasferte.edit(${parseInt(e.id)})"><i class="ph ph-pencil-simple"></i></button>
+                            <button class="btn btn-sm btn-danger" style="padding: 2px" title="Elimina" onclick="ModTrasferte.remove(${parseInt(e.id)})"><i class="ph ph-trash"></i></button>
+                        </div>
+                    </div>`).join('');
+
         tbody.innerHTML = rows.map(g => {
-            const indennita = g.has_client ? 46.48 : 0;
-            const rimborsoTotale = (g.km_totali * costoKm) + indennita;
-            
-            const nameMattina = g.mattina.id ? (g.mattina.nome || '<span style="color: var(--danger); font-size: 0.8rem; font-weight: 500;">Da assegnare</span>') : '';
-            const namePomeriggio = g.pomeriggio.id ? (g.pomeriggio.nome || '<span style="color: var(--danger); font-size: 0.8rem; font-weight: 500;">Da assegnare</span>') : '';
-            
+            const indennita = indennitaDi(g.data);
+            const spese = g.vitto + g.alloggio;
+            const rimborsoTotale = (g.km_totali * costoKm) + indennita + spese;
+            const dataAttr = UI.esc(g.data);
+
             return `
             <tr>
                 <td>${UI.formatDate(g.data)}</td>
-                <td class="td-primary">
-                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span style="flex: 1;">${nameMattina}</span>
-                        ${g.mattina.id ? `
-                        <div class="flex gap-1" style="flex-shrink: 0;">
-                            <button class="btn btn-sm btn-ghost" style="padding: 2px" onclick="ModTrasferte.edit(${g.mattina.id})"><i class="ph ph-pencil-simple"></i></button>
-                            <button class="btn btn-sm btn-danger" style="padding: 2px" onclick="ModTrasferte.remove(${g.mattina.id})"><i class="ph ph-trash"></i></button>
-                        </div>` : ''}
-                    </div>
-                </td>
-                <td class="td-primary">
-                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span style="flex: 1;">${namePomeriggio}</span>
-                        ${g.pomeriggio.id && g.pomeriggio.id !== g.mattina.id ? `
-                        <div class="flex gap-1" style="flex-shrink: 0;">
-                            <button class="btn btn-sm btn-ghost" style="padding: 2px" onclick="ModTrasferte.edit(${g.pomeriggio.id})"><i class="ph ph-pencil-simple"></i></button>
-                            <button class="btn btn-sm btn-danger" style="padding: 2px" onclick="ModTrasferte.remove(${g.pomeriggio.id})"><i class="ph ph-trash"></i></button>
-                        </div>` : ''}
-                    </div>
-                </td>
+                <td class="td-primary">${cella(g.mattina)}</td>
+                <td class="td-primary">${cella(g.pomeriggio)}</td>
                 <td class="text-right">${UI.formatNumber(g.km_totali)}</td>
                 <td class="text-right">${UI.formatCurrency(indennita)}</td>
-                <td class="text-right fw-600">${UI.formatCurrency(rimborsoTotale)}</td>
+                <td class="text-right fw-600" title="${spese ? 'Comprende ' + UI.esc(UI.formatCurrency(spese)) + ' di vitto e alloggio' : ''}">${UI.formatCurrency(rimborsoTotale)}</td>
                 <td>
                     <div class="flex gap-2 justify-end" style="align-items: center;">
-                        <button type="button" class="btn btn-sm ${g.pernottamento ? 'btn-primary' : 'btn-ghost'}" style="margin-right: 10px; display: flex; align-items: center; gap: 6px; ${g.pernottamento ? 'box-shadow: 0 0 8px var(--accent);' : ''}" title="Dormo fuori" onclick="ModTrasferte.togglePernottamento('${g.data}', ${!g.pernottamento}, this)">
+                        <button type="button" class="btn btn-sm ${g.pernottamento ? 'btn-primary' : 'btn-ghost'}" style="margin-right: 10px; display: flex; align-items: center; gap: 6px; ${g.pernottamento ? 'box-shadow: 0 0 8px var(--accent);' : ''}" title="Dormo fuori" onclick="ModTrasferte.togglePernottamento('${dataAttr}', ${!g.pernottamento}, this)">
                             <i class="ph ${g.pernottamento ? 'ph-moon-stars' : 'ph-moon'}"></i> Dormo fuori
                         </button>
-                        <button class="btn btn-sm btn-ghost" title="Calcola KM per questa giornata" onclick="ModTrasferte.calcolaKm('${g.data}')"><i class="ph ph-map-pin-line"></i></button>
+                        <button class="btn btn-sm btn-ghost" title="Calcola KM per questa giornata" onclick="ModTrasferte.calcolaKm('${dataAttr}')"><i class="ph ph-map-pin-line"></i></button>
                     </div>
                 </td>
             </tr>`;
@@ -188,12 +192,17 @@ const ModTrasferte = (() => {
     function getFormHtml(data = {}) {
         const clienti = ModClienti.getClienti();
         const clientiOpts = clienti.map(c => `<option value="${UI.esc(c.id)}" ${c.id == data.cliente_id ? 'selected' : ''}>${UI.esc(c.ragione_sociale)}</option>`).join('');
+        // Mezzo: quello della trasferta; per una nuova, quello scelto nella barra
+        const mezzoSel = data.id ? (data.mezzo_id || '') : (document.getElementById('trasferte-mezzo')?.value || '');
+        const mezziOpts = _mezziCache
+            .filter(m => m.stato === 'attivo' || m.id == mezzoSel)
+            .map(m => `<option value="${UI.esc(m.id)}" ${m.id == mezzoSel ? 'selected' : ''}>${UI.esc(m.nome)} (${UI.esc(m.targa)})</option>`).join('');
 
         return `
             <div class="form-grid">
                 <div class="form-group">
                     <label>Data *</label>
-                    <input type="date" class="form-control" id="f-t-data" value="${UI.esc(data.data_trasferta || UI.todayLocal())}">
+                    <input type="date" class="form-control" id="f-t-data" required value="${UI.esc(data.data_trasferta || UI.todayLocal())}">
                 </div>
                 <div class="form-group">
                     <label>Fascia Oraria</label>
@@ -221,21 +230,28 @@ const ModTrasferte = (() => {
                     <input type="text" class="form-control" id="f-t-luogo" value="${UI.esc(data.luogo_arrivo || '')}">
                 </div>
                 <div class="form-group">
+                    <label>Mezzo</label>
+                    <select class="form-control" id="f-t-mezzo">
+                        <option value="">— Nessun mezzo —</option>
+                        ${mezziOpts}
+                    </select>
+                </div>
+                <div class="form-group">
                     <label>KM Andata</label>
-                    <input type="number" class="form-control" id="f-t-km-andata" value="${UI.esc(data.km_andata || 0)}" step="0.1">
+                    <input type="number" class="form-control" id="f-t-km-andata" value="${UI.esc(data.km_andata || 0)}" step="0.1" min="0">
                 </div>
                 <div class="form-group">
                     <label>KM Ritorno</label>
-                    <input type="number" class="form-control" id="f-t-km-ritorno" value="${UI.esc(data.km_ritorno || 0)}" step="0.1">
+                    <input type="number" class="form-control" id="f-t-km-ritorno" value="${UI.esc(data.km_ritorno || 0)}" step="0.1" min="0">
                 </div>
 
                 <div class="form-group">
                     <label>Vitto</label>
-                    <input type="number" class="form-control" id="f-t-vitto" value="${UI.esc(data.vitto || 0)}" step="0.01">
+                    <input type="number" class="form-control" id="f-t-vitto" value="${UI.esc(data.vitto || 0)}" step="0.01" min="0">
                 </div>
                 <div class="form-group">
                     <label>Alloggio</label>
-                    <input type="number" class="form-control" id="f-t-alloggio" value="${UI.esc(data.alloggio || 0)}" step="0.01">
+                    <input type="number" class="form-control" id="f-t-alloggio" value="${UI.esc(data.alloggio || 0)}" step="0.01" min="0">
                 </div>
                 <div class="form-group full-width" style="display: flex; gap: 20px; align-items: center; margin-top: 10px;">
                     <input type="hidden" id="f-t-pernottamento" value="${UI.esc(data.pernottamento || 0)}">
@@ -330,44 +346,33 @@ const ModTrasferte = (() => {
     }
 
     async function updateMezzoForAll(mezzoId) {
+        const ripristina = () => {
+            const currentMezzo = _trasferte.find(t => t.mezzo_id);
+            document.getElementById('trasferte-mezzo').value = currentMezzo?.mezzo_id || '';
+        };
         if (!_trasferte.length) {
             UI.toast('Nessuna trasferta da aggiornare', 'error');
+            ripristina();
             return;
         }
         const mezzo = _mezziCache.find(m => m.id == mezzoId);
         const label = mezzo ? `${mezzo.nome} (${mezzo.targa})` : 'nessun mezzo';
-        if (!confirm(`Assegnare "${label}" a tutte le ${_trasferte.length} trasferte visualizzate?`)) {
-            // Revert select
-            const currentMezzo = _trasferte.find(t => t.mezzo_id);
-            document.getElementById('trasferte-mezzo').value = currentMezzo?.mezzo_id || '';
+        const month = document.getElementById('trasferte-month').value;
+        const periodo = month ? 'del mese' : "dell'intero anno";
+        if (!confirm(`Assegnare "${label}" a tutte le ${_trasferte.length} trasferte ${periodo}?`)) {
+            ripristina();
             return;
         }
         try {
-            // Salvataggi in sequenza: in parallelo il ricalcolo km lato server va in race
-            for (const t of _trasferte) {
-                await Store.api('save', 'trasferte', {
-                    id: t.id,
-                    data_trasferta: t.data_trasferta,
-                    fascia_oraria: t.fascia_oraria,
-                    cliente_id: t.cliente_id,
-                    sottocliente_id: t.sottocliente_id,
-                    luogo_arrivo: t.luogo_arrivo,
-                    km_andata: t.km_andata,
-                    km_ritorno: t.km_ritorno,
-                    vitto: t.vitto,
-                    alloggio: t.alloggio,
-                    descrizione: t.descrizione,
-                    pernottamento: t.pernottamento,
-                    km_bloccati: t.km_bloccati,
-                    mezzo_id: mezzoId || '' // '' = nessun mezzo (Store.api scarta i null)
-                });
-            }
-            // Update local cache
+            // Un solo aggiornamento sul server, senza ricalcolo km (il mezzo non cambia il percorso)
+            const params = { year: document.getElementById('trasferte-year').value, mezzo_id: mezzoId || '' };
+            if (month) params.month = month;
+            await Store.api('setMezzo', 'trasferte', params);
             _trasferte.forEach(t => t.mezzo_id = mezzoId || null);
             UI.toast(mezzoId ? `Mezzo ${mezzo?.nome || ''} assegnato a tutte le trasferte` : 'Mezzo rimosso da tutte le trasferte');
         } catch (err) {
             console.error('[Trasferte] updateMezzoForAll error:', err);
-            UI.toast('Errore aggiornamento mezzo', 'error');
+            UI.toast(err.message || 'Errore aggiornamento mezzo', 'error');
             load();
         }
     }
@@ -388,8 +393,12 @@ const ModTrasferte = (() => {
             descrizione: document.getElementById('f-t-desc').value,
             pernottamento: parseInt(document.getElementById('f-t-pernottamento').value) || 0,
             km_bloccati: document.getElementById('f-t-km-bloccati').checked ? 1 : 0,
-            mezzo_id: document.getElementById('trasferte-mezzo').value || '' // '' = nessun mezzo
+            mezzo_id: document.getElementById('f-t-mezzo').value || '' // '' = nessun mezzo
         };
+        if (!payload.data_trasferta) {
+            UI.toast('Indica la data della trasferta', 'error');
+            return;
+        }
         try {
             await Store.api('save', 'trasferte', payload);
             UI.closeModal();
@@ -422,9 +431,9 @@ const ModTrasferte = (() => {
         const costoKmInput = document.getElementById('trasferte-costo-km');
         if (costoKmInput) {
             costoKmInput.addEventListener('input', () => {
-                localStorage.setItem('trasferte_costo_km', costoKmInput.value);
                 renderKpis();
                 renderTable();
+                salvaCostoKmDifferito();
             });
         }
 
@@ -579,64 +588,37 @@ const ModTrasferte = (() => {
             return;
         }
 
-        // Group by date (same logic as renderTable)
-        const grouped = {};
-        _trasferte.forEach(t => {
-            if (!grouped[t.data_trasferta]) {
-                grouped[t.data_trasferta] = {
-                    data: t.data_trasferta,
-                    mattina: '',
-                    pomeriggio: '',
-                    km_totali: 0,
-                    has_client: false,
-                    pernottamento: false,
-                    vitto: 0,
-                    alloggio: 0
-                };
-            }
-            if (t.pernottamento == 1 || t.pernottamento == true) grouped[t.data_trasferta].pernottamento = true;
+        // Stesso raggruppamento della tabella: tutte le trasferte, anche la terza della giornata
+        const rows = raggruppa().sort((a, b) => a.data.localeCompare(b.data));
+        const nomi = (entries) => entries.map(e => e.nome || 'Da assegnare').join(', ');
 
-            const nome = t.sottocliente_nome || t.cliente_nome || '';
-            if (nome) grouped[t.data_trasferta].has_client = true;
-
-            if (t.fascia_oraria === 'mattino') {
-                grouped[t.data_trasferta].mattina = grouped[t.data_trasferta].mattina || nome;
-            } else if (t.fascia_oraria === 'pomeriggio') {
-                grouped[t.data_trasferta].pomeriggio = grouped[t.data_trasferta].pomeriggio || nome;
-            } else {
-                if (!grouped[t.data_trasferta].mattina) grouped[t.data_trasferta].mattina = nome;
-                else if (!grouped[t.data_trasferta].pomeriggio) grouped[t.data_trasferta].pomeriggio = nome;
-            }
-
-            grouped[t.data_trasferta].km_totali += (parseFloat(t.km_andata || 0) + parseFloat(t.km_ritorno || 0));
-            grouped[t.data_trasferta].vitto += parseFloat(t.vitto || 0);
-            grouped[t.data_trasferta].alloggio += parseFloat(t.alloggio || 0);
-        });
-
-        const rows = Object.values(grouped).sort((a, b) => a.data.localeCompare(b.data));
-
-        let totKm = 0, totIndennita = 0, totRimborsoKm = 0, totTotale = 0;
+        let totKm = 0, totIndennita = 0, totRimborsoKm = 0, totVitto = 0, totAlloggio = 0, totTotale = 0;
 
         const tableRows = rows.map(g => {
-            const indennita = g.has_client ? 46.48 : 0;
+            const indennita = indennitaDi(g.data);
             const rimborsoKm = g.km_totali * costoKm;
-            const totaleRiga = rimborsoKm + indennita;
+            const totaleRiga = rimborsoKm + indennita + g.vitto + g.alloggio;
 
             totKm += g.km_totali;
             totIndennita += indennita;
             totRimborsoKm += rimborsoKm;
+            totVitto += g.vitto;
+            totAlloggio += g.alloggio;
             totTotale += totaleRiga;
 
-            const d = new Date(g.data);
-            const dataFmt = d.toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+            const [y, m, d] = g.data.split('-').map(Number);
+            const dataFmt = new Date(y, m - 1, d).toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
 
             return `<tr>
                 <td>${dataFmt}</td>
-                <td>${UI.esc(g.mattina) || '—'}</td>
-                <td>${UI.esc(g.pomeriggio) || '—'}</td>
+                <td>${UI.esc(nomi(g.mattina)) || '—'}</td>
+                <td>${UI.esc(nomi(g.pomeriggio)) || '—'}</td>
+                <td>${UI.esc(g.destinazioni.join(', ')) || '—'}</td>
                 <td class="num">${g.km_totali.toFixed(1)}</td>
-                <td class="num">${UI.formatCurrency(indennita)}</td>
                 <td class="num">${UI.formatCurrency(rimborsoKm)}</td>
+                <td class="num">${UI.formatCurrency(indennita)}</td>
+                <td class="num">${g.vitto ? UI.formatCurrency(g.vitto) : '—'}</td>
+                <td class="num">${g.alloggio ? UI.formatCurrency(g.alloggio) : '—'}</td>
                 <td class="num tot">${UI.formatCurrency(totaleRiga)}</td>
             </tr>`;
         }).join('');
@@ -682,7 +664,7 @@ const ModTrasferte = (() => {
         </div>
         <div class="info">
             Costo KM: ${costoKm.toFixed(4)} €/km<br>
-            Indennità giornaliera: 46,48 €<br>
+            Indennità giornaliera: 46,48 € (30,99 € con vitto o alloggio rimborsato, 15,49 € con entrambi)<br>
             ${(() => { const selId = document.getElementById('trasferte-mezzo')?.value; const mezzo = selId ? _mezziCache.find(v => v.id == selId) : null; return mezzo ? `Mezzo: <strong>${UI.esc(mezzo.nome)}</strong> — Targa: <strong>${UI.esc(mezzo.targa)}</strong><br>` : ''; })()}
             Stampato il: ${new Date().toLocaleDateString('it-IT')}
         </div>
@@ -693,19 +675,24 @@ const ModTrasferte = (() => {
                 <th>Data</th>
                 <th>Mattina</th>
                 <th>Pomeriggio</th>
+                <th>Destinazione</th>
                 <th style="text-align:right">KM</th>
-                <th style="text-align:right">Indennità</th>
                 <th style="text-align:right">Rimb. KM</th>
+                <th style="text-align:right">Indennità</th>
+                <th style="text-align:right">Vitto</th>
+                <th style="text-align:right">Alloggio</th>
                 <th style="text-align:right">Totale</th>
             </tr>
         </thead>
         <tbody>
             ${tableRows}
             <tr class="footer-row">
-                <td colspan="3">TOTALE (${rows.length} giornate)</td>
+                <td colspan="4">TOTALE (${rows.length} giornate)</td>
                 <td class="num">${totKm.toFixed(1)}</td>
-                <td class="num">${UI.formatCurrency(totIndennita)}</td>
                 <td class="num">${UI.formatCurrency(totRimborsoKm)}</td>
+                <td class="num">${UI.formatCurrency(totIndennita)}</td>
+                <td class="num">${UI.formatCurrency(totVitto)}</td>
+                <td class="num">${UI.formatCurrency(totAlloggio)}</td>
                 <td class="num">${UI.formatCurrency(totTotale)}</td>
             </tr>
         </tbody>
