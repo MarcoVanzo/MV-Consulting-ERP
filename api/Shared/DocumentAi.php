@@ -196,6 +196,47 @@ TXT;
     }
 
     /**
+     * Proposta di categoria per movimenti bancari non riconosciuti (solo proposte: conferma l'utente).
+     * $movimenti: [{id, data_valuta, importo, descrizione, controparte}], $categorie: [{nome, tipo}]
+     */
+    public static function proponiCategorie(array $movimenti, array $categorie): array
+    {
+        $righe = array_map(fn($m) => ['id' => (int)$m['id'], 'data' => $m['data_valuta'], 'importo' => (float)$m['importo'],
+            'causale' => (string)$m['descrizione'], 'controparte' => $m['controparte']], $movimenti);
+        $entrate = implode(', ', array_map(fn($c) => $c['nome'], array_filter($categorie, fn($c) => $c['tipo'] === 'entrata')));
+        $uscite = implode(', ', array_map(fn($c) => $c['nome'], array_filter($categorie, fn($c) => $c['tipo'] === 'uscita')));
+        $instruction = <<<TXT
+Il documento è un elenco JSON di movimenti del conto corrente di MV Consulting (società di consulenza).
+Per ognuno proponi la categoria più adatta, scegliendo SOLO tra queste (usa il nome esatto):
+- importo positivo (entrate): $entrate
+- importo negativo (uscite): $uscite
+Se la causale non basta per decidere con ragionevole sicurezza, categoria = null.
+motivo: una frase breve che spiega la scelta (es. "F24: pagamento imposte", "abbonamento software").
+TXT;
+        return ClaudeClient::extractJson(self::SYSTEM, $instruction,
+            ['text' => json_encode($righe, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)], [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['proposte'],
+            'properties' => [
+                'proposte' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['id', 'categoria', 'motivo'],
+                        'properties' => [
+                            'id' => ['type' => 'integer'],
+                            'categoria' => self::nullable('string'),
+                            'motivo' => ['type' => 'string'],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+    }
+
+    /**
      * Testo leggibile da un .docx (Word, anche esportato da Cowork), senza librerie esterne.
      * @throws RuntimeException se il file non è un docx valido
      */

@@ -39,6 +39,13 @@ class FornitoriController {
             'note'             => trim((string)($data['note'] ?? '')) ?: null,
         ];
         if ($fields['ragione_sociale'] === '') Response::json(false, 'Ragione sociale obbligatoria');
+        // Categoria dei pagamenti a questo fornitore (grafici "Andamento"): solo se la migrazione c'è e il form la invia
+        if (array_key_exists('categoria_default_id', $data)) {
+            require_once __DIR__ . '/../Shared/Classificatore.php';
+            if (Classificatore::tabellePresenti($this->pdo, $this->prefix)) {
+                $fields['categoria_default_id'] = !empty($data['categoria_default_id']) ? (int)$data['categoria_default_id'] : null;
+            }
+        }
 
         if ($id) {
             $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($fields)));

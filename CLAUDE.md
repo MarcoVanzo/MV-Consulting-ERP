@@ -56,4 +56,6 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
 - Tabelle: migrazioni v047–v056 in `api/migrate.php`.
 - Riconciliazione pagamenti (tab Contabilità → Riconciliazione): `api/Shared/Riconciliatore.php` + `EstrattoContoParser.php`
   (XML CBI, PDF di riserva), tabelle `movimenti_banca`/`riconciliazioni` (v057–v058). Prova: `php tests/riconciliazione_cli.php`.
+- Categorie dei movimenti (tab Da classificare / Andamento): `api/Shared/Classificatore.php` (fatture → regole apprese →
+  euristiche; il resto lo chiede all'utente) e `CategorieMovimenti.php` (grafici). Tabelle v059–v063.
 

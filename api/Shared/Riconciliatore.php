@@ -5,9 +5,10 @@
  *   accredito (+) → fatture emesse non pagate (per documento: numero + anno + cliente, vedi RiconciliazioneDocumenti)
  *   addebito  (−) → fatture passive da pagare (partner di commessa o fornitori generici)
  *
- * All'import si tengono solo i movimenti pertinenti: numero di fattura in causale, oppure
- * controparte riconosciuta tra i clienti (accrediti) o i fornitori (addebiti), oppure un avviso
- * di pagamento in attesa. Il resto (commissioni, mutuo, stipendi, carte...) non si salva.
+ * All'import si salvano tutti i movimenti (le categorie li classificano, vedi Classificatore.php);
+ * l'abbinamento alle fatture si tenta solo su quelli con un aggancio: numero di fattura in causale,
+ * controparte riconosciuta tra i clienti (accrediti) o i fornitori (addebiti), avviso in attesa.
+ * Gli altri hanno abbinabile = 0 e restano fuori dalla coda "da riconciliare".
  *
  * Modalità "automatico se sicuro" — si registra da solo solo se:
  *   (a) un solo avviso di pagamento registrato con lo stesso importo e valuta entro ±5 giorni;
@@ -25,6 +26,7 @@ require_once __DIR__ . '/AnagraficaMatcher.php';
 require_once __DIR__ . '/RiconciliazioneMatch.php';
 require_once __DIR__ . '/RiconciliazioneDocumenti.php';
 require_once __DIR__ . '/EstrattoContoParser.php';
+require_once __DIR__ . '/Classificatore.php';
 
 class Riconciliatore
 {
@@ -71,19 +73,24 @@ class Riconciliatore
      */
     public function importaMovimenti(array $movimenti, array $conto, ?int $userId): array
     {
-        $out = ['letti' => count($movimenti), 'non_pertinenti' => 0, 'nuovi' => 0, 'gia_presenti' => 0,
-            'abbinati' => 0, 'da_verificare' => 0, 'movimenti' => []];
+        $out = ['letti' => count($movimenti), 'nuovi' => 0, 'gia_presenti' => 0, 'senza_aggancio' => 0,
+            'abbinati' => 0, 'da_verificare' => 0, 'ids' => [], 'movimenti' => []];
+        $conCategorie = Classificatore::tabellePresenti($this->pdo, $this->p);
         foreach (EstrattoContoParser::conHash($movimenti) as $m) {
-            $mov = $m + ['id' => 0, 'origine' => 'estratto_conto', 'controparte' => null];
-            $ctx = $this->contesto($mov);
-            if (!$ctx['refs'] && !$ctx['anagrafica_id'] && !$ctx['avvisi']) { $out['non_pertinenti']++; continue; }
-
             $stmt = $this->pdo->prepare("SELECT id FROM {$this->p}movimenti_banca WHERE hash_riga = ?");
             $stmt->execute([$m['hash_riga']]);
             if ($stmt->fetchColumn()) { $out['gia_presenti']++; continue; }
 
-            $id = $this->inserisciMovimento($m, $conto, 'estratto_conto');
+            // Si salvano tutti i movimenti (servono per categorie e grafici); si prova l'abbinamento
+            // alle fatture solo se c'è un aggancio: numero in causale, cliente/fornitore, avviso in attesa
+            $mov = $m + ['id' => 0, 'origine' => 'estratto_conto', 'controparte' => null];
+            $ctx = $this->contesto($mov);
+            $abbinabile = $ctx['refs'] || $ctx['anagrafica_id'] || $ctx['avvisi'];
+            if (!$abbinabile && !$conCategorie) { $out['senza_aggancio']++; continue; } // schema vecchio: come prima
+            $id = $this->inserisciMovimento($m, $conto, 'estratto_conto', $abbinabile);
             $out['nuovi']++;
+            $out['ids'][] = $id;
+            if (!$abbinabile) { $out['senza_aggancio']++; continue; }
             $mov = $this->movimento($id);
             $esito = ['id' => $id, 'data' => $mov['data_valuta'], 'importo' => (float)$mov['importo'],
                 'descrizione' => $mov['descrizione'], 'esito' => 'da_verificare', 'dettaglio' => '', 'proposte' => []];
@@ -391,22 +398,42 @@ class Riconciliatore
     // ── Letture ─────────────────────────────────────────
 
     /** Movimenti con le loro riconciliazioni. Filtri: stato, origine, dal, al (su data valuta). */
+    /**
+     * Movimenti con le loro riconciliazioni. Filtri: stato, origine, dal, al (su data valuta) e, con le
+     * categorie attive: abbinabili, classificazione, categoria_id ('nessuna' = non classificati), tipo (entrata/uscita).
+     */
     public function lista(array $f): array
     {
+        $cat = Classificatore::tabellePresenti($this->pdo, $this->p);
         $where = [];
         $params = [];
         if (!empty($f['stato'])) { $where[] = 'm.stato = ?'; $params[] = $f['stato']; }
         if (!empty($f['origine'])) { $where[] = 'm.origine = ?'; $params[] = $f['origine']; }
         if (!empty($f['dal'])) { $where[] = 'COALESCE(m.data_valuta, m.data_operazione) >= ?'; $params[] = $f['dal']; }
         if (!empty($f['al'])) { $where[] = 'COALESCE(m.data_valuta, m.data_operazione) <= ?'; $params[] = $f['al']; }
-        $stmt = $this->pdo->prepare("SELECT m.* FROM {$this->p}movimenti_banca m"
-            . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
-            . " ORDER BY COALESCE(m.data_valuta, m.data_operazione) DESC, m.id DESC LIMIT 500");
+        if (($f['tipo'] ?? '') === 'entrata') $where[] = 'm.importo > 0';
+        if (($f['tipo'] ?? '') === 'uscita') $where[] = 'm.importo < 0';
+        if ($cat) {
+            if (!empty($f['abbinabili'])) $where[] = 'm.abbinabile = 1';
+            if (!empty($f['classificazione'])) { $where[] = 'm.classificazione = ?'; $params[] = $f['classificazione']; }
+            if (($f['categoria_id'] ?? '') === 'nessuna') $where[] = 'm.categoria_id IS NULL';
+            elseif (!empty($f['categoria_id'])) { $where[] = 'm.categoria_id = ?'; $params[] = (int)$f['categoria_id']; }
+        }
+        $select = $cat
+            ? "SELECT m.*, c.nome AS categoria_nome, c.colore AS categoria_colore, cp.nome AS proposta_nome, rg.chiave AS regola_chiave
+                FROM {$this->p}movimenti_banca m
+                LEFT JOIN {$this->p}categorie_movimento c ON c.id = m.categoria_id
+                LEFT JOIN {$this->p}categorie_movimento cp ON cp.id = m.categoria_proposta_id
+                LEFT JOIN {$this->p}regole_categoria rg ON rg.id = m.regola_id"
+            : "SELECT m.* FROM {$this->p}movimenti_banca m";
+        $stmt = $this->pdo->prepare($select . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
+            . " ORDER BY COALESCE(m.data_valuta, m.data_operazione) DESC, m.id DESC LIMIT 1000");
         $stmt->execute($params);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         foreach ($rows as &$r) {
             $r['importo'] = (float)$r['importo'];
             $r['riconciliazioni'] = $this->docs->delMovimento((int)$r['id']);
+            if ($cat) $r['chiave_suggerita'] = Classificatore::chiaveSuggerita((string)$r['descrizione'], $r['controparte']);
         }
         unset($r);
         return $rows;
@@ -423,7 +450,7 @@ class Riconciliatore
 
     // ── Helper ──────────────────────────────────────────
 
-    private function inserisciMovimento(array $m, array $conto, string $origine): int
+    private function inserisciMovimento(array $m, array $conto, string $origine, bool $abbinabile = true): int
     {
         $taglia = fn($v, int $n) => ($v === null || $v === '') ? null : mb_substr((string)$v, 0, $n, 'UTF-8');
         $this->pdo->prepare("INSERT INTO {$this->p}movimenti_banca
@@ -435,7 +462,9 @@ class Riconciliatore
                 $m['data_operazione'], $m['data_valuta'] ?: $m['data_operazione'], round((float)$m['importo'], 2),
                 (string)$m['descrizione'], $taglia($m['controparte'] ?? null, 255), $m['hash_riga'], $origine,
                 $taglia($conto['file_nome'] ?? null, 255)]);
-        return (int)$this->pdo->lastInsertId();
+        $id = (int)$this->pdo->lastInsertId();
+        if (!$abbinabile) $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET abbinabile = 0 WHERE id = ?")->execute([$id]);
+        return $id;
     }
 
     /** Avvisi registrati, non ancora visti in banca, con lo stesso importo e valuta entro ±5 giorni. */

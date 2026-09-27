@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Shared/ClaudeClient.php';
 require_once __DIR__ . '/../Shared/DocumentAi.php';
 require_once __DIR__ . '/../Shared/EstrattoContoParser.php';
 require_once __DIR__ . '/../Shared/Riconciliatore.php';
+require_once __DIR__ . '/../Shared/Classificatore.php';
 require_once __DIR__ . '/../Shared/CommessaService.php';
 require_once __DIR__ . '/IncarchiController.php';
 
@@ -39,6 +40,12 @@ class RiconciliazioneController {
         return self::motore($this->pdo, $this->prefix);
     }
 
+    /** Aggiorna le categorie dopo un import o un cambio di riconciliazione (se la migrazione c'è). */
+    public static function classifica(PDO $pdo, string $prefix, ?array $ids = null): ?array {
+        if (!Classificatore::tabellePresenti($pdo, $prefix)) return null;
+        return (new Classificatore($pdo, $prefix))->classifica($ids);
+    }
+
     private function userId(): ?int {
         $id = $GLOBALS['userContext']['id'] ?? null;
         return $id ? (int)$id : null;
@@ -68,6 +75,7 @@ class RiconciliazioneController {
         $this->pdo->beginTransaction();
         try {
             $esito = $ric->importaMovimenti($letto['movimenti'], ['banca' => $letto['banca'], 'iban' => $letto['iban'], 'file_nome' => $fileNome], $this->userId());
+            $esito['classificazione'] = self::classifica($this->pdo, $this->prefix, $esito['ids']);
             $this->pdo->commit();
         } catch (Throwable $e) {
             if ($this->pdo->inTransaction()) $this->pdo->rollBack();
@@ -78,6 +86,15 @@ class RiconciliazioneController {
             'file' => $fileNome, 'metodo' => $letto['metodo'], 'letti' => $esito['letti'],
             'nuovi' => $esito['nuovi'], 'abbinati' => $esito['abbinati'],
         ]);
+        // L'AI propone (non decide) una categoria per ciò che le regole non riconoscono
+        if ($esito['classificazione'] && ($esito['classificazione']['da_classificare'] ?? 0) > 0 && ClaudeClient::isConfigured()) {
+            try {
+                $esito['proposte_ai'] = (new Classificatore($this->pdo, $this->prefix))->proponiConAi(40);
+            } catch (Throwable $e) {
+                $letto['avvisi'][] = 'Proposte AI non disponibili: ' . $e->getMessage();
+            }
+        }
+        unset($esito['ids']);
         $esito['metodo'] = $letto['metodo'];
         $esito['banca'] = $letto['banca'];
         $esito['avvisi'] = $letto['avvisi'];
@@ -92,6 +109,7 @@ class RiconciliazioneController {
             'origine' => in_array($origine, ['estratto_conto', 'avviso_pagamento'], true) ? $origine : '',
             'dal' => $this->data($_GET['dal'] ?? $_POST['dal'] ?? null),
             'al' => $this->data($_GET['al'] ?? $_POST['al'] ?? null),
+            'abbinabili' => ($_GET['abbinabili'] ?? $_POST['abbinabili'] ?? '') === '1',
         ];
         Response::json(true, '', $this->riconciliatore()->lista($f));
     }
@@ -119,12 +137,14 @@ class RiconciliazioneController {
         try {
             if (!empty($data['avviso_id'])) {
                 $ric->collegaAvviso($movId, (int)$data['avviso_id']);
+                self::classifica($this->pdo, $this->prefix, [$movId]);
                 Audit::log('UPDATE', 'movimenti_banca', (string)$movId, null, null, ['avviso_id' => (int)$data['avviso_id']]);
                 Response::json(true, 'Accredito collegato all\'avviso di pagamento');
             }
             $docs = json_decode((string)($data['documenti'] ?? '[]'), true);
             if (!is_array($docs) || !$docs) Response::json(false, 'Seleziona almeno una fattura');
             $saldati = $ric->registra($movId, $docs, 'manuale', $this->userId());
+            self::classifica($this->pdo, $this->prefix, [$movId]);
         } catch (RuntimeException $e) {
             Response::json(false, $e->getMessage());
         }
@@ -135,7 +155,10 @@ class RiconciliazioneController {
     public function annulla($data) {
         $movId = (int)($data['movimento_id'] ?? 0);
         try {
+            $mov = $this->riconciliatore()->movimento($movId);
             $riaperte = $this->riconciliatore()->annulla($movId);
+            // Annullando un avviso si scollega anche il suo accredito: le categorie di entrambi si ricalcolano
+            self::classifica($this->pdo, $this->prefix, $mov['origine'] === 'avviso_pagamento' ? null : [$movId]);
         } catch (RuntimeException $e) {
             Response::json(false, $e->getMessage());
         }

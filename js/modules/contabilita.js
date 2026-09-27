@@ -9,7 +9,10 @@ const ModContabilita = (() => {
     async function load() {
         if (_activeTab === 'tab-incarichi') { ModIncarichi.load(); return; }
         if (_activeTab === 'tab-verifica') { loadVerifica(); return; }
+        if (window.ModMovimenti) ModMovimenti.aggiornaBadge();
         if (_activeTab === 'tab-riconciliazione') { ModRiconciliazione.load(); return; }
+        if (_activeTab === 'tab-classificare') { ModMovimenti.loadCoda(); return; }
+        if (_activeTab === 'tab-andamento') { ModAndamento.load(); return; }
         const year = document.getElementById('contabilita-year').value;
         try {
             const ov = await Store.api('overview','contabilita',{year});
@@ -184,6 +187,8 @@ const ModContabilita = (() => {
         initTabs();
         ModIncarichi.initFilters();
         if (window.ModRiconciliazione) ModRiconciliazione.init();
+        if (window.ModMovimenti) ModMovimenti.init();
+        if (window.ModAndamento) ModAndamento.init();
     }
 
     async function importPdf(file) {
