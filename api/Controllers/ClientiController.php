@@ -188,6 +188,10 @@ class ClientiController {
             'stato_attivita'     => $company['activityStatus'] ?? $company['stato_attivita'] ?? ''
         ];
 
+        // Il servizio a volte conosce la P.IVA ma non ha i dati (tipico di professionisti e ditte individuali)
+        if ($result['ragione_sociale'] === '') {
+            Response::json(false, 'Partita IVA ' . $vatCode . ' valida, ma il servizio non ha la ragione sociale: scrivila a mano.');
+        }
         Response::json(true, 'Dati azienda trovati', $result);
     }
 }
