@@ -115,7 +115,7 @@ class ApiRouter {
             if (empty($email)) {
                 Response::json(false, 'Email mancante');
             }
-            $okMsg = 'Se l\'email è registrata, riceverai una password temporanea a breve.';
+            $okMsg = 'Se l\'email è registrata, riceverai a breve un link per reimpostare la password.';
             $ip = Security::clientIp();
             $emailKey = mb_strtolower(trim((string)$email), 'UTF-8');
             if (Security::isRateLimited('reset_ip', $ip, self::RESET_MAX_PER_IP, self::RESET_WINDOW)) {
@@ -148,6 +148,23 @@ class ApiRouter {
                 $auth->resetPassword($userId, $currentPwd, $newPwd);
                 Security::rateLimitReset('login', $ip);
                 Response::json(true, 'Password aggiornata con successo. Effettua il login.');
+            } catch (Exception $e) {
+                Security::rateLimitHit('login', $ip, self::LOGIN_WINDOW);
+                Response::json(false, $e->getMessage());
+            }
+        } elseif ($action === 'confirm_reset') {
+            $token = (string)($data['token'] ?? '');
+            $newPwd = (string)($data['new_password'] ?? '');
+            if ($token === '' || $newPwd === '') {
+                Response::json(false, 'Dati mancanti');
+            }
+            // Stesso bucket del login: niente tentativi a raffica sui token
+            self::enforceLoginRateLimit();
+            $ip = Security::clientIp();
+            $auth = new Auth();
+            try {
+                $auth->confirmPasswordReset($token, $newPwd);
+                Response::json(true, 'Password aggiornata. Ora puoi accedere.');
             } catch (Exception $e) {
                 Security::rateLimitHit('login', $ip, self::LOGIN_WINDOW);
                 Response::json(false, $e->getMessage());

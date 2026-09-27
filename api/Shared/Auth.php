@@ -138,25 +138,58 @@ class Auth {
         return false;
     }
 
+    /** Durata del link di reset */
+    private const RESET_TOKEN_TTL_MINUTES = 60;
+
+    /**
+     * Invia un link di reset valido un'ora. La password NON cambia finché il link non
+     * viene usato: chi conosce solo l'email non può più buttare fuori un utente.
+     */
     public function requestPasswordReset($email) {
         $prefix = getenv('DB_PREFIX') ?: 'mv_';
         $stmt = $this->db->prepare("SELECT * FROM {$prefix}users WHERE email = :email LIMIT 1");
         $stmt->execute(['email' => $email]);
         $user = $stmt->fetch();
         if ($user && empty($user['blocked']) && ($user['status'] ?? '') !== 'Disattivato') {
-            $tempPwd = Security::generateTempPassword();
-            $hash = password_hash($tempPwd, PASSWORD_DEFAULT);
-            $this->db->prepare("UPDATE {$prefix}users SET password = ?, last_password_change = NOW(), must_change_password = 1 WHERE id = ?")->execute([$hash, $user['id']]);
-            
-            // Assume Mailer class exists or uses mail()
-            $subject = "Password Temporanea - MV Consulting ERP";
-            $message = "La tua password temporanea è: $tempPwd \nAccedi al sistema e cambiala immediatamente.";
-            if (class_exists('Mailer')) {
-                Mailer::send($user['email'], $user['name'], $subject, $message);
-            } else {
-                mail($user['email'], $subject, $message);
-            }
+            $token = bin2hex(random_bytes(32));
+            // In DB solo l'hash: una lettura del DB non basta per usare il link
+            $this->db->prepare("UPDATE {$prefix}users SET verification_token = ?, token_expires_at = DATE_ADD(NOW(), INTERVAL " . self::RESET_TOKEN_TTL_MINUTES . " MINUTE) WHERE id = ?")
+                ->execute([hash('sha256', $token), $user['id']]);
+
+            // Indirizzo fisso (override con ERP_PUBLIC_URL): mai l'Host della richiesta, che è manipolabile
+            $base = rtrim(getenv('ERP_PUBLIC_URL') ?: 'https://www.mv-consulting.it/ERP', '/');
+            $link = $base . '/#reset-token=' . $token;
+            $subject = "Reimpostazione password - MV Consulting ERP";
+            $message = "Hai chiesto di reimpostare la password dell'ERP.\n\n"
+                . "Apri questo link entro " . self::RESET_TOKEN_TTL_MINUTES . " minuti e scegli la nuova password:\n"
+                . $link . "\n\n"
+                . "Se non sei stato tu, ignora questa email: la password attuale resta valida.";
+            require_once __DIR__ . '/Mailer.php';
+            Mailer::send($user['email'], $user['full_name'] ?? $user['name'] ?? null, $subject, $message);
         }
+        return true;
+    }
+
+    /** Imposta la nuova password a partire dal token ricevuto via email */
+    public function confirmPasswordReset(string $token, string $newPwd) {
+        $prefix = getenv('DB_PREFIX') ?: 'mv_';
+        if (!preg_match('/^[a-f0-9]{64}$/', $token)) {
+            throw new Exception("Link non valido o scaduto. Richiedi un nuovo reset.");
+        }
+        $stmt = $this->db->prepare("SELECT * FROM {$prefix}users WHERE verification_token = ? AND token_expires_at > NOW() LIMIT 1");
+        $stmt->execute([hash('sha256', $token)]);
+        $user = $stmt->fetch();
+        if (!$user) {
+            throw new Exception("Link non valido o scaduto. Richiedi un nuovo reset.");
+        }
+        if (!empty($user['blocked']) || ($user['status'] ?? '') === 'Disattivato' || (isset($user['is_active']) && (int)$user['is_active'] === 0)) {
+            throw new Exception("Account non attivo. Contattare l'amministratore.");
+        }
+
+        $this->applyNewPassword($user['id'], $newPwd);
+        // Link monouso; il reset via email sblocca anche un eventuale blocco temporaneo
+        $this->db->prepare("UPDATE {$prefix}users SET verification_token = NULL, token_expires_at = NULL WHERE id = ?")->execute([$user['id']]);
+        Security::unlockAccount($user['id']);
         return true;
     }
 
@@ -182,6 +215,14 @@ class Auth {
             throw new Exception("Password attuale errata.");
         }
 
+        $this->applyNewPassword($userId, $newPwd);
+        return true;
+    }
+
+    /** Complessità, storico delle ultime 5 e salvataggio: comune a cambio password e reset via link */
+    private function applyNewPassword($userId, string $newPwd): void {
+        $prefix = getenv('DB_PREFIX') ?: 'mv_';
+        require_once __DIR__ . '/Security.php';
         if (!Security::validatePasswordComplexity($newPwd)) {
             throw new Exception("La password deve essere di almeno 12 caratteri e contenere maiuscole, minuscole, numeri e caratteri speciali.");
         }
@@ -213,7 +254,5 @@ class Auth {
         } catch (PDOException $e) {
             error_log('password_history non aggiornabile: ' . $e->getMessage());
         }
-
-        return true;
     }
 }

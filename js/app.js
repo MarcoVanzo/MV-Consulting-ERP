@@ -4,6 +4,13 @@
  * App — Main orchestrator per MV Consulting ERP
  */
 document.addEventListener('DOMContentLoaded', async () => {
+    // Link di reset password ricevuto via email
+    const resetMatch = window.location.hash.match(/reset-token=([a-f0-9]{64})/);
+    if (resetMatch) {
+        AuthFlow.showTokenResetScreen(resetMatch[1]);
+        return;
+    }
+
     // Autenticazione basata SOLO su cookie HttpOnly.
     // erp_user in localStorage è usato solo per dati di visualizzazione (nome, iniziali),
     // MAI come prova di autenticazione.

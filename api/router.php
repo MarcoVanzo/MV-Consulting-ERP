@@ -82,7 +82,7 @@ $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
 // Pubblici: login/reset password e il callback OAuth (protetto dallo state).
 // google/auth richiede un admin autenticato.
 $public_actions = [
-    'auth' => ['login', 'request_reset', 'reset_password'],
+    'auth' => ['login', 'request_reset', 'reset_password', 'confirm_reset'],
     'google' => ['callback']
 ];
 $isPublic = isset($public_actions[$module]) && in_array($action, $public_actions[$module], true);
