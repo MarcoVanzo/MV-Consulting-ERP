@@ -4,7 +4,7 @@
  * Delega la gestione incarichi a ModIncarichi
  */
 const ModContabilita = (() => {
-    let _fatture = [], _kpis = {}, _mensile = [], _statoFilter = '', _activeTab = 'tab-incarichi';
+    let _fatture = [], _kpis = {}, _mensile = [], _clienti = [], _esclusi = [], _statoFilter = '', _activeTab = 'tab-incarichi';
 
     async function load() {
         // Badge "Da classificare" aggiornato qualunque tab si apra
@@ -17,8 +17,8 @@ const ModContabilita = (() => {
         const year = document.getElementById('contabilita-year').value;
         try {
             const ov = await Store.api('overview','contabilita',{year});
-            _kpis = ov?.kpis||{}; _mensile = ov?.mensile||[];
-            renderKpis(); renderChart();
+            _kpis = ov?.kpis||{}; _mensile = ov?.mensile||[]; _clienti = ov?.clienti||[]; _esclusi = (ov?.esclusi||[]).map(Number);
+            renderKpis(); renderChart(); renderFiltroClienti();
             const params = {year}; if (_statoFilter) params.stato = _statoFilter;
             const list = await Store.api('list','contabilita',params);
             _fatture = list||[]; renderTable();
@@ -31,6 +31,41 @@ const ModContabilita = (() => {
             <div class="kpi-card kpi-green"><div class="kpi-label">Incassato</div><div class="kpi-value">${UI.formatCurrency(_kpis.totale_pagato)}</div><div class="kpi-sub">${_kpis.num_pagate||0} fatture pagate</div></div>
             <div class="kpi-card kpi-yellow"><div class="kpi-label">In Attesa</div><div class="kpi-value">${UI.formatCurrency(_kpis.in_attesa)}</div><div class="kpi-sub">${_kpis.num_attesa||0} in attesa</div></div>
             <div class="kpi-card kpi-red"><div class="kpi-label">Scaduto</div><div class="kpi-value">${UI.formatCurrency(_kpis.scaduto)}</div><div class="kpi-sub">${_kpis.num_scadute||0} fatture scadute</div></div>`;
+    }
+
+    // ── Clienti nel conteggio (KPI e grafico): la scelta è salvata sul server ──
+    function renderFiltroClienti() {
+        const btn = document.getElementById('btn-filtro-clienti'); if (!btn) return;
+        const fuori = _clienti.filter(c => _esclusi.includes(Number(c.id))).length;
+        btn.querySelector('span').textContent = fuori ? `Clienti nel conteggio: ${_clienti.length - fuori} di ${_clienti.length}` : 'Clienti nel conteggio: tutti';
+        btn.classList.toggle('btn-primary', fuori > 0); btn.classList.toggle('btn-secondary', !fuori);
+    }
+
+    function apriFiltroClienti() {
+        if (!_clienti.length) { UI.toast('Nessuna fattura nell\'anno selezionato','error'); return; }
+        const righe = _clienti.map(c => `<label style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border-subtle);cursor:pointer">
+                <input type="checkbox" class="fc-cliente" value="${UI.esc(c.id)}" ${_esclusi.includes(Number(c.id)) ? '' : 'checked'} style="width:18px;height:18px">
+                <span style="flex:1">${UI.esc(c.nome)} <span style="color:var(--text-muted);font-size:0.8rem">(${UI.esc(c.num_fatture)})</span></span>
+                <span class="td-mono" style="font-size:0.85rem">${UI.esc(UI.formatCurrency(c.fatturato))}</span></label>`).join('');
+        const html = `<div style="display:flex;gap:8px;margin-bottom:10px">
+                <button type="button" class="btn btn-sm btn-secondary" id="fc-tutti">Tutti</button>
+                <button type="button" class="btn btn-sm btn-secondary" id="fc-nessuno">Nessuno</button></div>
+            <div style="max-height:55vh;overflow-y:auto">${righe}</div>
+            <div style="font-size:0.8rem;color:var(--text-muted);margin-top:10px">I clienti senza spunta restano nell'elenco delle fatture ma non entrano in KPI e grafico. I clienti nuovi entrano da soli.</div>`;
+        UI.openModal('Clienti nel conteggio', html, salvaFiltroClienti);
+        const tutte = v => document.querySelectorAll('.fc-cliente').forEach(x => { x.checked = v; });
+        document.getElementById('fc-tutti').addEventListener('click', () => tutte(true));
+        document.getElementById('fc-nessuno').addEventListener('click', () => tutte(false));
+    }
+
+    async function salvaFiltroClienti() {
+        const visibili = [...document.querySelectorAll('.fc-cliente')];
+        // Si tengono gli esclusi di altri anni (non in elenco) e si aggiornano quelli dell'anno mostrato
+        const inElenco = new Set(visibili.map(x => Number(x.value)));
+        const esclusi = _esclusi.filter(id => !inElenco.has(id)).concat(visibili.filter(x => !x.checked).map(x => Number(x.value)));
+        const fd = new FormData(); fd.append('esclusi', JSON.stringify(esclusi));
+        await Store.upload('filtro_clienti', 'contabilita', fd);
+        UI.closeModal(); UI.toast('Scelta salvata'); load();
     }
 
     function renderChart() {
@@ -286,6 +321,6 @@ const ModContabilita = (() => {
         finally{btn.innerHTML=prev;btn.disabled=false;}
     }
 
-    return { load, openNew, edit, remove, initFilters, importPdf, importXml, importLista, importPaymentPdf };
+    return { load, openNew, edit, remove, initFilters, importPdf, importXml, importLista, importPaymentPdf, apriFiltroClienti };
 })();
 window.ModContabilita = ModContabilita;

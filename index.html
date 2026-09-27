@@ -444,7 +444,10 @@
                     </div>
                     <div class="kpi-grid" id="contabilita-kpis"></div>
                     <div class="chart-card" id="contabilita-chart-card">
-                        <div class="chart-card-title">Andamento Mensile</div>
+                        <div class="chart-card-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span>Andamento Mensile</span>
+                            <button class="btn btn-sm btn-secondary" id="btn-filtro-clienti"><i class="ph ph-funnel"></i> <span>Clienti nel conteggio</span></button>
+                        </div>
                         <div class="chart-bars" id="contabilita-chart"></div>
                     </div>
                     <div class="table-container">
@@ -518,7 +521,7 @@
                         <button class="btn btn-secondary" id="btn-import-estratto-carta">
                             <i class="ph ph-credit-card"></i> Estratto carta PDF
                         </button>
-                        <input type="file" id="input-estratto-carta" accept="application/pdf" style="display: none;">
+                        <input type="file" id="input-estratto-carta" accept="application/pdf" multiple style="display: none;">
                         <button class="btn btn-secondary" id="btn-ric-avviso" style="background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); color: #10b981;">
                             <i class="ph ph-money"></i> Importa avviso di pagamento
                         </button>
@@ -641,8 +644,8 @@
     <script src="js/modules/trasferte.js?v=1790600000" defer></script>
     <script src="js/modules/mezzi.js?v=1790537823" defer></script>
     <script src="js/modules/incarichi.js?v=1790543384" defer></script>
-    <script src="js/modules/contabilita.js?v=1790543384" defer></script>
-    <script src="js/modules/riconciliazione.js?v=1790543018" defer></script>
+    <script src="js/modules/contabilita.js?v=1790544043" defer></script>
+    <script src="js/modules/riconciliazione.js?v=1790544043" defer></script>
     <script src="js/modules/movimenti.js?v=1790537823" defer></script>
     <script src="js/modules/andamento.js?v=1790537823" defer></script>
     <script src="js/modules/admin.js?v=1790537823" defer></script>
@@ -650,7 +653,7 @@
     <script src="js/modules/offerte.js?v=1790543384" defer></script>
     <script src="js/modules/partner.js?v=1790537823" defer></script>
     <script src="js/modules/commessa.js?v=1790543384" defer></script>
-    <script src="js/app.js?v=1790543018" defer></script>
+    <script src="js/app.js?v=1790544043" defer></script>
 
 </body>
 </html>
