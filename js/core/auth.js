@@ -127,6 +127,59 @@ const AuthFlow = (() => {
         }, { signal: _abortAuth.signal });
     }
 
+    /**
+     * Reset da link email (#reset-token=...): riusa la schermata del cambio password
+     * senza il campo "password attuale".
+     */
+    function showTokenResetScreen(token) {
+        document.getElementById('auth-screen').classList.add('hidden');
+        const resetScreen = document.getElementById('reset-screen');
+        if (!resetScreen) return;
+        resetScreen.classList.remove('hidden');
+        // Il token non deve restare nella barra degli indirizzi né nella cronologia
+        history.replaceState(null, '', window.location.pathname);
+
+        const title = resetScreen.querySelector('h2');
+        const intro = resetScreen.querySelector('h2 + p');
+        if (title) title.textContent = 'Reimposta la password';
+        if (intro) intro.textContent = 'Scegli la nuova password per il tuo account.';
+
+        const oldForm = document.getElementById('reset-form');
+        if (!oldForm) return;
+        const form = oldForm.cloneNode(true);
+        oldForm.parentNode.replaceChild(form, oldForm);
+        const currentGroup = form.querySelector('#reset-current')?.closest('.form-group-login');
+        if (currentGroup) currentGroup.classList.add('hidden');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = form.querySelector('#reset-btn');
+            const errEl = form.querySelector('#reset-error');
+            const newPwd = form.querySelector('#reset-new').value;
+
+            const complexityErr = _checkPasswordComplexity(newPwd);
+            if (complexityErr) {
+                errEl.textContent = complexityErr;
+                errEl.classList.remove('hidden');
+                return;
+            }
+
+            errEl.classList.add('hidden');
+            btn.disabled = true;
+            btn.textContent = 'SALVATAGGIO...';
+            try {
+                await Store.api('confirm_reset', 'auth', { token, new_password: newPwd });
+                alert('Password aggiornata. Ora puoi accedere.');
+                window.location.reload();
+            } catch (err) {
+                errEl.textContent = err.message || "Errore durante l'aggiornamento";
+                errEl.classList.remove('hidden');
+                btn.disabled = false;
+                btn.innerHTML = 'SALVA NUOVA PASSWORD <i class="ph ph-caret-right"></i>';
+            }
+        }, { signal: _abortAuth.signal });
+    }
+
     /** Stesse regole del backend (Security::validatePasswordComplexity). Ritorna il messaggio d'errore o '' */
     function _checkPasswordComplexity(pwd) {
         const missing = [];
@@ -141,12 +194,12 @@ const AuthFlow = (() => {
     function renderForgotPassword() {
         const emailInput = document.querySelector('#login-email')?.value.trim() || '';
         
-        const emailStr = window.prompt("Password dimenticata?\n\nInserisci il tuo indirizzo email. Ti invieremo una password temporanea valida per un solo utilizzo.", emailInput);
+        const emailStr = window.prompt("Password dimenticata?\n\nInserisci il tuo indirizzo email. Ti invieremo un link per reimpostare la password, valido un'ora.", emailInput);
         
         if (emailStr && emailStr.includes('@')) {
             Store.api('request_reset', 'auth', { email: emailStr })
                 .then(res => {
-                    alert("Richiesta inviata. Se l'email è registrata riceverai una password temporanea a breve.");
+                    alert("Richiesta inviata. Se l'email è registrata riceverai a breve un link per reimpostare la password.");
                 })
                 .catch(err => {
                     alert("Errore durante la richiesta: " + (err.message || "Riprova più tardi."));
@@ -154,7 +207,7 @@ const AuthFlow = (() => {
         }
     }
 
-    return { showLoginScreen };
+    return { showLoginScreen, showTokenResetScreen };
 })();
 
 window.AuthFlow = AuthFlow;
