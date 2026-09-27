@@ -610,7 +610,10 @@ $queries = [
 
     // v071–v072: nuovi tipi di commessa (consulenza NIS 2, ICT, digital, sviluppo software) su incarichi e offerte
     "ALTER TABLE {$prefix}incarichi MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software') NOT NULL DEFAULT 'assistenza'",
-    "ALTER TABLE {$prefix}offerte MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software') NOT NULL DEFAULT 'assistenza'"
+    "ALTER TABLE {$prefix}offerte MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software') NOT NULL DEFAULT 'assistenza'",
+
+    // v073: categoria di uscita Assicurazioni (polizze e premi), riconosciuta anche dalle euristiche del Classificatore
+    "INSERT IGNORE INTO {$prefix}categorie_movimento (codice, nome, tipo, colore, ordine) VALUES ('assicurazioni', 'Assicurazioni', 'uscita', '#B45309', 175)"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
 
