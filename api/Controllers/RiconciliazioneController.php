@@ -59,6 +59,10 @@ class RiconciliazioneController {
         $ric = $this->riconciliatore();
         $fileNome = trim((string)($data['file_nome'] ?? ''));
         $carta = ($data['tipo'] ?? '') === 'carta';
+        // Estratto carta caricato come estratto conto: si importa comunque come carta, altrimenti le spese si raddoppiano
+        $cartaRiconosciuta = !$carta && trim((string)($data['xml'] ?? '')) === '' && is_array($data['pages'] ?? null)
+            && EstrattoContoParser::eEstrattoCarta(implode("\n", array_map('strval', $data['pages'])));
+        $carta = $carta || $cartaRiconosciuta;
         if ($carta && !$this->origineCartaPresente()) {
             Response::json(false, 'Import dell\'estratto carta non ancora attivo: lancia la migrazione del database.');
         }
@@ -111,6 +115,7 @@ class RiconciliazioneController {
         $esito['metodo'] = $letto['metodo'];
         $esito['banca'] = $letto['banca'];
         $esito['avvisi'] = array_merge($letto['avvisi'], $esito['avvisi'] ?? []);
+        if ($cartaRiconosciuta) array_unshift($esito['avvisi'], 'Il file è un estratto della carta di credito: importato come carta, fuori da categorie e grafici.');
         Response::json(true, $carta ? 'Estratto carta importato' : 'Estratto conto importato', $esito);
     }
 

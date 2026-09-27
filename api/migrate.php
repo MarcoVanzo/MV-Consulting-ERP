@@ -622,7 +622,11 @@ $queries = [
           AND NOT EXISTS (SELECT 1 FROM {$prefix}clienti c WHERE LOWER(TRIM(c.ragione_sociale)) = LOWER(TRIM(o.cliente_nome)))",
     "UPDATE {$prefix}offerte o JOIN {$prefix}clienti c ON LOWER(TRIM(c.ragione_sociale)) = LOWER(TRIM(o.cliente_nome))
         SET o.cliente_id = c.id, o.cliente_nome = NULL
-        WHERE o.cliente_id IS NULL"
+        WHERE o.cliente_id IS NULL",
+
+    // v076: estratti carta importati per errore come estratto conto → origine carta (si sommavano all'addebito mensile)
+    "UPDATE {$prefix}movimenti_banca SET origine = 'estratto_carta', categoria_id = NULL, categoria_proposta_id = NULL
+        WHERE origine = 'estratto_conto' AND banca REGEXP '(numia|carta ?bcc)'"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
 
