@@ -305,8 +305,25 @@ $queries = [
     "ALTER TABLE {$prefix}trasferte ADD FOREIGN KEY fk_trasferte_mezzo (mezzo_id) REFERENCES {$prefix}mezzi(id) ON DELETE SET NULL",
 
     // ── Allineamento password_history (tabella preesistente senza pwd_hash) ──
-    "ALTER TABLE {$prefix}password_history ADD COLUMN pwd_hash VARCHAR(255) DEFAULT NULL AFTER user_id"
+    "ALTER TABLE {$prefix}password_history ADD COLUMN pwd_hash VARCHAR(255) DEFAULT NULL AFTER user_id",
+
+    // ── Registro backup DB (stesso schema di AdminController::ensureTables) ──
+    "CREATE TABLE IF NOT EXISTS {$prefix}db_backups (
+        id VARCHAR(50) PRIMARY KEY,
+        filename VARCHAR(255) NOT NULL,
+        filesize BIGINT NOT NULL DEFAULT 0,
+        row_count INT NULL DEFAULT 0,
+        status VARCHAR(20) DEFAULT 'ok',
+        created_by INT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
+
+// Versioni che su DB legacy possono dare 1054 (colonna sconosciuta) senza che sia un errore:
+// v025 ADD username AFTER name (colonna 'name' assente) → si riprova senza AFTER;
+// v034/v043 CHANGE user_name/timestamp su audit_logs (colonne legacy già rinominate o mai esistite).
+$legacy1054 = ['v025', 'v034', 'v043'];
 
 $results = [];
 $newlyApplied = 0;
@@ -329,9 +346,26 @@ foreach ($queries as $idx => $sql) {
         $tableName = $m[1] ?? "migration_$version";
         $results[] = ['version' => $version, 'table' => $tableName, 'status' => 'OK'];
     } catch (PDOException $e) {
+        $code = (int)($e->errorInfo[1] ?? 0);
+
+        // v025: se manca la colonna di riferimento dell'AFTER, riprova aggiungendo in coda
+        if ($code === 1054 && in_array($version, $legacy1054, true) && preg_match('/\bADD COLUMN\b.*\bAFTER\s+\w+\s*$/is', $sql)) {
+            try {
+                $pdo->exec(preg_replace('/\s+AFTER\s+\w+\s*$/i', '', $sql));
+                $pdo->prepare("INSERT INTO `{$prefix}migrations` (version) VALUES (?)")->execute([$version]);
+                $newlyApplied++;
+                $results[] = ['version' => $version, 'status' => 'OK', 'message' => 'Applicata senza AFTER (colonna di riferimento assente)'];
+                continue;
+            } catch (PDOException $e2) {
+                $e = $e2;
+                $code = (int)($e2->errorInfo[1] ?? 0);
+            }
+        }
+
         // Duplicate column / table exists errors are safe to skip
-        $safeErrors = [1060, 1061, 1068, 1050]; // dup column, dup key, dup primary, table exists
-        if (in_array($e->errorInfo[1] ?? 0, $safeErrors)) {
+        $safeErrors = [1060, 1061, 1050]; // dup column, dup key, table exists
+        $isLegacyChange = $code === 1054 && in_array($version, $legacy1054, true) && preg_match('/\bCHANGE\b/i', $sql);
+        if (in_array($code, $safeErrors, true) || $isLegacyChange) {
             // Mark as applied even if it was a safe skip
             try { $pdo->prepare("INSERT INTO `{$prefix}migrations` (version) VALUES (?)")->execute([$version]); } catch(\Throwable $ignore) {}
             $results[] = ['version' => $version, 'status' => 'SKIPPED', 'message' => $e->getMessage()];
@@ -341,9 +375,11 @@ foreach ($queries as $idx => $sql) {
     }
 }
 
+$hasErrors = count(array_filter($results, fn($r) => $r['status'] === 'ERROR')) > 0;
+
 header('Content-Type: application/json');
 echo json_encode([
-    'success' => true, 
+    'success' => !$hasErrors,
     'newly_applied' => $newlyApplied,
     'total_tracked' => count($applied) + $newlyApplied,
     'migrations' => $results

@@ -53,7 +53,10 @@ class BackupService
         }
 
         // ── 2. List tables ────────────────────────────────────────────────────
-        $stmt = $this->pdo->query("SELECT TABLE_NAME, TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE '{$this->prefix}%'");
+        // '_' e '%' nel prefisso sono jolly di LIKE: vanno escapati
+        $likePrefix = addcslashes($this->prefix, '\\_%') . '%';
+        $stmt = $this->pdo->prepare("SELECT TABLE_NAME, TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE ?");
+        $stmt->execute([$likePrefix]);
         $tables = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         $tableNames = array_column($tables, 'TABLE_NAME');
@@ -84,6 +87,7 @@ class BackupService
         fwrite($fh, "SET FOREIGN_KEY_CHECKS=0;\nSET SQL_MODE='NO_AUTO_VALUE_ON_ZERO';\nSET NAMES utf8mb4;\n\n");
 
         // ── 5. Dump each table ────────────────────────────────────────────────
+        $readErrors = [];
         foreach ($tableNames as $table) {
             if (!preg_match('/^[a-zA-Z0-9_]+$/', $table)) {
                 fwrite($fh, "-- SKIPPED unsafe table name: {$table}\n");
@@ -95,21 +99,36 @@ class BackupService
                 $createSql = $row[1] ?? '';
             } catch (\Throwable $e) {
                 $createSql = "-- Could not retrieve CREATE for {$table}: " . $e->getMessage();
+                $readErrors[] = "{$table}: " . $e->getMessage();
             }
 
             fwrite($fh, "-- ──────── TABLE: {$table} ────────\n");
             fwrite($fh, "DROP TABLE IF EXISTS `{$table}`;\n");
             fwrite($fh, $createSql . ";\n\n");
 
+            // ORDER BY sulla chiave primaria: senza, LIMIT/OFFSET può saltare o duplicare righe
+            $orderBy = '';
+            try {
+                $pkStmt = $this->pdo->prepare("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY' ORDER BY ORDINAL_POSITION");
+                $pkStmt->execute([$table]);
+                $pkCols = $pkStmt->fetchAll(PDO::FETCH_COLUMN);
+                if ($pkCols) {
+                    $orderBy = ' ORDER BY ' . implode(', ', array_map(fn($c) => '`' . str_replace('`', '``', $c) . '`', $pkCols));
+                }
+            } catch (\Throwable $e) {
+                $readErrors[] = "{$table}: " . $e->getMessage();
+            }
+
             $offset = 0;
             $chunkSize = 500;
             do {
                 try {
-                    $stmt = $this->pdo->prepare("SELECT * FROM `{$table}` LIMIT " . (string)$chunkSize . " OFFSET " . (string)$offset);
+                    $stmt = $this->pdo->prepare("SELECT * FROM `{$table}`{$orderBy} LIMIT " . (string)$chunkSize . " OFFSET " . (string)$offset);
                     $stmt->execute();
                     $rows = $stmt->fetchAll(PDO::FETCH_NUM);
                 } catch (\Throwable $e) {
                     fwrite($fh, "-- Error reading {$table}: " . $e->getMessage() . "\n");
+                    $readErrors[] = "{$table}: " . $e->getMessage();
                     break;
                 }
                 if (empty($rows)) {
@@ -132,6 +151,12 @@ class BackupService
         fwrite($fh, "SET FOREIGN_KEY_CHECKS=1;\n");
         fclose($fh);
 
+        // Un dump incompleto non è un backup: si scarta e si segnala l'errore
+        if ($readErrors) {
+            @unlink($sqlPath);
+            return ['success' => false, 'error' => 'Backup incompleto, errore di lettura: ' . implode('; ', $readErrors)];
+        }
+
         // ── 6. Compress to ZIP ────────────────────────────────────────────────
         $filesize = 0;
         $finalFile = $zipFile;
@@ -141,9 +166,16 @@ class BackupService
             $zip = new \ZipArchive();
             if ($zip->open($zipPath, \ZipArchive::CREATE) === true) {
                 $zip->addFile($sqlPath, $sqlFile);
-                $zip->close();
-                unlink($sqlPath);
-                $filesize = file_exists($zipPath) ? filesize($zipPath) : 0;
+                if ($zip->close() && file_exists($zipPath)) {
+                    unlink($sqlPath);
+                    $filesize = filesize($zipPath);
+                } else {
+                    // ZIP non scritto: si tiene lo .sql non compresso
+                    @unlink($zipPath);
+                    $finalFile = $sqlFile;
+                    $finalPath = $sqlPath;
+                    $filesize = file_exists($sqlPath) ? filesize($sqlPath) : 0;
+                }
             } else {
                 $finalFile = $sqlFile;
                 $finalPath = $sqlPath;
@@ -158,7 +190,7 @@ class BackupService
         // ── 7. Persist metadata (if table exists) ───────────────────────────────
         try {
             // Check if db_backups table exists
-            $stmt = $this->pdo->query("SHOW TABLES LIKE '{$this->prefix}db_backups'");
+            $stmt = $this->pdo->query("SHOW TABLES LIKE " . $this->pdo->quote(addcslashes($this->prefix . 'db_backups', '\\_%')));
             if ($stmt->fetch()) {
                 $sql = "INSERT INTO {$this->prefix}db_backups (id, filename, filesize, row_count, created_by, status) VALUES (?, ?, ?, ?, ?, 'ok')";
                 $this->pdo->prepare($sql)->execute([$backupId, $finalFile, $filesize, $totalRows, $createdBy]);

@@ -31,11 +31,11 @@ const ModIncarichi = (() => {
 
         const tipoBadge = t => {
             const colors = {assistenza:'#6366f1',dpo:'#f59e0b',formazione:'#10b981'};
-            return `<span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;background:${colors[t]||'#666'}22;color:${colors[t]||'#666'}">${t.toUpperCase()}</span>`;
+            return `<span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;background:${colors[t]||'#666'}22;color:${colors[t]||'#666'}">${UI.esc(String(t||'').toUpperCase())}</span>`;
         };
         const statoBadge = s => {
             const c = {attivo:'#3b82f6',parziale:'#f59e0b',fatturato:'#8b5cf6',pagato:'#10b981'};
-            return `<span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;background:${c[s]||'#666'}22;color:${c[s]||'#666'}">${s.charAt(0).toUpperCase()+s.slice(1)}</span>`;
+            return `<span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;background:${c[s]||'#666'}22;color:${c[s]||'#666'}">${UI.esc(s?s.charAt(0).toUpperCase()+s.slice(1):'—')}</span>`;
         };
 
         tbody.innerHTML = data.map(i => {
@@ -46,7 +46,7 @@ const ModIncarichi = (() => {
             const pctP = Math.min((pag/tot)*100,100).toFixed(0);
             const cliente = UI.esc(i.cliente_nome||'—') + (i.sottocliente_nome ? ` <span style="color:var(--text-muted)">/ ${UI.esc(i.sottocliente_nome)}</span>` : '');
             const protLabel = i.numero_protocollo ? `<span style="font-size:0.7rem;color:var(--accent-secondary);opacity:0.8" title="Protocollo"><i class="ph ph-hash"></i> ${UI.esc(i.numero_protocollo)}</span>` : '';
-            return `<tr data-id="${i.id}">
+            return `<tr data-id="${UI.esc(i.id)}">
                 <td>${protLabel}</td>
                 <td class="td-primary">${cliente}</td>
                 <td>${tipoBadge(i.tipo_commessa)}</td>
@@ -80,19 +80,19 @@ const ModIncarichi = (() => {
 
     function getFormHtml(d={}) {
         const clienti = ModClienti.getClienti();
-        const cOpts = clienti.map(c => `<option value="${c.id}" ${c.id==d.cliente_id?'selected':''}>${UI.esc(c.ragione_sociale)}</option>`).join('');
+        const cOpts = clienti.map(c => `<option value="${UI.esc(c.id)}" ${c.id==d.cliente_id?'selected':''}>${UI.esc(c.ragione_sociale)}</option>`).join('');
         const tipi = ['assistenza','dpo','formazione'];
         const tOpts = tipi.map(t => `<option value="${t}" ${t===(d.tipo_commessa||'assistenza')?'selected':''}>${t.charAt(0).toUpperCase()+t.slice(1)}</option>`).join('');
         return `<div class="form-grid">
             <div class="form-group"><label>Cliente *</label><select class="form-control" id="f-inc-cliente"><option value="">— Seleziona —</option>${cOpts}</select></div>
             <div class="form-group"><label>Sottocliente</label><select class="form-control" id="f-inc-sotto"><option value="">— Nessuno —</option></select></div>
-            <div class="form-group"><label>Data Incarico *</label><input type="date" class="form-control" id="f-inc-data" value="${d.data_incarico||new Date().toISOString().split('T')[0]}"></div>
+            <div class="form-group"><label>Data Incarico *</label><input type="date" class="form-control" id="f-inc-data" value="${UI.esc(d.data_incarico||UI.todayLocal())}"></div>
             <div class="form-group"><label>Tipo Commessa *</label><select class="form-control" id="f-inc-tipo">${tOpts}</select></div>
             <div class="form-group"><label>N. Protocollo</label><input type="text" class="form-control" id="f-inc-protocollo" value="${UI.esc(d.numero_protocollo||'')}" placeholder="es. SZ.DPS.F142.26"></div>
-            <div class="form-group"><label>N. Giornate</label><input type="number" class="form-control" id="f-inc-gg" value="${d.num_giornate||0}" step="0.5"></div>
-            <div class="form-group"><label>Importo Totale (€) *</label><input type="number" class="form-control" id="f-inc-importo" value="${d.importo_totale||0}" step="0.01"></div>
+            <div class="form-group"><label>N. Giornate</label><input type="number" class="form-control" id="f-inc-gg" value="${UI.esc(d.num_giornate||0)}" step="0.5"></div>
+            <div class="form-group"><label>Importo Totale (€) *</label><input type="number" class="form-control" id="f-inc-importo" value="${UI.esc(d.importo_totale||0)}" step="0.01"></div>
             <div class="form-group full-width"><label>Note</label><textarea class="form-control" id="f-inc-note">${UI.esc(d.note||'')}</textarea></div>
-        </div><input type="hidden" id="f-inc-id" value="${d.id||''}">`;
+        </div><input type="hidden" id="f-inc-id" value="${UI.esc(d.id||'')}">`;
     }
 
     function openNew() {
@@ -164,19 +164,8 @@ const ModIncarichi = (() => {
             const pdf = await pdfjsLib.getDocument({data:ab}).promise;
             const pages = [];
             for (let i=1;i<=pdf.numPages;i++) { const pg=await pdf.getPage(i); const tc=await pg.getTextContent(); pages.push(tc.items.map(x=>x.str).join(' ')); }
-            console.log('[PDF Import] Pages testo estratto:', pages);
-            // Use direct fetch with JSON to preserve the pages array (FormData flattens arrays)
-            const token = localStorage.getItem('erp_token');
-            const hdr = {'Content-Type':'application/json'};
-            if (token) hdr['Authorization'] = 'Bearer ' + token;
-            const resp = await fetch('api/router.php', {method:'POST', headers:hdr, credentials:'include', body:JSON.stringify({module:'incarichi', action:'import_pdf', pages})});
-            const result = await resp.json();
-            if (!result.success) throw new Error(result.message || 'Errore analisi PDF');
-            const res = result.data;
-            console.log('[PDF Import] Risultato parsing:', res);
-            if (res?._debug_text) console.log('[PDF Import] Testo estratto:', res._debug_text);
-            if (res?._debug_importo_candidates) console.log('[PDF Import] Importo candidates:', JSON.stringify(res._debug_importo_candidates, null, 2));
-            if (res?._debug_giornate_candidates) console.log('[PDF Import] Giornate candidates:', JSON.stringify(res._debug_giornate_candidates, null, 2));
+            // pages[] come array: FormData con CSRF tramite Store.upload
+            const res = await Store.upload('import_pdf', 'incarichi', Store.formDataFromArray('pages', pages));
             if (res) {
                 UI.openModal('Nuovo Incarico (da PDF)', getFormHtml({
                     cliente_id: res.cliente_id, sottocliente_id: res.sottocliente_id,

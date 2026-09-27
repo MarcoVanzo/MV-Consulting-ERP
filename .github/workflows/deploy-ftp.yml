@@ -48,3 +48,11 @@ jobs:
             db_dump*
             delete_token*
             _autodeploy.php
+            **/*.md
+            .agents/**
+            scripts/**
+            cron/*.log
+            deploy.config
+            deploy_manifest.json
+            .deploy_cache.json
+            .deploy_history.log

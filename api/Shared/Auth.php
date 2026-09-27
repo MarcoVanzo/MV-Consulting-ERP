@@ -1,6 +1,16 @@
 <?php
 
+require_once __DIR__ . '/Security.php';
+
 class Auth {
+    /** Ruoli ammessi; un ruolo mancante vale il minimo privilegio */
+    public const ROLES = ['admin', 'operatore'];
+    public const DEFAULT_ROLE = 'operatore';
+
+    public static function normalizeRole($role): string {
+        return in_array($role, self::ROLES, true) ? $role : self::DEFAULT_ROLE;
+    }
+
     private $db;
 
     public function __construct() {
@@ -19,8 +29,12 @@ class Auth {
                 if (!empty($user['blocked'])) {
                     throw new Exception("Account bloccato. Contattare l'amministratore.");
                 }
-                if ($user['status'] === 'Disattivato') {
+                if (($user['status'] ?? '') === 'Disattivato' || (isset($user['is_active']) && (int)$user['is_active'] === 0)) {
                     throw new Exception("Account disattivato.");
+                }
+                // Blocco temporaneo dopo troppi tentativi falliti
+                if (Security::accountLockRemaining($user['id']) > 0) {
+                    throw new Exception("Account temporaneamente bloccato per troppi tentativi.");
                 }
 
                 $dbPassword = !empty($user['password']) ? $user['password'] : (!empty($user['pwd_hash']) ? $user['pwd_hash'] : null);
@@ -71,7 +85,7 @@ class Auth {
                     $payload = [
                         'id' => $user['id'],
                         'email' => $user['email'],
-                        'role' => $user['role'] ?? 'admin',
+                        'role' => self::normalizeRole($user['role'] ?? null),
                         'exp' => time() + $jwtExpiration
                     ];
                     $token = JWT::encode($payload, $secret);
@@ -97,24 +111,22 @@ class Auth {
                     
                     // Audit fallback since we don't have the Audit class imported properly
                     if (class_exists('Audit')) {
-                        Audit::log('LOGIN', 'users', (string)$user['id'], null, null, ['email' => $user['email']]);
+                        Audit::log('LOGIN', 'users', (string)$user['id'], null, null, ['email' => $user['email']], 'login', null, [
+                            'id' => $user['id'],
+                            'username' => $user['full_name'] ?? $user['name'] ?? $user['email'],
+                            'role' => self::normalizeRole($user['role'] ?? null),
+                        ]);
                     }
                     
                     return [
                         'id' => $user['id'],
                         'name' => $user['name'] ?? $user['full_name'] ?? 'User',
                         'email' => $user['email'],
-                        'role' => $user['role'] ?? 'admin'
+                        'role' => self::normalizeRole($user['role'] ?? null)
                     ];
                 } else {
-                    try {
-                        $this->db->prepare("UPDATE {$prefix}users SET failed_attempts = failed_attempts + 1 WHERE id = ?")->execute([$user['id']]);
-                        $stmtCheck = $this->db->prepare("SELECT failed_attempts FROM {$prefix}users WHERE id = ?");
-                        $stmtCheck->execute([$user['id']]);
-                        if ($stmtCheck->fetchColumn() >= 10) {
-                            $this->db->prepare("UPDATE {$prefix}users SET blocked = 1 WHERE id = ?")->execute([$user['id']]);
-                        }
-                    } catch (\Exception $e) { }
+                    // Blocco temporaneo (non più blocked = 1 permanente)
+                    Security::registerFailedAttempt($this->db, $prefix, $user['id']);
                 }
             }
         } catch (PDOException $e) {
@@ -131,8 +143,7 @@ class Auth {
         $stmt = $this->db->prepare("SELECT * FROM {$prefix}users WHERE email = :email LIMIT 1");
         $stmt->execute(['email' => $email]);
         $user = $stmt->fetch();
-        if ($user) {
-            require_once __DIR__ . '/Security.php';
+        if ($user && empty($user['blocked']) && ($user['status'] ?? '') !== 'Disattivato') {
             $tempPwd = Security::generateTempPassword();
             $hash = password_hash($tempPwd, PASSWORD_DEFAULT);
             $this->db->prepare("UPDATE {$prefix}users SET password = ?, last_password_change = NOW(), must_change_password = 1 WHERE id = ?")->execute([$hash, $user['id']]);
@@ -154,13 +165,23 @@ class Auth {
         $stmt = $this->db->prepare("SELECT * FROM {$prefix}users WHERE id = :id LIMIT 1");
         $stmt->execute(['id' => $userId]);
         $user = $stmt->fetch();
+        if (!$user) {
+            throw new Exception("Password attuale errata.");
+        }
+        if (!empty($user['blocked']) || ($user['status'] ?? '') === 'Disattivato' || (isset($user['is_active']) && (int)$user['is_active'] === 0)) {
+            throw new Exception("Account non attivo. Contattare l'amministratore.");
+        }
+        if (Security::accountLockRemaining($user['id']) > 0) {
+            throw new Exception("Account temporaneamente bloccato per troppi tentativi. Riprovare tra qualche minuto.");
+        }
 
         $dbPassword = !empty($user['password']) ? $user['password'] : (!empty($user['pwd_hash']) ? $user['pwd_hash'] : null);
-        if (!$user || !password_verify($currentPwd, $dbPassword)) {
+        if (!$dbPassword || !password_verify($currentPwd, $dbPassword)) {
+            // Stesso conteggio del login: failed_attempts + blocco temporaneo
+            Security::registerFailedAttempt($this->db, $prefix, $user['id']);
             throw new Exception("Password attuale errata.");
         }
 
-        require_once __DIR__ . '/Security.php';
         if (!Security::validatePasswordComplexity($newPwd)) {
             throw new Exception("La password deve essere di almeno 12 caratteri e contenere maiuscole, minuscole, numeri e caratteri speciali.");
         }
@@ -182,6 +203,9 @@ class Auth {
 
         $hash = password_hash($newPwd, PASSWORD_DEFAULT);
         $this->db->prepare("UPDATE {$prefix}users SET password = ?, last_password_change = NOW(), must_change_password = 0 WHERE id = ?")->execute([$hash, $userId]);
+        try {
+            $this->db->prepare("UPDATE {$prefix}users SET failed_attempts = 0 WHERE id = ?")->execute([$userId]);
+        } catch (\Exception $e) { }
 
         try {
             $this->db->prepare("INSERT INTO {$prefix}password_history (user_id, pwd_hash) VALUES (?, ?)")->execute([$userId, $hash]);

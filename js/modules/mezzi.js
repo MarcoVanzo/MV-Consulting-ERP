@@ -127,7 +127,7 @@ const ModMezzi = (() => {
                             if (v.stato === 'fuori_servizio') { statusText = 'Fuori Servizio'; statusClass = 'status-out'; }
                             
                             return `
-                                <div class="vehicle-card" data-id="${v.id}">
+                                <div class="vehicle-card" data-id="${UI.esc(v.id)}">
                                     <div class="vehicle-header">
                                         <div>
                                             <div class="vehicle-name">${UI.esc(v.nome)}</div>
@@ -139,7 +139,7 @@ const ModMezzi = (() => {
                                     <div class="vehicle-metrics">
                                         <div class="v-metric" title="Posti a sedere">
                                             <i class="ph ph-users"></i>
-                                            <span>${v.capacita || 9} Posti</span>
+                                            <span>${UI.esc(v.capacita || 9)} Posti</span>
                                         </div>
                                         <div class="v-metric">
                                             <i class="ph ph-calendar-check"></i>
@@ -147,7 +147,7 @@ const ModMezzi = (() => {
                                         </div>
                                         <div class="v-metric ${v.open_anomalies > 0 ? 'alert' : ''}" style="grid-column: span 2;">
                                             <i class="ph ph-warning-circle"></i>
-                                            <span>${v.open_anomalies > 0 ? `${v.open_anomalies} Anomalie Aperte` : 'Nessuna anomalia'}</span>
+                                            <span>${v.open_anomalies > 0 ? `${parseInt(v.open_anomalies) || 0} Anomalie Aperte` : 'Nessuna anomalia'}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -179,7 +179,7 @@ const ModMezzi = (() => {
                 </div>
                 <div class="form-group">
                     <label>Capacità (Posti)</label>
-                    <input type="number" class="form-control" id="m-cap" value="${mezzo ? mezzo.capacita : 9}" min="1">
+                    <input type="number" class="form-control" id="m-cap" value="${UI.esc(mezzo ? mezzo.capacita : 9)}" min="1">
                 </div>
                 <div class="form-group">
                     <label>Stato</label>
@@ -191,11 +191,11 @@ const ModMezzi = (() => {
                 </div>
                 <div class="form-group">
                     <label>Scadenza Assicurazione</label>
-                    <input type="date" class="form-control" id="m-ass" value="${mezzo?.scadenza_assicurazione || ''}">
+                    <input type="date" class="form-control" id="m-ass" value="${UI.esc(mezzo?.scadenza_assicurazione || '')}">
                 </div>
                 <div class="form-group">
                     <label>Scadenza Bollo</label>
-                    <input type="date" class="form-control" id="m-bollo" value="${mezzo?.scadenza_bollo || ''}">
+                    <input type="date" class="form-control" id="m-bollo" value="${UI.esc(mezzo?.scadenza_bollo || '')}">
                 </div>
                 <div class="form-group full-width">
                     <label>Note</label>
@@ -348,7 +348,8 @@ const ModMezzi = (() => {
         bindTabEvents();
     }
 
-    const isExpired = d => d && new Date(d) < new Date();
+    // Confronto tra stringhe YYYY-MM-DD con la data locale di oggi (niente sfasamenti UTC)
+    const isExpired = d => !!d && String(d).substring(0, 10) < UI.todayLocal();
 
     function getInfoHtml() {
         const v = _currentVehicle;
@@ -357,9 +358,9 @@ const ModMezzi = (() => {
                 <div class="info-card">
                     <h3 style="margin-top:0; margin-bottom:24px; color:var(--accent-primary);">Dettagli Tecnici</h3>
                     <div class="info-lbl">Capacità</div>
-                    <div class="info-val">${v.capacita} Posti</div>
+                    <div class="info-val">${UI.esc(v.capacita)} Posti</div>
                     <div class="info-lbl">Note Aggiuntive</div>
-                    <div class="info-val" style="color:var(--text-muted); font-weight:normal;">${v.note ? UI.esc(v.note).replace(/\\n/g, '<br>') : '—'}</div>
+                    <div class="info-val" style="color:var(--text-muted); font-weight:normal;">${v.note ? UI.esc(v.note).replace(/\n/g, '<br>') : '—'}</div>
                 </div>
                 <div class="info-card">
                     <h3 style="margin-top:0; margin-bottom:24px; color:#FF00FF;">Scadenze</h3>
@@ -379,17 +380,17 @@ const ModMezzi = (() => {
         let rows = v.maintenance?.map(m => `
             <tr>
                 <td><strong>${UI.formatDate(m.data_manutenzione)}</strong></td>
-                <td>${maintTypes[m.tipo] || m.tipo}</td>
-                <td>${m.chilometraggio ? m.chilometraggio + ' km' : '—'}</td>
+                <td>${maintTypes[m.tipo] || UI.esc(m.tipo)}</td>
+                <td>${m.chilometraggio ? UI.esc(m.chilometraggio) + ' km' : '—'}</td>
                 <td>${UI.esc(m.descrizione || '—')}</td>
                 <td>${parseFloat(m.costo) > 0 ? UI.formatCurrency(m.costo) : '—'}</td>
                 <td>
-                    ${m.allegato_url ? `<a href="${m.allegato_url}" target="_blank" class="btn btn-ghost" style="padding:4px; font-size:12px;" title="Vedi Allegato"><i class="ph ph-file-pdf"></i> Allegato</a>` : '—'}
+                    ${UI.safeUrl(m.allegato_url) ? `<a href="${UI.safeUrl(m.allegato_url)}" target="_blank" rel="noopener" class="btn btn-ghost" style="padding:4px; font-size:12px;" title="Vedi Allegato"><i class="ph ph-file-pdf"></i> Allegato</a>` : '—'}
                 </td>
                 <td>
                     ${m.prossima_scadenza_data ? UI.formatDate(m.prossima_scadenza_data) : ''}
                     ${m.prossima_scadenza_data && m.prossima_scadenza_km ? '<br>' : ''}
-                    ${m.prossima_scadenza_km ? m.prossima_scadenza_km + ' km' : ''}
+                    ${m.prossima_scadenza_km ? UI.esc(m.prossima_scadenza_km) + ' km' : ''}
                 </td>
                 <td style="text-align:right; white-space:nowrap;">
                     <button class="btn btn-ghost" style="padding:4px;" onclick="ModMezzi.editMaintenance(${m.id})" title="Modifica"><i class="ph ph-pencil-simple"></i></button>
@@ -429,7 +430,7 @@ const ModMezzi = (() => {
                 <div>
                     <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
                         ${formatStatusBadge(a.stato)}
-                        <span style="font-size:0.75rem; color:var(--text-muted);"><i class="ph ph-clock"></i> ${UI.formatDate(a.data_segnalazione.split(' ')[0])}</span>
+                        <span style="font-size:0.75rem; color:var(--text-muted);"><i class="ph ph-clock"></i> ${UI.formatDate(String(a.data_segnalazione || '').split(' ')[0])}</span>
                         <span style="font-size:0.75rem; color:var(--text-muted);"><i class="ph ph-user"></i> ${UI.esc(a.reporter_name || 'Utente')}</span>
                     </div>
                     <div style="font-size:1rem; font-weight:600; margin-bottom:8px;">${UI.esc(a.descrizione)}</div>
@@ -437,7 +438,7 @@ const ModMezzi = (() => {
                 </div>
                 <div>
                     ${a.stato !== 'resolved' ? `
-                        <select class="form-control anomaly-status-update" data-id="${a.id}" style="width:140px; padding:6px; margin-bottom:8px;">
+                        <select class="form-control anomaly-status-update" data-id="${UI.esc(a.id)}" style="width:140px; padding:6px; margin-bottom:8px;">
                             <option value="open" ${a.stato === 'open' ? 'selected' : ''}>Aperto</option>
                             <option value="in_progress" ${a.stato === 'in_progress' ? 'selected' : ''}>In Lavorazione</option>
                             <option value="resolved">Risolto...</option>
@@ -505,7 +506,7 @@ const ModMezzi = (() => {
             <div class="form-grid">
                 <div class="form-group">
                     <label>Data *</label>
-                    <input type="date" class="form-control" id="m-data" value="${m ? m.data_manutenzione : new Date().toISOString().split('T')[0]}">
+                    <input type="date" class="form-control" id="m-data" value="${UI.esc(m ? m.data_manutenzione : UI.todayLocal())}">
                 </div>
                 <div class="form-group">
                     <label>Tipo Intervento *</label>
@@ -520,11 +521,11 @@ const ModMezzi = (() => {
                 </div>
                 <div class="form-group">
                     <label>Chilometraggio (Km)</label>
-                    <input type="number" class="form-control" id="m-km" placeholder="Es. 45000" value="${m?.chilometraggio || ''}">
+                    <input type="number" class="form-control" id="m-km" placeholder="Es. 45000" value="${UI.esc(m?.chilometraggio || '')}">
                 </div>
                 <div class="form-group">
                     <label>Costo (€)</label>
-                    <input type="number" class="form-control" id="m-costo" step="0.01" value="${m ? m.costo : '0.00'}">
+                    <input type="number" class="form-control" id="m-costo" step="0.01" value="${UI.esc(m ? m.costo : '0.00')}">
                 </div>
                 <div class="form-group full-width">
                     <label>Descrizione / Lavori Eseguiti</label>
@@ -533,15 +534,15 @@ const ModMezzi = (() => {
                 <div class="form-group full-width">
                     <label>Fattura o Allegato (PDF/Immagine)</label>
                     <input type="file" class="form-control" id="m-allegato" accept=".pdf,.png,.jpg,.jpeg">
-                    ${m && m.allegato_url ? `<small style="display:block; margin-top:4px;"><a href="${m.allegato_url}" target="_blank">Vedi allegato attuale</a> (selezionando un nuovo file, verrà sovrascritto)</small>` : ''}
+                    ${m && UI.safeUrl(m.allegato_url) ? `<small style="display:block; margin-top:4px;"><a href="${UI.safeUrl(m.allegato_url)}" target="_blank" rel="noopener">Vedi allegato attuale</a> (selezionando un nuovo file, verrà sovrascritto)</small>` : ''}
                 </div>
                 <div class="form-group">
                     <label>Prossima Scadenza (Data)</label>
-                    <input type="date" class="form-control" id="m-next-data" value="${m?.prossima_scadenza_data || ''}">
+                    <input type="date" class="form-control" id="m-next-data" value="${UI.esc(m?.prossima_scadenza_data || '')}">
                 </div>
                 <div class="form-group">
                     <label>Prossima Scadenza (Km)</label>
-                    <input type="number" class="form-control" id="m-next-km" value="${m?.prossima_scadenza_km || ''}">
+                    <input type="number" class="form-control" id="m-next-km" value="${UI.esc(m?.prossima_scadenza_km || '')}">
                 </div>
             </div>
         `;

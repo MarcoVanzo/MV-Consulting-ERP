@@ -7,7 +7,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Autenticazione basata SOLO su cookie HttpOnly.
     // erp_user in localStorage è usato solo per dati di visualizzazione (nome, iniziali),
     // MAI come prova di autenticazione.
-    const cachedUser = JSON.parse(localStorage.getItem('erp_user') || 'null');
+    let cachedUser = null;
+    try {
+        cachedUser = JSON.parse(localStorage.getItem('erp_user') || 'null');
+    } catch (e) {
+        // Valore corrotto: si riparte dal login
+        localStorage.removeItem('erp_user');
+    }
 
     if (cachedUser) {
         // Valida la sessione con il server prima di fidarsi del localStorage
@@ -16,6 +22,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (verified) {
                 // Aggiorna i dati locali con quelli verificati dal server
                 const userData = { ...cachedUser, ...verified };
+                // Il token non contiene il nome: verify ripiega sull'email, si tiene quello del login
+                if (cachedUser.name && (!verified.name || verified.name === verified.email)) {
+                    userData.name = cachedUser.name;
+                }
                 localStorage.setItem('erp_user', JSON.stringify(userData));
                 initApplication(userData);
             } else {
@@ -44,12 +54,23 @@ function initApplication(userData) {
     document.getElementById('app-shell').classList.remove('hidden');
 
     // Set user info in sidebar
+    const isAdmin = userData?.role === 'admin';
     if (userData) {
         const name = userData.name || userData.email || 'User';
         document.getElementById('user-display-name').textContent = name;
-        const initials = name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+        const initials = name.split(' ').filter(Boolean).map(w => w[0]).join('').substring(0, 2).toUpperCase();
         document.getElementById('user-avatar').textContent = initials;
+        const roleLabels = { admin: 'Admin', operatore: 'Operatore' };
+        const roleEl = document.getElementById('user-display-role');
+        if (roleEl) roleEl.textContent = roleLabels[userData.role] || userData.role || '';
     }
+
+    // Voci admin visibili solo agli admin (il backend blocca comunque il modulo admin)
+    document.querySelectorAll('.admin-only').forEach(el => el.classList.toggle('hidden', !isAdmin));
+
+    // "Il mio profilo" non ha ancora una vista: nascosto
+    const profileBtn = document.getElementById('profile-btn');
+    if (profileBtn) profileBtn.classList.add('hidden');
 
     // ── Init core UI ──
     UI.initModalEvents();
@@ -72,7 +93,7 @@ function initApplication(userData) {
             // Lazy-load modules
             switch (viewId) {
                 case 'clienti':     ModClienti.load(); break;
-                case 'trasferte':   ModTrasferte.load(); break;
+                case 'trasferte':   ModTrasferte.load({ refreshMezzi: true }); break;
                 case 'contabilita': ModContabilita.load(); break;
                 case 'utenti':      ModAdmin.loadUsers(); break;
                 case 'backup':      ModAdmin.loadBackups(); break;

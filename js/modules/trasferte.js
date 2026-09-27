@@ -8,7 +8,9 @@ const ModTrasferte = (() => {
     let _totali = {};
     let _mezziCache = [];
 
-    async function load() {
+    async function load(opts = {}) {
+        // Entrando nella vista si ricaricano i mezzi (possono essere cambiati in "Gestione Mezzi")
+        if (opts.refreshMezzi === true) _mezziCache = [];
         const year = document.getElementById('trasferte-year').value;
         const month = document.getElementById('trasferte-month').value;
         try {
@@ -64,7 +66,7 @@ const ModTrasferte = (() => {
         document.getElementById('trasferte-kpis').innerHTML = `
             <div class="kpi-card kpi-blue">
                 <div class="kpi-label">Trasferte</div>
-                <div class="kpi-value">${_totali.num_trasferte || 0}</div>
+                <div class="kpi-value">${parseInt(_totali.num_trasferte) || 0}</div>
             </div>
             <div class="kpi-card kpi-green">
                 <div class="kpi-label">KM Totali</div>
@@ -185,13 +187,13 @@ const ModTrasferte = (() => {
 
     function getFormHtml(data = {}) {
         const clienti = ModClienti.getClienti();
-        const clientiOpts = clienti.map(c => `<option value="${c.id}" ${c.id == data.cliente_id ? 'selected' : ''}>${UI.esc(c.ragione_sociale)}</option>`).join('');
+        const clientiOpts = clienti.map(c => `<option value="${UI.esc(c.id)}" ${c.id == data.cliente_id ? 'selected' : ''}>${UI.esc(c.ragione_sociale)}</option>`).join('');
 
         return `
             <div class="form-grid">
                 <div class="form-group">
                     <label>Data *</label>
-                    <input type="date" class="form-control" id="f-t-data" value="${data.data_trasferta || new Date().toISOString().split('T')[0]}">
+                    <input type="date" class="form-control" id="f-t-data" value="${UI.esc(data.data_trasferta || UI.todayLocal())}">
                 </div>
                 <div class="form-group">
                     <label>Fascia Oraria</label>
@@ -220,23 +222,23 @@ const ModTrasferte = (() => {
                 </div>
                 <div class="form-group">
                     <label>KM Andata</label>
-                    <input type="number" class="form-control" id="f-t-km-andata" value="${data.km_andata || 0}" step="0.1">
+                    <input type="number" class="form-control" id="f-t-km-andata" value="${UI.esc(data.km_andata || 0)}" step="0.1">
                 </div>
                 <div class="form-group">
                     <label>KM Ritorno</label>
-                    <input type="number" class="form-control" id="f-t-km-ritorno" value="${data.km_ritorno || 0}" step="0.1">
+                    <input type="number" class="form-control" id="f-t-km-ritorno" value="${UI.esc(data.km_ritorno || 0)}" step="0.1">
                 </div>
 
                 <div class="form-group">
                     <label>Vitto</label>
-                    <input type="number" class="form-control" id="f-t-vitto" value="${data.vitto || 0}" step="0.01">
+                    <input type="number" class="form-control" id="f-t-vitto" value="${UI.esc(data.vitto || 0)}" step="0.01">
                 </div>
                 <div class="form-group">
                     <label>Alloggio</label>
-                    <input type="number" class="form-control" id="f-t-alloggio" value="${data.alloggio || 0}" step="0.01">
+                    <input type="number" class="form-control" id="f-t-alloggio" value="${UI.esc(data.alloggio || 0)}" step="0.01">
                 </div>
                 <div class="form-group full-width" style="display: flex; gap: 20px; align-items: center; margin-top: 10px;">
-                    <input type="hidden" id="f-t-pernottamento" value="${data.pernottamento || 0}">
+                    <input type="hidden" id="f-t-pernottamento" value="${UI.esc(data.pernottamento || 0)}">
                     <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                         <input type="checkbox" id="f-t-km-bloccati" ${data.km_bloccati == 1 ? 'checked' : ''}> Blocca Ricalcolo KM (valori manuali)
                     </label>
@@ -246,7 +248,7 @@ const ModTrasferte = (() => {
                     <textarea class="form-control" id="f-t-desc">${UI.esc(data.descrizione || '')}</textarea>
                 </div>
             </div>
-            <input type="hidden" id="f-t-id" value="${data.id || ''}">
+            <input type="hidden" id="f-t-id" value="${UI.esc(data.id || '')}">
         `;
     }
 
@@ -341,9 +343,9 @@ const ModTrasferte = (() => {
             return;
         }
         try {
-            // Update mezzo_id for ALL currently displayed trasferte
-            await Promise.all(_trasferte.map(t =>
-                Store.api('save', 'trasferte', {
+            // Salvataggi in sequenza: in parallelo il ricalcolo km lato server va in race
+            for (const t of _trasferte) {
+                await Store.api('save', 'trasferte', {
                     id: t.id,
                     data_trasferta: t.data_trasferta,
                     fascia_oraria: t.fascia_oraria,
@@ -358,8 +360,8 @@ const ModTrasferte = (() => {
                     pernottamento: t.pernottamento,
                     km_bloccati: t.km_bloccati,
                     mezzo_id: mezzoId || null
-                })
-            ));
+                });
+            }
             // Update local cache
             _trasferte.forEach(t => t.mezzo_id = mezzoId || null);
             UI.toast(mezzoId ? `Mezzo ${mezzo?.nome || ''} assegnato a tutte le trasferte` : 'Mezzo rimosso da tutte le trasferte');
@@ -630,12 +632,12 @@ const ModTrasferte = (() => {
 
             return `<tr>
                 <td>${dataFmt}</td>
-                <td>${g.mattina || '—'}</td>
-                <td>${g.pomeriggio || '—'}</td>
+                <td>${UI.esc(g.mattina) || '—'}</td>
+                <td>${UI.esc(g.pomeriggio) || '—'}</td>
                 <td class="num">${g.km_totali.toFixed(1)}</td>
-                <td class="num">${indennita.toFixed(2)} €</td>
-                <td class="num">${rimborsoKm.toFixed(2)} €</td>
-                <td class="num tot">${totaleRiga.toFixed(2)} €</td>
+                <td class="num">${UI.formatCurrency(indennita)}</td>
+                <td class="num">${UI.formatCurrency(rimborsoKm)}</td>
+                <td class="num tot">${UI.formatCurrency(totaleRiga)}</td>
             </tr>`;
         }).join('');
 
@@ -681,7 +683,7 @@ const ModTrasferte = (() => {
         <div class="info">
             Costo KM: ${costoKm.toFixed(4)} €/km<br>
             Indennità giornaliera: 46,48 €<br>
-            ${(() => { const selId = document.getElementById('trasferte-mezzo')?.value; const mezzo = selId ? _mezziCache.find(v => v.id == selId) : null; return mezzo ? `Mezzo: <strong>${mezzo.nome}</strong> — Targa: <strong>${mezzo.targa}</strong><br>` : ''; })()}
+            ${(() => { const selId = document.getElementById('trasferte-mezzo')?.value; const mezzo = selId ? _mezziCache.find(v => v.id == selId) : null; return mezzo ? `Mezzo: <strong>${UI.esc(mezzo.nome)}</strong> — Targa: <strong>${UI.esc(mezzo.targa)}</strong><br>` : ''; })()}
             Stampato il: ${new Date().toLocaleDateString('it-IT')}
         </div>
     </div>
@@ -702,9 +704,9 @@ const ModTrasferte = (() => {
             <tr class="footer-row">
                 <td colspan="3">TOTALE (${rows.length} giornate)</td>
                 <td class="num">${totKm.toFixed(1)}</td>
-                <td class="num">${totIndennita.toFixed(2)} €</td>
-                <td class="num">${totRimborsoKm.toFixed(2)} €</td>
-                <td class="num">${totTotale.toFixed(2)} €</td>
+                <td class="num">${UI.formatCurrency(totIndennita)}</td>
+                <td class="num">${UI.formatCurrency(totRimborsoKm)}</td>
+                <td class="num">${UI.formatCurrency(totTotale)}</td>
             </tr>
         </tbody>
     </table>

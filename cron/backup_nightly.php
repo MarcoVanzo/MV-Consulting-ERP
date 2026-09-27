@@ -4,12 +4,24 @@
  * MV Consulting ERP
  *
  * Run every night at midnight via crontab:
- *   0 0 * * * php /Users/marcovanzo/MV\ Consulting\ ERP/cron/backup_nightly.php >> /Users/marcovanzo/MV\ Consulting\ ERP/cron/db_backup.log 2>&1
+ *   0 0 * * * php /percorso/del/progetto/cron/backup_nightly.php >> /percorso/del/progetto/cron/db_backup.log 2>&1
+ *
+ * Exit code: 0 = ok, 1 = errore (accesso/DB/dump), 2 = dump ok ma upload Drive fallito.
  */
 
 declare(strict_types=1);
 
 $rootDir = dirname(__DIR__);
+
+// Scrive su STDERR in CLI; via HTTP (STDERR non definito) ripiega su echo
+function cronErr(string $msg): void
+{
+    if (defined('STDERR')) {
+        cronErr($msg);
+    } else {
+        echo $msg;
+    }
+}
 
 require_once $rootDir . '/api/Shared/Env.php';
 Env::load($rootDir . '/.env');
@@ -19,7 +31,8 @@ $token = $_GET['token'] ?? '';
 $expectedToken = getenv('BACKUP_CRON_TOKEN') ?: '';
 if (!$isCli && ($expectedToken === '' || !hash_equals($expectedToken, $token))) {
     http_response_code(403);
-    die("Access denied");
+    echo "Access denied";
+    exit(1);
 }
 
 require_once $rootDir . '/api/Shared/Database.php';
@@ -44,7 +57,8 @@ $options = [
 try {
     $pdo = new PDO($dsn, $user, $pass, $options);
 } catch (\PDOException $e) {
-    die("Database connection failed: " . $e->getMessage());
+    cronErr("Database connection failed: " . $e->getMessage() . "\n");
+    exit(1);
 }
 
 $now = date('Y-m-d H:i:s');
@@ -56,7 +70,7 @@ $service = new BackupService($pdo, $prefix);
 $result = $service->dump(null, 'Cron Automatico');
 
 if (!$result['success']) {
-    echo "[{$now}] ❌ ERRORE dump: {$result['error']}\n";
+    cronErr("[{$now}] ❌ ERRORE dump: {$result['error']}\n");
     exit(1);
 }
 
@@ -89,7 +103,7 @@ try {
 }
 catch (\Throwable $e) {
     $now = date('Y-m-d H:i:s');
-    echo "[{$now}] ❌ ERRORE upload Drive: " . $e->getMessage() . "\n";
+    cronErr("[{$now}] ❌ ERRORE upload Drive: " . $e->getMessage() . "\n");
     echo "[{$now}] ⚠️  Backup locale disponibile: {$result['filename']}\n";
     echo "[{$now}] ====== Fine Backup — PARZIALE (solo locale) ======\n";
     exit(2);

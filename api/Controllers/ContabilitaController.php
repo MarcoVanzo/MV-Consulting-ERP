@@ -67,6 +67,11 @@ class ContabilitaController {
         }
 
         if ($id) {
+            // Incarico collegato prima della modifica: se cambia va ricalcolato anche il vecchio
+            $stmtOld = $this->pdo->prepare("SELECT incarico_id FROM {$this->prefix}fatture WHERE id = ?");
+            $stmtOld->execute([$id]);
+            $oldIncaricoId = $stmtOld->fetchColumn() ?: null;
+
             $sets = [];
             $vals = [];
             foreach ($fields as $k => $v) {
@@ -80,6 +85,10 @@ class ContabilitaController {
 
             // Ricalcola incarico collegato (se presente)
             $this->recalculateLinkedIncarico($id);
+            if ($oldIncaricoId && (int)$oldIncaricoId !== (int)$fields['incarico_id']) {
+                require_once __DIR__ . '/IncarchiController.php';
+                (new IncarchiController())->recalculate($oldIncaricoId);
+            }
 
             Response::json(true, 'Fattura aggiornata', ['id' => $id]);
         } else {
@@ -327,6 +336,10 @@ class ContabilitaController {
         // Dati Generali
         $numeroFattura = (string)($body->DatiGenerali->DatiGeneraliDocumento->Numero ?? '');
         $dataEmissione = (string)($body->DatiGenerali->DatiGeneraliDocumento->Data ?? date('Y-m-d'));
+        // TD04 = nota di credito: importi salvati in negativo
+        $tipoDocumento = strtoupper(trim((string)($body->DatiGenerali->DatiGeneraliDocumento->TipoDocumento ?? 'TD01')));
+        $isNotaCredito = ($tipoDocumento === 'TD04');
+        $segno = $isNotaCredito ? -1 : 1;
 
         if (!$numeroFattura) {
             Response::json(false, 'Numero fattura non trovato nell\'XML');
@@ -365,209 +378,257 @@ class ContabilitaController {
         $imported = 0;
         $errors = [];
 
-        if (!$clienteId && ($clientePartitaIva || $clienteCodiceFiscale)) {
-            $ragioneSociale = (string)($header->CessionarioCommittente->DatiAnagrafici->Anagrafica->Denominazione ?? 'Cliente Sconosciuto');
-            $indirizzo = (string)($header->CessionarioCommittente->Sede->Indirizzo ?? '');
-            $cap = (string)($header->CessionarioCommittente->Sede->CAP ?? '');
-            $comune = (string)($header->CessionarioCommittente->Sede->Comune ?? '');
-            $provincia = (string)($header->CessionarioCommittente->Sede->Provincia ?? '');
+        // Tutto l'import del file in un'unica transazione: o entra tutto o niente
+        $this->pdo->beginTransaction();
+        try {
+            if (!$clienteId && ($clientePartitaIva || $clienteCodiceFiscale)) {
+                $ragioneSociale = (string)($header->CessionarioCommittente->DatiAnagrafici->Anagrafica->Denominazione ?? 'Cliente Sconosciuto');
+                $indirizzo = (string)($header->CessionarioCommittente->Sede->Indirizzo ?? '');
+                $cap = (string)($header->CessionarioCommittente->Sede->CAP ?? '');
+                $comune = (string)($header->CessionarioCommittente->Sede->Comune ?? '');
+                $provincia = (string)($header->CessionarioCommittente->Sede->Provincia ?? '');
             
-            $stmtInsertC = $this->pdo->prepare("INSERT INTO {$this->prefix}clienti (ragione_sociale, partita_iva, codice_fiscale, indirizzo, citta, cap, provincia) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $resC = $stmtInsertC->execute([$ragioneSociale, $clientePartitaIva, $clienteCodiceFiscale, $indirizzo, $comune, $cap, $provincia]);
+                $stmtInsertC = $this->pdo->prepare("INSERT INTO {$this->prefix}clienti (ragione_sociale, partita_iva, codice_fiscale, indirizzo, citta, cap, provincia) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                $resC = $stmtInsertC->execute([$ragioneSociale, $clientePartitaIva, $clienteCodiceFiscale, $indirizzo, $comune, $cap, $provincia]);
             
-            if ($resC) {
-                $clienteId = $this->pdo->lastInsertId();
-                $errors[] = "Cliente '$ragioneSociale' creato automaticamente.";
-            } else {
-                $errInfo = $stmtInsertC->errorInfo();
-                $errors[] = "Impossibile creare il Cliente '$ragioneSociale': " . ($errInfo[2] ?? 'Errore MySQL');
-                $clienteId = null;
-            }
-        } elseif (!$clienteId) {
-            $errors[] = "Impossibile creare il Cliente: P.IVA o CF mancanti nell'XML.";
-        }
-
-        // 2. Analisi delle righe e raggruppamento per Sottocliente
-        $raggruppamenti = [];
-
-        // Pre-carico gli incarichi del cliente per il match protocollo
-        $allIncarichi = [];
-        if ($clienteId) {
-            $stmtInc = $this->pdo->prepare("SELECT id, numero_protocollo, sottocliente_id, cliente_id FROM {$this->prefix}incarichi WHERE cliente_id = ? AND numero_protocollo IS NOT NULL AND numero_protocollo != ''");
-            $stmtInc->execute([$clienteId]);
-            $allIncarichi = $stmtInc->fetchAll();
-        }
-
-        $linee = $body->DatiBeniServizi->DettaglioLinee;
-        foreach ($linee as $linea) {
-            $descrizione = (string)$linea->Descrizione;
-            $prezzoTotale = (float)$linea->PrezzoTotale;
-            $aliquotaIva = (float)($linea->AliquotaIVA ?? 22.00);
-
-            // Cerchiamo il nome del sottocliente con la regex "presso (nome) Prot."
-            $sotto_nome_trovato = null;
-            if (preg_match('/presso\s+(.*?)\s+Prot\./i', $descrizione, $m)) {
-                $sotto_nome_trovato = trim($m[1]);
-            }
-
-            // Estraiamo il numero protocollo dalla descrizione della riga
-            // PRIORITÀ 1: Codice alfanumerico con punti (es. SZ.DPS.F142.26)
-            $protocolloRiga = null;
-            if (preg_match('/\b([A-Z]{1,5}\.[A-Z]{2,5}\.[A-Z0-9]{2,10}(?:\.[A-Z0-9]{1,6})*)\b/i', $descrizione, $mAlpha)) {
-                $protocolloRiga = strtoupper(trim($mAlpha[1]));
-            }
-            // PRIORITÀ 2 (fallback): "Prot. n. 1350/2026"
-            if (!$protocolloRiga && preg_match('/Prot\.?\s*n\.?\s*(\d+\s*\/\s*\d{4})/i', $descrizione, $mProt)) {
-                $protocolloRiga = preg_replace('/\s+/', '', trim($mProt[1]));
-            }
-
-            // Tentiamo di validare in DB tra i sottoclienti del cliente individuato
-            $sottoclienteId = null;
-            if ($clienteId) {
-                if ($sotto_nome_trovato) {
-                    // Search existing with the exact string found in regex
-                    $searchSotto = strtolower(str_replace([' ', '.', ','], '', $sotto_nome_trovato));
-                    foreach ($allSottoclienti as $sc) {
-                        if ($sc['cliente_id'] == $clienteId) {
-                            $dbSotto = strtolower(str_replace([' ', '.', ','], '', $sc['nome']));
-                            if (strpos($dbSotto, $searchSotto) !== false || strpos($searchSotto, $dbSotto) !== false) {
-                                $sottoclienteId = $sc['id'];
-                                break;
-                            }
-                        }
-                    }
-                    
-                    // Se non esiste, lo creo
-                    if (!$sottoclienteId) {
-                        $stmtInsertS = $this->pdo->prepare("INSERT INTO {$this->prefix}sottoclienti 
-                            (cliente_id, nome, partita_iva, codice_fiscale, riferimento, indirizzo, citta, cap, provincia, pec, sdi, email) 
-                            VALUES (?, ?, '', '', '', '', '', '', '', '', '', '')");
-                        $resS = $stmtInsertS->execute([$clienteId, $sotto_nome_trovato]);
-                        if ($resS) {
-                            $sottoclienteId = $this->pdo->lastInsertId();
-                            // Aggiorno la cache array per non ricrearlo in righe successive della stessa fattura
-                            $allSottoclienti[] = ['id' => $sottoclienteId, 'cliente_id' => $clienteId, 'nome' => $sotto_nome_trovato];
-                            $errors[] = "Sottocliente '$sotto_nome_trovato' creato automaticamente.";
-                        } else {
-                            // Fallback se l'insert fallisce
-                            $errInfo = $stmtInsertS->errorInfo();
-                            $errors[] = "Impossibile creare il sottocliente '$sotto_nome_trovato': " . ($errInfo[2] ?? 'Errore MySQL');
-                            $sottoclienteId = null;
-                        }
-                    }
+                if ($resC) {
+                    $clienteId = $this->pdo->lastInsertId();
+                    $errors[] = "Cliente '$ragioneSociale' creato automaticamente.";
                 } else {
-                    // FALLBACK: Se la regex non ha catturato nulla (es. "viaggio a...", "trasferta per...") 
-                    // controlliamo se il nome di uno dei sottoclienti compare direttamente nella descrizione.
-                    $descClean = mb_strtolower($descrizione, 'UTF-8');
-                    foreach ($allSottoclienti as $sc) {
-                        if ($sc['cliente_id'] == $clienteId && !empty($sc['nome'])) {
-                            $dbSotto = mb_strtolower(trim($sc['nome']), 'UTF-8');
-                            if (mb_strlen($dbSotto, 'UTF-8') >= 4) {
-                                $escapedDbSotto = preg_quote($dbSotto, '/');
-                                // Check if name is found as a whole word
-                                if (preg_match('/\b' . $escapedDbSotto . '\b/iu', $descClean)) {
-                                    $sottoclienteId = $sc['id'];
-                                    break;
-                                }
-                                // Partial string matching for longer names
-                                if (mb_strlen($dbSotto, 'UTF-8') >= 7 && mb_strpos($descClean, $dbSotto) !== false) {
-                                    $sottoclienteId = $sc['id'];
-                                    break;
-                                }
-                            }
-                        }
-                    }
+                    $errInfo = $stmtInsertC->errorInfo();
+                    $errors[] = "Impossibile creare il Cliente '$ragioneSociale': " . ($errInfo[2] ?? 'Errore MySQL');
+                    $clienteId = null;
                 }
+            } elseif (!$clienteId) {
+                $errors[] = "Impossibile creare il Cliente: P.IVA o CF mancanti nell'XML.";
             }
 
-            // Prepariamo una chiave per accumulare importi dello stesso sottocliente.
-            // Se nessun sottocliente -> ID = 'none' (finisce nel blocco principale senza sottocliente)
-            $groupKey = $sottoclienteId ? $sottoclienteId : 'none';
+            // 2. Analisi delle righe e raggruppamento per Sottocliente
+            $raggruppamenti = [];
 
-            if (!isset($raggruppamenti[$groupKey])) {
-                $raggruppamenti[$groupKey] = [
-                    'imponibile' => 0.0,
-                    'iva_percentuale' => $aliquotaIva, // Assume stessa IVA
-                    'descrizioni' => [],
-                    'protocolli' => []  // Raccogliamo i protocolli trovati nelle righe
-                ];
-            }
-            $raggruppamenti[$groupKey]['imponibile'] += $prezzoTotale;
-            $raggruppamenti[$groupKey]['descrizioni'][] = $descrizione;
-            if ($protocolloRiga) {
-                $raggruppamenti[$groupKey]['protocolli'][$protocolloRiga] = true;
-            }
-        }
-
-        // 3. Eseguiamo gli Insert/Update su `fatture`, con match incarico tramite protocollo
-        foreach ($raggruppamenti as $sk => $data) {
-            $sid = ($sk === 'none') ? null : (int)$sk;
-            $imponibile = round($data['imponibile'], 2);
-            $importoIva = round($imponibile * $data['iva_percentuale'] / 100, 2);
-            $importoTotale = round($imponibile + $importoIva, 2);
-            $testoDesc = implode("\n", $data['descrizioni']);
-
-            // 3a. Cerchiamo l'incarico corrispondente tramite protocollo
-            $incaricoId = null;
-            $protocolliTrovati = array_keys($data['protocolli'] ?? []);
-            if (!empty($protocolliTrovati) && !empty($allIncarichi)) {
-                foreach ($protocolliTrovati as $prot) {
-                    $protNorm = preg_replace('/\s+/', '', strtolower($prot));
-                    foreach ($allIncarichi as $inc) {
-                        $incProtNorm = preg_replace('/\s+/', '', strtolower($inc['numero_protocollo']));
-                        if ($protNorm === $incProtNorm) {
-                            // Match trovato! Verifica anche il sottocliente se presente
-                            if ($sid && $inc['sottocliente_id'] && $sid != $inc['sottocliente_id']) {
-                                continue; // Sottocliente diverso, skip
-                            }
-                            $incaricoId = $inc['id'];
-                            $errors[] = "Fattura n. $numeroFattura collegata automaticamente all'incarico #$incaricoId (Prot. $prot).";
-                            break 2;
-                        }
-                    }
-                }
-                if (!$incaricoId && !empty($protocolliTrovati)) {
-                    $errors[] = "Fattura n. $numeroFattura: protocollo trovato (" . implode(', ', $protocolliTrovati) . ") ma nessun incarico corrispondente in archivio.";
-                }
-            }
-
-            // 3b. Verifica esistenza di questa riga (Fattura + Cliente + EventualSottocliente)
-            $chkSql = "SELECT id FROM {$this->prefix}fatture WHERE numero_fattura = ? AND YEAR(data_emissione) = YEAR(?)";
-            $chkParams = [$numeroFattura, $dataEmissione];
-            
+            // Pre-carico gli incarichi del cliente per il match protocollo
+            $allIncarichi = [];
             if ($clienteId) {
-                $chkSql .= " AND cliente_id = ?";
-                $chkParams[] = $clienteId;
-            }
-            
-            if ($sid) {
-                $chkSql .= " AND sottocliente_id = ?";
-                $chkParams[] = $sid;
-            } else {
-                $chkSql .= " AND sottocliente_id IS NULL";
+                $stmtInc = $this->pdo->prepare("SELECT id, numero_protocollo, sottocliente_id, cliente_id FROM {$this->prefix}incarichi WHERE cliente_id = ? AND numero_protocollo IS NOT NULL AND numero_protocollo != ''");
+                $stmtInc->execute([$clienteId]);
+                $allIncarichi = $stmtInc->fetchAll();
             }
 
-            $stmtCheck = $this->pdo->prepare($chkSql);
-            $stmtCheck->execute($chkParams);
-            $existing = $stmtCheck->fetchColumn();
+            $linee = $body->DatiBeniServizi->DettaglioLinee;
+            foreach ($linee as $linea) {
+                $descrizione = (string)$linea->Descrizione;
+                $prezzoTotale = (float)$linea->PrezzoTotale;
+                $aliquotaIva = (float)($linea->AliquotaIVA ?? 22.00);
 
-            if ($existing) {
-                // Skip
-                $errors[] = "Fattura n. $numeroFattura già presente, caricamento ignorato.";
-            } else {
-                // Insert con eventuale incarico_id collegato
-                $stmtIns = $this->pdo->prepare("INSERT INTO {$this->prefix}fatture 
-                    (numero_fattura, data_emissione, cliente_id, sottocliente_id, incarico_id, imponibile, iva_percentuale, importo_iva, importo_totale, stato, descrizione)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'emessa', ?)");
-                $stmtIns->execute([$numeroFattura, $dataEmissione, $clienteId, $sid, $incaricoId, $imponibile, $data['iva_percentuale'], $importoIva, $importoTotale, $testoDesc]);
-                $newFatturaId = $this->pdo->lastInsertId();
-                $imported++;
+                // Cerchiamo il nome del sottocliente con la regex "presso (nome) Prot."
+                $sotto_nome_trovato = null;
+                if (preg_match('/presso\s+(.*?)\s+Prot\./i', $descrizione, $m)) {
+                    $sotto_nome_trovato = trim($m[1]);
+                }
 
-                // Ricalcola l'incarico collegato (se trovato)
-                if ($incaricoId) {
-                    $this->recalculateLinkedIncarico($newFatturaId);
+                // Estraiamo il numero protocollo dalla descrizione della riga
+                // PRIORITÀ 1: Codice alfanumerico con punti (es. SZ.DPS.F142.26)
+                $protocolloRiga = null;
+                if (preg_match('/\b([A-Z]{1,5}\.[A-Z]{2,5}\.[A-Z0-9]{2,10}(?:\.[A-Z0-9]{1,6})*)\b/i', $descrizione, $mAlpha)) {
+                    $protocolloRiga = strtoupper(trim($mAlpha[1]));
+                }
+                // PRIORITÀ 2 (fallback): "Prot. n. 1350/2026"
+                if (!$protocolloRiga && preg_match('/Prot\.?\s*n\.?\s*(\d+\s*\/\s*\d{4})/i', $descrizione, $mProt)) {
+                    $protocolloRiga = preg_replace('/\s+/', '', trim($mProt[1]));
+                }
+
+                // Tentiamo di validare in DB tra i sottoclienti del cliente individuato
+                $sottoclienteId = null;
+                if ($clienteId) {
+                    if ($sotto_nome_trovato) {
+                        // Search existing with the exact string found in regex
+                        $searchSotto = strtolower(str_replace([' ', '.', ','], '', $sotto_nome_trovato));
+                        foreach ($allSottoclienti as $sc) {
+                            if ($sc['cliente_id'] == $clienteId) {
+                                $dbSotto = strtolower(str_replace([' ', '.', ','], '', $sc['nome']));
+                                if (strpos($dbSotto, $searchSotto) !== false || strpos($searchSotto, $dbSotto) !== false) {
+                                    $sottoclienteId = $sc['id'];
+                                    break;
+                                }
+                            }
+                        }
+                    
+                        // Se non esiste, lo creo
+                        if (!$sottoclienteId) {
+                            $stmtInsertS = $this->pdo->prepare("INSERT INTO {$this->prefix}sottoclienti 
+                                (cliente_id, nome, partita_iva, codice_fiscale, riferimento, indirizzo, citta, cap, provincia, pec, sdi, email) 
+                                VALUES (?, ?, '', '', '', '', '', '', '', '', '', '')");
+                            $resS = $stmtInsertS->execute([$clienteId, $sotto_nome_trovato]);
+                            if ($resS) {
+                                $sottoclienteId = $this->pdo->lastInsertId();
+                                // Aggiorno la cache array per non ricrearlo in righe successive della stessa fattura
+                                $allSottoclienti[] = ['id' => $sottoclienteId, 'cliente_id' => $clienteId, 'nome' => $sotto_nome_trovato];
+                                $errors[] = "Sottocliente '$sotto_nome_trovato' creato automaticamente.";
+                            } else {
+                                // Fallback se l'insert fallisce
+                                $errInfo = $stmtInsertS->errorInfo();
+                                $errors[] = "Impossibile creare il sottocliente '$sotto_nome_trovato': " . ($errInfo[2] ?? 'Errore MySQL');
+                                $sottoclienteId = null;
+                            }
+                        }
+                    } else {
+                        // FALLBACK: Se la regex non ha catturato nulla (es. "viaggio a...", "trasferta per...") 
+                        // controlliamo se il nome di uno dei sottoclienti compare direttamente nella descrizione.
+                        $descClean = mb_strtolower($descrizione, 'UTF-8');
+                        foreach ($allSottoclienti as $sc) {
+                            if ($sc['cliente_id'] == $clienteId && !empty($sc['nome'])) {
+                                $dbSotto = mb_strtolower(trim($sc['nome']), 'UTF-8');
+                                if (mb_strlen($dbSotto, 'UTF-8') >= 4) {
+                                    $escapedDbSotto = preg_quote($dbSotto, '/');
+                                    // Check if name is found as a whole word
+                                    if (preg_match('/\b' . $escapedDbSotto . '\b/iu', $descClean)) {
+                                        $sottoclienteId = $sc['id'];
+                                        break;
+                                    }
+                                    // Partial string matching for longer names
+                                    if (mb_strlen($dbSotto, 'UTF-8') >= 7 && mb_strpos($descClean, $dbSotto) !== false) {
+                                        $sottoclienteId = $sc['id'];
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Prepariamo una chiave per accumulare importi dello stesso sottocliente.
+                // Se nessun sottocliente -> ID = 'none' (finisce nel blocco principale senza sottocliente)
+                $groupKey = $sottoclienteId ? $sottoclienteId : 'none';
+
+                if (!isset($raggruppamenti[$groupKey])) {
+                    $raggruppamenti[$groupKey] = [
+                        'imponibile' => 0.0,
+                        'iva' => 0.0,
+                        'aliquote' => [],
+                        'descrizioni' => [],
+                        'protocolli' => []  // Raccogliamo i protocolli trovati nelle righe
+                    ];
+                }
+                $raggruppamenti[$groupKey]['imponibile'] += $prezzoTotale;
+                // IVA calcolata riga per riga con la sua aliquota (poi riallineata ai DatiRiepilogo)
+                $raggruppamenti[$groupKey]['iva'] += $prezzoTotale * $aliquotaIva / 100;
+                $raggruppamenti[$groupKey]['aliquote'][(string)$aliquotaIva] = true;
+                $raggruppamenti[$groupKey]['descrizioni'][] = $descrizione;
+                if ($protocolloRiga) {
+                    $raggruppamenti[$groupKey]['protocolli'][$protocolloRiga] = true;
                 }
             }
+
+            // 2b. Totali ufficiali dai DatiRiepilogo (somma su tutte le aliquote)
+            $riepImponibile = 0.0;
+            $riepImposta = 0.0;
+            $hasRiepilogo = false;
+            foreach ($body->DatiBeniServizi->DatiRiepilogo as $riep) {
+                $riepImponibile += (float)$riep->ImponibileImporto;
+                $riepImposta += (float)$riep->Imposta;
+                $hasRiepilogo = true;
+            }
+
+            // Arrotonda i gruppi e scarica sull'ultimo lo scarto rispetto al riepilogo
+            // (con un solo gruppo coincide esattamente con i DatiRiepilogo)
+            foreach ($raggruppamenti as $sk => $g) {
+                $raggruppamenti[$sk]['imponibile'] = round($g['imponibile'], 2);
+                $raggruppamenti[$sk]['iva'] = round($g['iva'], 2);
+            }
+            if ($hasRiepilogo && !empty($raggruppamenti)) {
+                $lastKey = array_key_last($raggruppamenti);
+                $sumImp = array_sum(array_column($raggruppamenti, 'imponibile'));
+                $sumIva = array_sum(array_column($raggruppamenti, 'iva'));
+                $raggruppamenti[$lastKey]['imponibile'] = round($raggruppamenti[$lastKey]['imponibile'] + ($riepImponibile - $sumImp), 2);
+                $raggruppamenti[$lastKey]['iva'] = round($raggruppamenti[$lastKey]['iva'] + ($riepImposta - $sumIva), 2);
+            }
+
+            // 3. Eseguiamo gli Insert/Update su `fatture`, con match incarico tramite protocollo
+            foreach ($raggruppamenti as $sk => $data) {
+                $sid = ($sk === 'none') ? null : (int)$sk;
+                $imponibile = round($segno * $data['imponibile'], 2);
+                $importoIva = round($segno * $data['iva'], 2);
+                $importoTotale = round($imponibile + $importoIva, 2);
+                // Aliquota: quella unica delle righe, altrimenti quella effettiva del gruppo
+                $aliquote = array_keys($data['aliquote']);
+                if (count($aliquote) === 1) {
+                    $ivaPerc = (float)$aliquote[0];
+                } else {
+                    $ivaPerc = $data['imponibile'] != 0 ? round($data['iva'] / $data['imponibile'] * 100, 2) : 0.0;
+                }
+                $testoDesc = ($isNotaCredito ? "[Nota di credito]\n" : '') . implode("\n", $data['descrizioni']);
+
+                // 3a. Cerchiamo l'incarico corrispondente tramite protocollo
+                $incaricoId = null;
+                $protocolliTrovati = array_keys($data['protocolli'] ?? []);
+                if (!empty($protocolliTrovati) && !empty($allIncarichi)) {
+                    foreach ($protocolliTrovati as $prot) {
+                        $protNorm = preg_replace('/\s+/', '', strtolower($prot));
+                        foreach ($allIncarichi as $inc) {
+                            $incProtNorm = preg_replace('/\s+/', '', strtolower($inc['numero_protocollo']));
+                            if ($protNorm === $incProtNorm) {
+                                // Match trovato! Verifica anche il sottocliente se presente
+                                if ($sid && $inc['sottocliente_id'] && $sid != $inc['sottocliente_id']) {
+                                    continue; // Sottocliente diverso, skip
+                                }
+                                $incaricoId = $inc['id'];
+                                $errors[] = "Fattura n. $numeroFattura collegata automaticamente all'incarico #$incaricoId (Prot. $prot).";
+                                break 2;
+                            }
+                        }
+                    }
+                    if (!$incaricoId && !empty($protocolliTrovati)) {
+                        $errors[] = "Fattura n. $numeroFattura: protocollo trovato (" . implode(', ', $protocolliTrovati) . ") ma nessun incarico corrispondente in archivio.";
+                    }
+                }
+
+                // 3b. Verifica esistenza di questa riga (Fattura + Cliente + EventualSottocliente)
+                $chkSql = "SELECT id FROM {$this->prefix}fatture WHERE numero_fattura = ? AND YEAR(data_emissione) = YEAR(?)";
+                $chkParams = [$numeroFattura, $dataEmissione];
+            
+                if ($clienteId) {
+                    $chkSql .= " AND cliente_id = ?";
+                    $chkParams[] = $clienteId;
+                }
+            
+                if ($sid) {
+                    $chkSql .= " AND sottocliente_id = ?";
+                    $chkParams[] = $sid;
+                } else {
+                    $chkSql .= " AND sottocliente_id IS NULL";
+                }
+
+                $stmtCheck = $this->pdo->prepare($chkSql);
+                $stmtCheck->execute($chkParams);
+                $existing = $stmtCheck->fetchColumn();
+
+                if ($existing) {
+                    // Skip
+                    $errors[] = "Fattura n. $numeroFattura già presente, caricamento ignorato.";
+                } else {
+                    // Insert con eventuale incarico_id collegato
+                    $stmtIns = $this->pdo->prepare("INSERT INTO {$this->prefix}fatture 
+                        (numero_fattura, data_emissione, cliente_id, sottocliente_id, incarico_id, imponibile, iva_percentuale, importo_iva, importo_totale, stato, descrizione)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'emessa', ?)");
+                    $stmtIns->execute([$numeroFattura, $dataEmissione, $clienteId, $sid, $incaricoId, $imponibile, $ivaPerc, $importoIva, $importoTotale, $testoDesc]);
+                    $newFatturaId = $this->pdo->lastInsertId();
+                    $imported++;
+
+                    // Ricalcola l'incarico collegato (se trovato)
+                    if ($incaricoId) {
+                        $this->recalculateLinkedIncarico($newFatturaId);
+                    }
+                }
+            }
+
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            error_log('[Contabilita::importXmlData] ' . $e->getMessage());
+            Response::json(false, "Import XML annullato (fattura n. $numeroFattura): " . $e->getMessage());
+            return;
         }
 
         Response::json(true, 'Analisi XML terminata', [
@@ -635,9 +696,16 @@ class ContabilitaController {
             foreach ($matches as $m) {
                 $numFattura = trim($m[1]);
                 $importo = (float)str_replace(['.', ','], ['', '.'], $m[3]);
+                // Anno della fattura dalla data documento (es. 30/01/26 → 2026)
+                $annoFattura = null;
+                $dParts = explode('/', trim($m[2]));
+                if (count($dParts) === 3) {
+                    $annoFattura = strlen($dParts[2]) === 2 ? (int)('20' . $dParts[2]) : (int)$dParts[2];
+                }
                 $righe[] = [
                     'numero' => $numFattura,
-                    'importo' => $importo
+                    'importo' => $importo,
+                    'anno' => $annoFattura
                 ];
             }
         }
@@ -658,81 +726,100 @@ class ContabilitaController {
         // 5. Per ogni riga del PDF, cerca TUTTE le righe in DB con quel numero fattura
         //    (la stessa fattura può avere più righe, una per sottocliente)
         //    Confronta la SOMMA degli importi con l'importo del PDF
-        foreach ($righe as $riga) {
-            $numFattura = $riga['numero'];
-            $importo = $riga['importo'];
+        // Tutti gli aggiornamenti del PDF in un'unica transazione
+        $this->pdo->beginTransaction();
+        try {
+            foreach ($righe as $riga) {
+                $numFattura = $riga['numero'];
+                $importo = $riga['importo'];
 
-            // Cerca TUTTE le righe con questo numero fattura (match esatto, padding, suffisso, prefisso/001)
-            $numPadded = str_pad($numFattura, 3, '0', STR_PAD_LEFT);
-            $stmt = $this->pdo->prepare("SELECT id, numero_fattura, importo_totale, stato, sottocliente_id
-                FROM {$this->prefix}fatture 
-                WHERE numero_fattura = ? 
-                   OR numero_fattura = ? 
-                   OR numero_fattura LIKE ? 
-                   OR numero_fattura LIKE ?
-                   OR numero_fattura LIKE ?
-                ORDER BY id ASC");
-            $stmt->execute([$numFattura, $numPadded, "%/$numFattura", "$numFattura/%", "$numPadded/%"]);
-            $righeDb = $stmt->fetchAll();
+                // Cerca TUTTE le righe con questo numero fattura (match esatto, padding, suffisso, prefisso/001)
+                // limitate all'anno della fattura, se noto (la numerazione riparte ogni anno)
+                $numPadded = str_pad($numFattura, 3, '0', STR_PAD_LEFT);
+                $sqlCerca = "SELECT id, numero_fattura, importo_totale, stato, sottocliente_id
+                    FROM {$this->prefix}fatture 
+                    WHERE (numero_fattura = ? 
+                       OR numero_fattura = ? 
+                       OR numero_fattura LIKE ? 
+                       OR numero_fattura LIKE ?
+                       OR numero_fattura LIKE ?)";
+                $paramsCerca = [$numFattura, $numPadded, "%/$numFattura", "$numFattura/%", "$numPadded/%"];
+                if (!empty($riga['anno'])) {
+                    $sqlCerca .= " AND YEAR(data_emissione) = ?";
+                    $paramsCerca[] = $riga['anno'];
+                }
+                $sqlCerca .= " ORDER BY id ASC";
+                $stmt = $this->pdo->prepare($sqlCerca);
+                $stmt->execute($paramsCerca);
+                $righeDb = $stmt->fetchAll();
 
-            if (empty($righeDb)) {
-                $notFound[] = "Fattura n. $numFattura (€" . number_format($importo, 2, ',', '.') . "): non trovata in archivio.";
-                continue;
-            }
+                if (empty($righeDb)) {
+                    $notFound[] = "Fattura n. $numFattura (€" . number_format($importo, 2, ',', '.') . "): non trovata in archivio.";
+                    continue;
+                }
 
-            // Calcola la somma totale di tutte le righe con questo numero fattura
-            $sommaTotaleDb = 0;
-            $numRigheDb = count($righeDb);
-            $tutteGiaPagate = true;
-            foreach ($righeDb as $r) {
-                $sommaTotaleDb += floatval($r['importo_totale']);
-                if ($r['stato'] !== 'pagata') $tutteGiaPagate = false;
-            }
+                // Calcola la somma totale di tutte le righe con questo numero fattura
+                $sommaTotaleDb = 0;
+                $numRigheDb = count($righeDb);
+                $tutteGiaPagate = true;
+                foreach ($righeDb as $r) {
+                    $sommaTotaleDb += floatval($r['importo_totale']);
+                    if ($r['stato'] !== 'pagata') $tutteGiaPagate = false;
+                }
 
-            // Se sono tutte già pagate
-            if ($tutteGiaPagate) {
-                $alreadyPaid[] = "Fattura n. $numFattura ({$numRigheDb} righe, €" . number_format($sommaTotaleDb, 2, ',', '.') . "): tutte già segnate come pagate.";
-                continue;
-            }
+                // Se sono tutte già pagate
+                if ($tutteGiaPagate) {
+                    $alreadyPaid[] = "Fattura n. $numFattura ({$numRigheDb} righe, €" . number_format($sommaTotaleDb, 2, ',', '.') . "): tutte già segnate come pagate.";
+                    continue;
+                }
 
-            // Verifica che la somma corrisponda (tolleranza ±2€ per arrotondamenti)
-            $diff = abs($sommaTotaleDb - $importo);
-            if ($diff > 2.0) {
-                $notFound[] = "Fattura n. $numFattura: importo PDF €" . number_format($importo, 2, ',', '.') . 
-                    " ≠ somma DB €" . number_format($sommaTotaleDb, 2, ',', '.') . 
-                    " ({$numRigheDb} righe, diff: €" . number_format($diff, 2, ',', '.') . ").";
-                continue;
-            }
+                // Verifica che la somma corrisponda (tolleranza ±2€ per arrotondamenti)
+                $diff = abs($sommaTotaleDb - $importo);
+                if ($diff > 2.0) {
+                    $notFound[] = "Fattura n. $numFattura: importo PDF €" . number_format($importo, 2, ',', '.') . 
+                        " ≠ somma DB €" . number_format($sommaTotaleDb, 2, ',', '.') . 
+                        " ({$numRigheDb} righe, diff: €" . number_format($diff, 2, ',', '.') . ").";
+                    continue;
+                }
 
-            // Match trovato! Aggiorna TUTTE le righe di questa fattura come pagate
-            $idsAggiornati = [];
-            foreach ($righeDb as $r) {
-                if ($r['stato'] !== 'pagata') {
-                    $stmtUpd = $this->pdo->prepare("UPDATE {$this->prefix}fatture 
-                        SET stato = 'pagata', 
-                            data_pagamento = ?, 
-                            metodo_pagamento = 'bonifico'
-                        WHERE id = ?");
-                    $stmtUpd->execute([$dataPagamento, $r['id']]);
-                    Audit::log('UPDATE', 'fatture', $r['id'], null, null, [
-                        'azione' => 'pagamento_da_pdf',
-                        'stato' => 'pagata',
-                        'data_pagamento' => $dataPagamento,
-                        'importo_riga' => $r['importo_totale']
-                    ]);
-                    $idsAggiornati[] = $r['id'];
+                // Match trovato! Aggiorna TUTTE le righe di questa fattura come pagate
+                $idsAggiornati = [];
+                foreach ($righeDb as $r) {
+                    if ($r['stato'] !== 'pagata') {
+                        $stmtUpd = $this->pdo->prepare("UPDATE {$this->prefix}fatture 
+                            SET stato = 'pagata', 
+                                data_pagamento = ?, 
+                                metodo_pagamento = 'bonifico'
+                            WHERE id = ?");
+                        $stmtUpd->execute([$dataPagamento, $r['id']]);
+                        Audit::log('UPDATE', 'fatture', $r['id'], null, null, [
+                            'azione' => 'pagamento_da_pdf',
+                            'stato' => 'pagata',
+                            'data_pagamento' => $dataPagamento,
+                            'importo_riga' => $r['importo_totale']
+                        ]);
+                        $idsAggiornati[] = $r['id'];
+                    }
+                }
+
+                $matched += count($idsAggiornati);
+                $details[] = "✅ Fattura n. {$numFattura} — €" . number_format($importo, 2, ',', '.') . " → {$numRigheDb} righe aggiornate come Pagate ({$dataPagamento})";
+
+                // Ricalcola incarichi collegati alle fatture pagate
+                foreach ($righeDb as $r) {
+                    if (in_array($r['id'], $idsAggiornati)) {
+                        $this->recalculateLinkedIncarico($r['id']);
+                    }
                 }
             }
-
-            $matched += count($idsAggiornati);
-            $details[] = "✅ Fattura n. {$numFattura} — €" . number_format($importo, 2, ',', '.') . " → {$numRigheDb} righe aggiornate come Pagate ({$dataPagamento})";
-
-            // Ricalcola incarichi collegati alle fatture pagate
-            foreach ($righeDb as $r) {
-                if (in_array($r['id'], $idsAggiornati)) {
-                    $this->recalculateLinkedIncarico($r['id']);
-                }
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
             }
+            error_log('[Contabilita::importPaymentPdf] ' . $e->getMessage());
+            Response::json(false, 'Import pagamento annullato: ' . $e->getMessage());
+            return;
         }
 
         $messages = array_merge($details, $alreadyPaid, $notFound);

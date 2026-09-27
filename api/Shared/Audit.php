@@ -40,25 +40,14 @@ class Audit
             $prefix = getenv('DB_PREFIX') ?: 'mv_';
 
             if (!$user) {
-                // Determine user from JWT
-                $headers = getallheaders();
-                $authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? '';
-                
-                if (preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
-                    $token = $matches[1];
-                    $secret = getenv('JWT_SECRET');
-                    if ($secret) {
-                        try {
-                            $payloadArr = \JWT::decode($token, $secret);
-                            if ($payloadArr) {
-                                $user = [
-                                    'id' => $payloadArr['id'] ?? null,
-                                    'username' => $payloadArr['name'] ?? $payloadArr['email'] ?? 'Token User',
-                                    'role' => $payloadArr['role'] ?? null,
-                                ];
-                            }
-                        } catch (Throwable $e) {}
-                    }
+                // Utente dal middleware di router.php (JWT da cookie o Bearer, riletto dal DB)
+                $ctx = $GLOBALS['userContext'] ?? null;
+                if (is_array($ctx) && !empty($ctx['id'])) {
+                    $user = [
+                        'id' => $ctx['id'],
+                        'username' => $ctx['name'] ?? $ctx['email'] ?? 'User',
+                        'role' => $ctx['role'] ?? null,
+                    ];
                 }
             }
             

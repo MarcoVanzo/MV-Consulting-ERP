@@ -54,8 +54,13 @@ const ModAdmin = (() => {
                         </thead>
                         <tbody>
                             ${data.map(u => {
-                                const status = u.status || (u.is_active == 1 ? 'Attivo' : 'Disattivato');
-                                const isActive = status === 'Attivo';
+                                // Badge stato solo se il backend fornisce status o is_active
+                                let statusBadge = '<span style="color:var(--text-muted)">—</span>';
+                                if (u.status !== undefined && u.status !== null) {
+                                    statusBadge = `<span class="badge ${String(u.status).toLowerCase() === 'attivo' ? 'badge-green' : 'badge-red'}">${UI.esc(u.status)}</span>`;
+                                } else if (u.is_active !== undefined && u.is_active !== null) {
+                                    statusBadge = u.is_active == 1 ? '<span class="badge badge-green">Attivo</span>' : '<span class="badge badge-red">Disattivato</span>';
+                                }
                                 const avatar = `<div style="width:32px;height:32px;border-radius:50%;background:rgba(99,102,241,0.2);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:#6366f1;">${UI.esc((u.full_name||u.name||'U').charAt(0).toUpperCase())}</div>`;
                                 const roleColors = { 'admin': 'badge-blue', 'operatore': 'badge-gray' };
                                 const roleColor = roleColors[u.role] || 'badge-gray';
@@ -66,12 +71,12 @@ const ModAdmin = (() => {
                                     <td><strong>${UI.esc(u.full_name || u.name)}</strong></td>
                                     <td style="color:var(--text-muted);">${UI.esc(u.email)}</td>
                                     <td><span class="badge ${roleColor}">${UI.esc(u.role)}</span></td>
-                                    <td>${UI.statoBadge(status.toLowerCase())}</td>
+                                    <td>${statusBadge}</td>
                                     <td style="font-size:12px;">${UI.formatDate(u.last_login_at || u.last_login)}</td>
                                     <td>
                                         <div style="display:flex;gap:6px;">
-                                            <button class="btn btn-ghost btn-icon user-reset-pwd" data-id="${u.id}" title="Reset password"><i class="ph ph-key"></i></button>
-                                            <button class="btn btn-ghost btn-icon user-delete" data-id="${u.id}" style="color:var(--danger);" title="Elimina"><i class="ph ph-trash"></i></button>
+                                            <button class="btn btn-ghost btn-icon user-reset-pwd" data-id="${UI.esc(u.id)}" title="Reset password"><i class="ph ph-key"></i></button>
+                                            <button class="btn btn-ghost btn-icon user-delete" data-id="${UI.esc(u.id)}" style="color:var(--danger);" title="Elimina"><i class="ph ph-trash"></i></button>
                                         </div>
                                     </td>
                                 </tr>`;
@@ -198,6 +203,7 @@ const ModAdmin = (() => {
             
             // Format KPI
             const formatBytes = (bytes) => {
+                bytes = parseInt(bytes) || 0;
                 if (bytes === 0) return '0 B';
                 const k = 1024;
                 const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -205,19 +211,22 @@ const ModAdmin = (() => {
             };
 
             if (stats.table_count) {
+                // "Record Totali" e "Dim. Stimata" solo se il backend li fornisce
                 document.getElementById('backup-stats').innerHTML = `
                     <div class="kpi-card">
                         <div class="kpi-title">Tabelle DB</div>
-                        <div class="kpi-value">${stats.table_count}</div>
+                        <div class="kpi-value">${UI.esc(stats.table_count)}</div>
                     </div>
+                    ${stats.total_rows != null ? `
                     <div class="kpi-card">
                         <div class="kpi-title">Record Totali</div>
-                        <div class="kpi-value">${(stats.total_rows || 0).toLocaleString('it-IT')}</div>
-                    </div>
+                        <div class="kpi-value">${(parseInt(stats.total_rows) || 0).toLocaleString('it-IT')}</div>
+                    </div>` : ''}
+                    ${stats.total_bytes != null ? `
                     <div class="kpi-card">
                         <div class="kpi-title">Dim. Stimata</div>
-                        <div class="kpi-value">${formatBytes(stats.total_bytes || 0)}</div>
-                    </div>
+                        <div class="kpi-value">${formatBytes(parseInt(stats.total_bytes) || 0)}</div>
+                    </div>` : ''}
                     <div class="kpi-card">
                         <div class="kpi-title">Backup Archiviati</div>
                         <div class="kpi-value" style="color:var(--accent-primary);">${data.length}</div>
@@ -253,12 +262,17 @@ const ModAdmin = (() => {
                                     <td>${UI.formatDate(b.created_at)}</td>
                                     <td style="font-family:monospace;font-size:12px;">${UI.esc(b.filename)}</td>
                                     <td style="font-size:12px;">${formatBytes(b.filesize)}</td>
-                                    <td>${(b.row_count || 0).toLocaleString('it-IT')}</td>
-                                    <td><span class="badge ${b.status === 'ok' ? 'badge-green' : 'badge-red'}">${b.status === 'ok' ? 'OK' : 'Err'}</span></td>
+                                    <td>${(parseInt(b.row_count) || 0).toLocaleString('it-IT')}</td>
+                                    <td>${(() => {
+                                        // 'synced' = backup ok e copiato su Drive
+                                        if (b.status === 'ok') return '<span class="badge badge-green">OK</span>';
+                                        if (b.status === 'synced') return '<span class="badge badge-green" title="Sincronizzato su Drive">OK · Drive</span>';
+                                        return '<span class="badge badge-red">Err</span>';
+                                    })()}</td>
                                     <td style="text-align:right;">
                                         <div style="display:flex;gap:6px;justify-content:flex-end;">
-                                            <button class="btn btn-ghost btn-sm bkp-download" data-id="${b.id}" title="Scarica"><i class="ph ph-download-simple"></i> Scarica</button>
-                                            <button class="btn btn-ghost btn-icon bkp-delete" data-id="${b.id}" style="color:var(--danger);" title="Elimina"><i class="ph ph-trash"></i></button>
+                                            <button class="btn btn-ghost btn-sm bkp-download" data-id="${UI.esc(b.id)}" title="Scarica"><i class="ph ph-download-simple"></i> Scarica</button>
+                                            <button class="btn btn-ghost btn-icon bkp-delete" data-id="${UI.esc(b.id)}" style="color:var(--danger);" title="Elimina"><i class="ph ph-trash"></i></button>
                                         </div>
                                     </td>
                                 </tr>
@@ -269,12 +283,12 @@ const ModAdmin = (() => {
 
                 tableWrap.querySelectorAll('.bkp-download').forEach(btn => {
                     btn.addEventListener('click', async () => {
-                        const token = localStorage.getItem('erp_token');
                         try {
                             btn.disabled = true;
                             btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Scarica...';
-                            const response = await fetch(`api/router.php?module=admin&action=downloadBackup&id=${btn.dataset.id}`, {
-                                headers: { 'Authorization': 'Bearer ' + token }
+                            // Auth via cookie HttpOnly
+                            const response = await fetch(`api/router.php?module=admin&action=downloadBackup&id=${encodeURIComponent(btn.dataset.id)}`, {
+                                credentials: 'include'
                             });
                             if (!response.ok) throw new Error('Download fallito');
                             const blob = await response.blob();
@@ -423,15 +437,17 @@ const ModAdmin = (() => {
                 `;
             }
 
-            // Expand events
-            tableWrap.querySelectorAll('.log-row').forEach(row => {
-                row.addEventListener('click', () => {
+            // Expand events: un solo listener delegato sul tbody (le righe aggiunte con "Carica precedenti" sono già coperte)
+            if (!append) {
+                tableWrap.querySelector('tbody').addEventListener('click', (e) => {
+                    const row = e.target.closest('.log-row');
+                    if (!row) return;
                     const next = row.nextElementSibling;
                     if (next && next.classList.contains('log-details')) {
                         next.classList.toggle('hidden');
                     }
                 });
-            });
+            }
 
             if (!append && data.length === 100) {
                 document.getElementById('btn-load-more-logs').addEventListener('click', () => {

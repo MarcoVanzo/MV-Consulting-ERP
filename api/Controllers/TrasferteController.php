@@ -82,16 +82,33 @@ class TrasferteController {
             'mezzo_id'         => !empty($data['mezzo_id']) ? (int)$data['mezzo_id'] : null
         ];
 
-        if ($id) {
+        $isUpdate = (bool)$id;
+        $oldDate = null;
+
+        if ($isUpdate) {
+            $stmt = $this->pdo->prepare("SELECT data_trasferta FROM {$this->prefix}trasferte WHERE id = ?");
+            $stmt->execute([$id]);
+            $oldDate = $stmt->fetchColumn();
+            if ($oldDate === false) {
+                Response::json(false, 'Trasferta non trovata', null, 404);
+            }
+
+            // In UPDATE solo i campi inviati: quelli assenti (es. google_event_id) non vanno azzerati
             $sets = [];
             $vals = [];
             foreach ($fields as $k => $v) {
+                if (!array_key_exists($k, $data)) continue;
                 $sets[] = "$k = ?";
                 $vals[] = $v;
             }
-            $vals[] = $id;
-            $sql = "UPDATE {$this->prefix}trasferte SET " . implode(', ', $sets) . " WHERE id = ?";
-            $this->pdo->prepare($sql)->execute($vals);
+            if ($sets) {
+                $vals[] = $id;
+                $sql = "UPDATE {$this->prefix}trasferte SET " . implode(', ', $sets) . " WHERE id = ?";
+                $this->pdo->prepare($sql)->execute($vals);
+            }
+            if (!array_key_exists('data_trasferta', $data)) {
+                $fields['data_trasferta'] = $oldDate;
+            }
             Audit::log('UPDATE', 'trasferte', $id, null, null, ['data_trasferta' => $fields['data_trasferta'], 'cliente_id' => $fields['cliente_id']]);
         } else {
             $cols = implode(', ', array_keys($fields));
@@ -107,8 +124,12 @@ class TrasferteController {
         // Ma per ricalcolare tutta la giornata potremmo volerlo comunque,
         // la logica dentro calcolaKmPerData salterà quelle bloccate.
         $kmResult = $this->calcolaKmPerData($fields['data_trasferta']);
+        // Se la data è cambiata, la vecchia giornata ha perso una tappa: ricalcola anche quella
+        if ($oldDate && $oldDate !== $fields['data_trasferta']) {
+            $this->calcolaKmPerData($oldDate);
+        }
 
-        $msg = $id ? 'Trasferta aggiornata' : 'Trasferta creata';
+        $msg = $isUpdate ? 'Trasferta aggiornata' : 'Trasferta creata';
         if (!empty($kmResult['message'])) {
             $msg .= ' — KM: ' . $kmResult['message'];
         }
@@ -116,8 +137,21 @@ class TrasferteController {
     }
 
     public function delete($id) {
+        $stmt = $this->pdo->prepare("SELECT data_trasferta FROM {$this->prefix}trasferte WHERE id = ?");
+        $stmt->execute([$id]);
+        $date = $stmt->fetchColumn();
+
         $this->pdo->prepare("DELETE FROM {$this->prefix}trasferte WHERE id = ?")->execute([$id]);
         Audit::log('DELETE', 'trasferte', $id, null, null, null);
+
+        // Ricalcola i km delle trasferte rimaste nella stessa giornata
+        if ($date) {
+            try {
+                $this->calcolaKmPerData($date);
+            } catch (\Exception $e) {
+                error_log("[Trasferte::delete] Ricalcolo km fallito per $date: " . $e->getMessage());
+            }
+        }
         Response::json(true, 'Trasferta eliminata');
     }
 
@@ -207,6 +241,9 @@ class TrasferteController {
      * Endpoint API API (invocato dal frontend per ricalcolare tutte le trasferte)
      */
     public function calcolaTuttiKm() {
+        // Geocoding con rate limit 1 req/s: su un anno intero può durare minuti
+        set_time_limit(0);
+        ignore_user_abort(true);
         $year = $_POST['year'] ?? ($_GET['year'] ?? date('Y'));
         $month = $_POST['month'] ?? ($_GET['month'] ?? null);
 
@@ -265,6 +302,9 @@ class TrasferteController {
         if (!$routeResult['success']) return $routeResult;
 
         $affectedIds = $this->collectAffectedIds($tappe, $trasferte);
+        if (empty($affectedIds) && $this->allKmBloccati($trasferte)) {
+            return ['success' => true, 'message' => "KM bloccati su tutte le trasferte della giornata: nessun ricalcolo.", 'data' => ['totale_km' => 0, 'aggiornate' => 0]];
+        }
         if (empty($affectedIds)) {
             return ['success' => false, 'message' => "Nessun cliente valido geocodificato per il calcolo."];
         }
@@ -406,7 +446,15 @@ class TrasferteController {
         if (empty($ids)) {
             foreach ($trasferte as $t) { if ($this->extractAddress($t) !== '') $ids[] = $t['id']; }
         }
-        return $ids;
+        // Le trasferte con km bloccati non vengono aggiornate: non devono entrare nel divisore
+        $bloccati = [];
+        foreach ($trasferte as $t) { if (!empty($t['km_bloccati'])) $bloccati[$t['id']] = true; }
+        return array_values(array_filter($ids, fn($tid) => !isset($bloccati[$tid])));
+    }
+
+    private function allKmBloccati(array $trasferte): bool {
+        foreach ($trasferte as $t) { if (empty($t['km_bloccati'])) return false; }
+        return true;
     }
 
     private function distributeKm(string $date, array $ids, float $totKm, bool $oggiPernotta, $prevPernottamento): void {

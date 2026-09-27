@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/Response.php';
 require_once __DIR__ . '/Auth.php';
+require_once __DIR__ . '/Security.php';
 require_once __DIR__ . '/../Controllers/ClientiController.php';
 require_once __DIR__ . '/../Controllers/SottoclientiController.php';
 require_once __DIR__ . '/../Controllers/TrasferteController.php';
@@ -13,6 +14,44 @@ require_once __DIR__ . '/../Controllers/AdminController.php';
 require_once __DIR__ . '/../Controllers/GoogleAuthController.php';
 
 class ApiRouter {
+    // Rate limit per IP condiviso da login e reset_password: max 10 tentativi in 15 minuti
+    private const LOGIN_MAX_ATTEMPTS = 10;
+    private const LOGIN_WINDOW = 900;
+    // request_reset: max 5 richieste/ora per IP, max 3/ora per email
+    private const RESET_MAX_PER_IP = 5;
+    private const RESET_MAX_PER_EMAIL = 3;
+    private const RESET_WINDOW = 3600;
+
+    /**
+     * Azioni di sola lettura: le uniche ammesse in GET (e senza effetti collaterali).
+     * Tutto il resto richiede POST + token CSRF (verificato in router.php).
+     */
+    public const READ_ONLY_ACTIONS = [
+        'auth'         => ['verify'],
+        'clienti'      => ['list', 'get', 'lookup-vat'],
+        'sottoclienti' => ['list'],
+        'trasferte'    => ['list', 'rendiconto'],
+        'mezzi'        => ['getAllVehicles', 'getVehicleById'],
+        'incarichi'    => ['list', 'overview', 'get_by_cliente'],
+        'contabilita'  => ['list', 'overview'],
+        'admin'        => ['listUsers', 'listBackups', 'downloadBackup', 'listLogs'],
+    ];
+
+    public static function isReadOnly(string $module, string $action): bool {
+        return in_array($action, self::READ_ONLY_ACTIONS[$module] ?? [], true);
+    }
+
+    /** Blocca con 429 se l'IP ha superato i tentativi di login/reset password */
+    private static function enforceLoginRateLimit(string $email = ''): void {
+        $ip = Security::clientIp();
+        if (Security::isRateLimited('login', $ip, self::LOGIN_MAX_ATTEMPTS, self::LOGIN_WINDOW)) {
+            if (class_exists('Audit')) {
+                Audit::log('RATE_LIMIT', 'auth', null, null, null, ['ip' => $ip, 'email' => $email], 'security');
+            }
+            Response::json(false, 'Troppi tentativi di accesso. Riprovare tra qualche minuto.', null, 429);
+        }
+    }
+
     /**
      * Dispatch della richiesta al controller appropriato.
      */
@@ -59,34 +98,16 @@ class ApiRouter {
             }
 
             // Rate Limiting: max 10 tentativi per IP in 15 minuti
-            $rateLimitDir = __DIR__ . '/../../storage/rate_limit';
-            if (!is_dir($rateLimitDir)) @mkdir($rateLimitDir, 0755, true);
-            $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-            $rateLimitFile = $rateLimitDir . '/' . md5($ip) . '.json';
-            $maxAttempts = 10;
-            $windowSeconds = 900;
-
-            $attempts = [];
-            if (file_exists($rateLimitFile)) {
-                $attempts = json_decode(file_get_contents($rateLimitFile), true) ?: [];
-                $attempts = array_filter($attempts, fn($t) => $t > time() - $windowSeconds);
-            }
-
-            if (count($attempts) >= $maxAttempts) {
-                if (class_exists('Audit')) {
-                    Audit::log('RATE_LIMIT', 'auth', null, null, null, ['ip' => $ip, 'email' => $email]);
-                }
-                Response::json(false, 'Troppi tentativi di accesso. Riprovare tra qualche minuto.', null, 429);
-            }
+            self::enforceLoginRateLimit($email);
+            $ip = Security::clientIp();
 
             $auth = new Auth();
             $user = $auth->login($email, $password);
             if ($user) {
-                if (file_exists($rateLimitFile)) @unlink($rateLimitFile);
+                Security::rateLimitReset('login', $ip);
                 Response::json(true, 'Login effettuato', $user);
             } else {
-                $attempts[] = time();
-                file_put_contents($rateLimitFile, json_encode(array_values($attempts)));
+                Security::rateLimitHit('login', $ip, self::LOGIN_WINDOW);
                 Response::json(false, 'Email o password errati');
             }
         } elseif ($action === 'request_reset') {
@@ -94,9 +115,24 @@ class ApiRouter {
             if (empty($email)) {
                 Response::json(false, 'Email mancante');
             }
+            $okMsg = 'Se l\'email è registrata, riceverai una password temporanea a breve.';
+            $ip = Security::clientIp();
+            $emailKey = mb_strtolower(trim((string)$email), 'UTF-8');
+            if (Security::isRateLimited('reset_ip', $ip, self::RESET_MAX_PER_IP, self::RESET_WINDOW)) {
+                if (class_exists('Audit')) {
+                    Audit::log('RATE_LIMIT', 'auth', null, null, null, ['ip' => $ip, 'email' => $emailKey, 'action' => 'request_reset'], 'security');
+                }
+                Response::json(false, 'Troppe richieste. Riprovare più tardi.', null, 429);
+            }
+            Security::rateLimitHit('reset_ip', $ip, self::RESET_WINDOW);
+            // Limite per email: risposta identica per non rivelare se l'indirizzo esiste
+            if (Security::isRateLimited('reset_email', $emailKey, self::RESET_MAX_PER_EMAIL, self::RESET_WINDOW)) {
+                Response::json(true, $okMsg);
+            }
+            Security::rateLimitHit('reset_email', $emailKey, self::RESET_WINDOW);
             $auth = new Auth();
             $auth->requestPasswordReset($email);
-            Response::json(true, 'Se l\'email è registrata, riceverai una password temporanea a breve.');
+            Response::json(true, $okMsg);
         } elseif ($action === 'reset_password') {
             $userId = $data['user_id'] ?? '';
             $currentPwd = $data['current_password'] ?? '';
@@ -104,11 +140,16 @@ class ApiRouter {
             if (empty($userId) || empty($currentPwd) || empty($newPwd)) {
                 Response::json(false, 'Dati mancanti');
             }
+            // Stesso rate limit per IP del login (bucket condiviso)
+            self::enforceLoginRateLimit();
+            $ip = Security::clientIp();
             $auth = new Auth();
             try {
                 $auth->resetPassword($userId, $currentPwd, $newPwd);
+                Security::rateLimitReset('login', $ip);
                 Response::json(true, 'Password aggiornata con successo. Effettua il login.');
             } catch (Exception $e) {
+                Security::rateLimitHit('login', $ip, self::LOGIN_WINDOW);
                 Response::json(false, $e->getMessage());
             }
         } elseif ($action === 'verify') {
@@ -242,6 +283,7 @@ class ApiRouter {
             case 'createUser':    $ctrl->createUser(); break;
             case 'deleteUser':    $ctrl->deleteUser(); break;
             case 'resetPassword': $ctrl->resetPassword(); break;
+            case 'unlockUser':    $ctrl->unlockUser(); break;
             
             // Backup
             case 'listBackups':   $ctrl->listBackups(); break;

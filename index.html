@@ -16,7 +16,7 @@
     <script src="https://unpkg.com/@phosphor-icons/web" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
-    <link rel="stylesheet" href="css/style.css?v=1778402318">
+    <link rel="stylesheet" href="css/style.css?v=1778402325">
 
     <style>
         /* ── Auth Screen (inline for instant render) ── */
@@ -82,7 +82,7 @@
             <div class="auth-logo">
                 <img src="assets/logo.png" alt="MV Consulting Logo" class="auth-logo-img">
             </div>
-            <form id="login-form" class="login-form" novalidate>
+            <form id="login-form" class="login-form" method="post" novalidate>
                 <div class="form-group-login">
                     <label for="login-email">Indirizzo email</label>
                     <div class="input-wrapper">
@@ -122,7 +122,7 @@
                 <h2 style="font-size: 1.4rem; font-weight: 600; color: var(--text-primary); margin: 0 0 8px 0;">Cambio Password Obbligatorio</h2>
                 <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">Per motivi di sicurezza, devi impostare una nuova password prima di proseguire.</p>
             </div>
-            <form id="reset-form" novalidate>
+            <form id="reset-form" method="post" novalidate>
                 <div class="form-group-login">
                     <label for="reset-current">Password attuale</label>
                     <div class="input-wrapper">
@@ -175,10 +175,10 @@
             </div>
             <div class="sidebar-footer">
                 <div class="sidebar-user" id="user-menu-btn" style="cursor: pointer; position: relative;">
-                    <div class="sidebar-avatar" id="user-avatar">MV</div>
+                    <div class="sidebar-avatar" id="user-avatar"></div>
                     <div class="sidebar-user-info">
-                        <div class="sidebar-user-name" id="user-display-name">Marco Vanzo</div>
-                        <div class="sidebar-user-role">Admin</div>
+                        <div class="sidebar-user-name" id="user-display-name"></div>
+                        <div class="sidebar-user-role" id="user-display-role"></div>
                     </div>
                     <i class="ph ph-caret-up" style="margin-left: auto; color: var(--text-muted);"></i>
                 </div>
@@ -187,7 +187,7 @@
                     <button class="dropdown-item" id="profile-btn" type="button">
                         <i class="ph ph-user"></i> Il mio profilo
                     </button>
-                    <div class="admin-only">
+                    <div class="admin-only hidden">
                         <div class="dropdown-divider"></div>
                         <button class="dropdown-item nav-item" data-view="utenti" type="button">
                             <i class="ph ph-users"></i> Gestione Utenti
@@ -487,10 +487,10 @@
 
     <!-- ═══ MODAL ═══ -->
     <div class="modal-overlay" id="modal-overlay">
-        <div class="modal" id="modal">
+        <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
             <div class="modal-header">
                 <h2 class="modal-title" id="modal-title">Nuovo Cliente</h2>
-                <button class="modal-close" id="modal-close"><i class="ph ph-x"></i></button>
+                <button class="modal-close" id="modal-close" type="button" aria-label="Chiudi"><i class="ph ph-x"></i></button>
             </div>
             <div class="modal-body" id="modal-body"></div>
             <div class="modal-footer" id="modal-footer">
@@ -504,16 +504,16 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- Core Scripts -->
-    <script src="js/core/store.js" defer></script>
-    <script src="js/core/auth.js" defer></script>
-    <script src="js/core/ui.js" defer></script>
-    <script src="js/modules/clienti.js" defer></script>
-    <script src="js/modules/trasferte.js?v=1778402318" defer></script>
-    <script src="js/modules/mezzi.js" defer></script>
-    <script src="js/modules/incarichi.js?v=1778402318" defer></script>
-    <script src="js/modules/contabilita.js?v=1778402318" defer></script>
-    <script src="js/modules/admin.js" defer></script>
-    <script src="js/app.js?v=1778402318" defer></script>
+    <script src="js/core/store.js?v=1778402325" defer></script>
+    <script src="js/core/auth.js?v=1778402325" defer></script>
+    <script src="js/core/ui.js?v=1778402325" defer></script>
+    <script src="js/modules/clienti.js?v=1778402325" defer></script>
+    <script src="js/modules/trasferte.js?v=1778402325" defer></script>
+    <script src="js/modules/mezzi.js?v=1778402325" defer></script>
+    <script src="js/modules/incarichi.js?v=1778402325" defer></script>
+    <script src="js/modules/contabilita.js?v=1778402325" defer></script>
+    <script src="js/modules/admin.js?v=1778402325" defer></script>
+    <script src="js/app.js?v=1778402325" defer></script>
 
 </body>
 </html>
