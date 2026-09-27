@@ -134,17 +134,28 @@ const ModPartner = (() => {
             <div class="form-group"><label>P.IVA</label><input class="form-control" id="fo-piva" value="${UI.esc(f.partita_iva || '')}"></div>
             <div class="form-group"><label>Codice fiscale</label><input class="form-control" id="fo-cf" value="${UI.esc(f.codice_fiscale || '')}"></div>
             <div class="form-group full-width"><label>IBAN</label><input class="form-control" id="fo-iban" value="${UI.esc(f.iban || '')}"></div>
+            <div class="form-group full-width" id="fo-cat-box" style="display:none"><label>Categoria dei pagamenti</label><select class="form-control" id="fo-cat"><option value="">— Fornitori e partner —</option></select></div>
             <div class="form-group"><label>Email</label><input class="form-control" id="fo-email" value="${UI.esc(f.email || '')}"></div>
             <div class="form-group"><label>Telefono</label><input class="form-control" id="fo-tel" value="${UI.esc(f.telefono || '')}"></div>
             <div class="form-group full-width"><label>Note</label><textarea class="form-control" id="fo-note">${UI.esc(f.note || '')}</textarea></div>
         </div>`, async () => {
             const v = id => document.getElementById(id).value;
-            await Store.api('save', 'fornitori', { id: f.id, ragione_sociale: v('fo-rs'), tipo: v('fo-tipo'), giorni_pagamento: v('fo-gg'),
-                partita_iva: v('fo-piva'), codice_fiscale: v('fo-cf'), iban: v('fo-iban'), email: v('fo-email'), telefono: v('fo-tel'), note: v('fo-note') });
+            const dati = { id: f.id, ragione_sociale: v('fo-rs'), tipo: v('fo-tipo'), giorni_pagamento: v('fo-gg'),
+                partita_iva: v('fo-piva'), codice_fiscale: v('fo-cf'), iban: v('fo-iban'), email: v('fo-email'), telefono: v('fo-tel'), note: v('fo-note') };
+            // Categoria inviata solo se il campo è stato caricato (categorie attive)
+            if (document.getElementById('fo-cat-box').style.display !== 'none') dati.categoria_default_id = v('fo-cat');
+            await Store.api('save', 'fornitori', dati);
             UI.closeModal();
             UI.toast('Partner salvato');
             load();
         });
+        // Categorie di uscita (grafici "Andamento"): il campo compare solo se il modulo categorie è attivo
+        if (window.ModMovimenti) ModMovimenti.categorie('uscita').then(cats => {
+            const sel = document.getElementById('fo-cat');
+            if (!sel || !cats.length) return;
+            cats.forEach(c => { const o = document.createElement('option'); o.value = c.id; o.textContent = c.nome; if (c.id == f.categoria_default_id) o.selected = true; sel.appendChild(o); });
+            document.getElementById('fo-cat-box').style.display = '';
+        }).catch(() => {});
     }
 
     // ── Fattura fornitore ───────────────────────────────

@@ -16,6 +16,8 @@ require_once __DIR__ . '/../api/Shared/RiconciliazioneMatch.php';
 require_once __DIR__ . '/../api/Shared/RiconciliazioneDocumenti.php';
 require_once __DIR__ . '/../api/Shared/Riconciliatore.php';
 require_once __DIR__ . '/../api/Shared/CommessaService.php';
+require_once __DIR__ . '/../api/Shared/Classificatore.php';
+require_once __DIR__ . '/../api/Shared/CategorieMovimenti.php';
 
 $ok = 0;
 $ko = 0;
@@ -146,7 +148,11 @@ $p = 'mv_';
 foreach ([
     "CREATE TABLE {$p}clienti (id INTEGER PRIMARY KEY, ragione_sociale TEXT, partita_iva TEXT, codice_fiscale TEXT)",
     "CREATE TABLE {$p}sottoclienti (id INTEGER PRIMARY KEY, cliente_id INT, nome TEXT)",
-    "CREATE TABLE {$p}fornitori (id INTEGER PRIMARY KEY, ragione_sociale TEXT, partita_iva TEXT, codice_fiscale TEXT, deleted_at TEXT)",
+    "CREATE TABLE {$p}fornitori (id INTEGER PRIMARY KEY, ragione_sociale TEXT, partita_iva TEXT, codice_fiscale TEXT, deleted_at TEXT, categoria_default_id INT)",
+    "CREATE TABLE {$p}categorie_movimento (id INTEGER PRIMARY KEY, codice TEXT UNIQUE, nome TEXT NOT NULL, tipo TEXT NOT NULL,
+        colore TEXT NOT NULL DEFAULT '#64748B', ordine INT NOT NULL DEFAULT 0, attiva INT NOT NULL DEFAULT 1)",
+    "CREATE TABLE {$p}regole_categoria (id INTEGER PRIMARY KEY, chiave TEXT NOT NULL DEFAULT '', codice_operazione TEXT NOT NULL DEFAULT '',
+        segno INT NOT NULL, categoria_id INT NOT NULL, utilizzi INT NOT NULL DEFAULT 0, created_by INT, UNIQUE (chiave, codice_operazione, segno))",
     "CREATE TABLE {$p}incarichi (id INTEGER PRIMARY KEY, cliente_id INT, importo_totale REAL, importo_fatturato REAL DEFAULT 0, importo_pagato REAL DEFAULT 0, stato TEXT DEFAULT 'attivo')",
     "CREATE TABLE {$p}incarichi_rate (id INTEGER PRIMARY KEY, incarico_id INT, ordine INT, descrizione TEXT, importo REAL, giorni_pagamento INT DEFAULT 30, fattura_id INT UNIQUE)",
     "CREATE TABLE {$p}fatture (id INTEGER PRIMARY KEY, numero_fattura TEXT, data_emissione TEXT, cliente_id INT, sottocliente_id INT, incarico_id INT,
@@ -156,10 +162,16 @@ foreach ([
     "CREATE TABLE {$p}movimenti_banca (id INTEGER PRIMARY KEY, banca TEXT DEFAULT '', iban TEXT, riferimento_banca TEXT, codice_operazione TEXT,
         data_operazione TEXT NOT NULL, data_valuta TEXT, importo REAL NOT NULL, descrizione TEXT, controparte TEXT, hash_riga TEXT NOT NULL UNIQUE,
         stato TEXT NOT NULL DEFAULT 'da_riconciliare', origine TEXT NOT NULL DEFAULT 'estratto_conto', avviso_id INT, file_nome TEXT,
+        categoria_id INT, categoria_fonte TEXT, classificazione TEXT NOT NULL DEFAULT 'da_classificare', regola_id INT,
+        categoria_proposta_id INT, proposta_motivo TEXT, abbinabile INT NOT NULL DEFAULT 1,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)",
     "CREATE TABLE {$p}riconciliazioni (id INTEGER PRIMARY KEY, movimento_id INT NOT NULL REFERENCES {$p}movimenti_banca(id) ON DELETE CASCADE,
         tipo TEXT NOT NULL, documento_id INT NOT NULL, importo REAL NOT NULL, metodo TEXT NOT NULL, created_by INT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)",
 ] as $sql) $pdo->exec($sql);
+// Categorie iniziali: la stessa INSERT della migrazione v060 (INSERT IGNORE → sintassi SQLite)
+$src = (string)file_get_contents(__DIR__ . '/../api/migrate.php');
+preg_match('/"(INSERT IGNORE INTO \{\$prefix\}categorie_movimento.*?)"/s', $src, $mSeed);
+$pdo->exec(str_replace(['INSERT IGNORE', '{$prefix}'], ['INSERT OR IGNORE', $p], $mSeed[1]));
 
 $ins = fn(string $sql, array $v) => $pdo->prepare($sql)->execute($v);
 $ins("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (?, ?)", [1, 'Unindustria Servizi & Formazione Treviso Pordenone S.c.a r.l.']);
@@ -224,8 +236,9 @@ $pdo->commit();
 $perRef = [];
 foreach ($esito['movimenti'] as $m) $perRef[$m['descrizione']] = $m;
 echo '  riepilogo: ' . json_encode(array_diff_key($esito, ['movimenti' => 1])) . "\n";
-check('non pertinenti scartati (Wise, commissioni, mutuo)', $esito['non_pertinenti'] === 3, $esito['non_pertinenti']);
-check('6 movimenti salvati', $esito['nuovi'] === 6);
+check('tutti i 9 movimenti salvati', $esito['nuovi'] === 9, $esito);
+check('3 senza aggancio a fatture (Wise, commissioni, mutuo): abbinabile = 0', $esito['senza_aggancio'] === 3
+    && (int)$pdo->query("SELECT COUNT(*) FROM {$p}movimenti_banca WHERE abbinabile = 0")->fetchColumn() === 3);
 check('4 abbinati in automatico', $esito['abbinati'] === 4, array_map(fn($m) => [$m['descrizione'], $m['esito'], $m['dettaglio']], $esito['movimenti']));
 check('causale troncata: 46, 47 e tutte le righe della 48 pagate', $stato(1) === 'pagata' && $stato(2) === 'pagata' && $stato(3) === 'pagata' && $stato(4) === 'pagata' && $stato(5) !== 'pagata');
 check('data pagamento = data valuta', $pdo->query("SELECT data_pagamento FROM {$p}fatture WHERE id = 3")->fetchColumn() === '2026-07-20');
@@ -250,7 +263,7 @@ check('Fusion: due fatture da 500, nessun abbinamento automatico', $stato(10) !=
 $pdo->beginTransaction();
 $bis = $ric->importaMovimenti($letto['movimenti'], ['banca' => 'Banca di prova', 'iban' => $letto['iban'], 'file_nome' => 'prova.xml'], 7);
 $pdo->commit();
-check('reimport dello stesso estratto: nessun nuovo movimento', $bis['nuovi'] === 0 && $bis['gia_presenti'] === 6, $bis);
+check('reimport dello stesso estratto: nessun nuovo movimento', $bis['nuovi'] === 0 && $bis['gia_presenti'] === 9, $bis);
 
 echo "Conferma manuale, annulla, ignora\n";
 $idScandicci = (int)$pdo->query("SELECT id FROM {$p}movimenti_banca WHERE descrizione LIKE '%62-2025%'")->fetchColumn();
@@ -296,6 +309,116 @@ $righeRic = (int)$pdo->query("SELECT COUNT(*) FROM {$p}riconciliazioni")->fetchC
 $ric->annulla($idAvv);
 check('annulla avviso: fatture riaperte e accredito scollegato', $stato(1) === 'emessa' && $ric->movimento($idUni)['avviso_id'] === null
     && (int)$pdo->query("SELECT COUNT(*) FROM {$p}riconciliazioni")->fetchColumn() < $righeRic);
+
+// ═══ 3b. Categorie dei movimenti ═══════════════════════════
+echo "Chiavi normalizzate ed euristiche\n";
+check('testo normalizzato: via date, numeri, ID e parole generiche',
+    Classificatore::testoNormalizzato('Bonifico a vs favore *UNINDUSTRIA SERVIZI E FORMAZIONE 2728-42 -FATT. 46/001 DEL 28/06/2026') === 'UNINDUSTRIA SERVIZI FORMAZIONE',
+    Classificatore::testoNormalizzato('Bonifico a vs favore *UNINDUSTRIA SERVIZI E FORMAZIONE 2728-42 -FATT. 46/001 DEL 28/06/2026'));
+check('chiave Wise senza ID', Classificatore::chiaveSuggerita('Wise 1944617001 Italy Girls Soccer 7/06', null) === 'WISE ITALY GIRLS');
+check('chiave dalla controparte (senza forma giuridica)', Classificatore::chiaveSuggerita('Bonifico stipendi', 'STUDIO PAGHE ALFA SAS') === 'STUDIO PAGHE ALFA');
+check('chiave troppo generica rifiutata', !Classificatore::chiaveValida(Classificatore::testoNormalizzato('Bonifico SRL 12/2026')) && Classificatore::chiaveValida('WISE'));
+$regWise = ['id' => 1, 'chiave' => 'WISE', 'codice_operazione' => '', 'segno' => 1, 'categoria_id' => 5];
+check('regola: parola intera, segno giusto', Classificatore::regolaCorrisponde($regWise, ['importo' => 10, 'descrizione' => 'Wise 123 Italy', 'controparte' => null])
+    && !Classificatore::regolaCorrisponde($regWise, ['importo' => -10, 'descrizione' => 'Wise 123', 'controparte' => null])
+    && !Classificatore::regolaCorrisponde($regWise, ['importo' => 10, 'descrizione' => 'WISEMAN SRL', 'controparte' => null]));
+$regCod = ['id' => 2, 'chiave' => '', 'codice_operazione' => '47//20', 'segno' => -1, 'categoria_id' => 9];
+check('regola per codice operazione', Classificatore::regolaCorrisponde($regCod, ['importo' => -500, 'descrizione' => 'x', 'codice_operazione' => '47//20']));
+$m = ['importo' => 10, 'descrizione' => 'Wise Italy Girls', 'controparte' => null];
+check('vince la regola più specifica', Classificatore::sceltaRegola([$regWise, ['id' => 3, 'chiave' => 'WISE ITALY', 'codice_operazione' => '', 'segno' => 1, 'categoria_id' => 7]], $m)['id'] === 3);
+check('due regole ugualmente specifiche e discordi: nessuna', Classificatore::sceltaRegola([$regWise, ['id' => 4, 'chiave' => 'ROMA', 'codice_operazione' => '', 'segno' => 1, 'categoria_id' => 7]],
+    ['importo' => 10, 'descrizione' => 'WISE ROMA', 'controparte' => null]) === null);
+check('euristica univoca: commissioni', Classificatore::euristica(['importo' => -1.5, 'descrizione' => 'Commissioni bonifico', 'controparte' => null]) === 'commissioni_banca');
+check('euristica: F24 + commissioni = ambigua', Classificatore::euristica(['importo' => -300, 'descrizione' => 'Pagamento delega F24 commissioni', 'controparte' => null]) === null);
+check('euristica: segno sbagliato non vale', Classificatore::euristica(['importo' => 1.5, 'descrizione' => 'Commissioni', 'controparte' => null]) === null);
+check('euristica: erogazione mutuo in entrata', Classificatore::euristica(['importo' => 50000, 'descrizione' => 'Erogazione mutuo', 'controparte' => null]) === 'finanziamenti');
+
+echo "Classificazione automatica e coda Da classificare\n";
+check('16 categorie iniziali', (int)$pdo->query("SELECT COUNT(*) FROM {$p}categorie_movimento")->fetchColumn() === 16);
+$catId = fn(string $codice) => (int)$pdo->query("SELECT id FROM {$p}categorie_movimento WHERE codice = '$codice'")->fetchColumn();
+$pdo->exec("UPDATE {$p}fornitori SET categoria_default_id = " . $catId('commercialista_paghe') . " WHERE id = 1");
+$cls = new Classificatore($pdo, $p);
+$cls->classifica(null);
+$movPer = fn(string $like) => $pdo->query("SELECT * FROM {$p}movimenti_banca WHERE origine = 'estratto_conto' AND descrizione LIKE '%$like%' ORDER BY id LIMIT 1")->fetch();
+check('incasso riconciliato → Incassi clienti (fonte fattura)', ($r = $movPer('NR. 67'))['categoria_id'] == $catId('incassi_clienti') && $r['categoria_fonte'] === 'fattura');
+check('fornitore con categoria predefinita → Commercialista e paghe', $movPer('STUDIO PAGHE')['categoria_id'] == $catId('commercialista_paghe'));
+check('commissioni → euristica (codice_banca)', ($r = $movPer('Commissioni'))['categoria_id'] == $catId('commissioni_banca') && $r['categoria_fonte'] === 'codice_banca');
+check('erogazione mutuo → Finanziamenti', $movPer('Erogazione mutuo')['categoria_id'] == $catId('finanziamenti'));
+check('Wise e Unindustria non abbinato: da classificare', $movPer('Wise')['classificazione'] === 'da_classificare' && $movPer('UNINDUSTRIA')['classificazione'] === 'da_classificare');
+check('avvisi di pagamento fuori dalla coda', (int)$pdo->query("SELECT COUNT(*) FROM {$p}movimenti_banca WHERE origine = 'avviso_pagamento' AND categoria_id IS NOT NULL")->fetchColumn() === 0);
+
+$nuovi = [
+    ['data_operazione' => '2026-06-12', 'data_valuta' => '2026-06-12', 'importo' => 800.0, 'descrizione' => 'Wise 2000000002 Italy Boys Soccer 8/06', 'controparte' => null, 'riferimento' => 'W2', 'iban' => 'X'],
+    ['data_operazione' => '2026-06-14', 'data_valuta' => '2026-06-14', 'importo' => 500.0, 'descrizione' => 'Wise 2000000003 Italy Girls Soccer 9/06', 'controparte' => null, 'riferimento' => 'W3', 'iban' => 'X'],
+    ['data_operazione' => '2026-06-16', 'data_valuta' => '2026-06-16', 'importo' => -300.0, 'descrizione' => 'Pagamento delega F24 commissioni 0001', 'controparte' => null, 'riferimento' => 'F1', 'iban' => 'X'],
+];
+$pdo->beginTransaction();
+$e2 = $ric->importaMovimenti($nuovi, ['banca' => ''], 7);
+$cls->classifica($e2['ids']);
+$pdo->commit();
+check('F24 + commissioni resta da classificare', $movPer('delega F24')['classificazione'] === 'da_classificare');
+$daClass = $cls->contaDaClassificare();
+
+echo "Regole apprese\n";
+$wise = $movPer('Wise 1944617001');
+try { $cls->classificaUtente((int)$wise['id'], $catId('altre_uscite'), [], 7); $e = null; } catch (RuntimeException $e) {}
+check('categoria di uscita su un accredito: rifiutata', $e instanceof RuntimeException);
+try { $cls->classificaUtente((int)$wise['id'], $catId('altre_entrate'), ['applica_simili' => true, 'chiave' => 'SRL 2026'], 7); $e = null; } catch (RuntimeException $e) {}
+check('chiave generica: rifiutata', $e instanceof RuntimeException && strpos($e->getMessage(), 'generica') !== false);
+try { $cls->classificaUtente((int)$wise['id'], $catId('altre_entrate'), ['applica_simili' => true, 'chiave' => 'PAYPAL'], 7); $e = null; } catch (RuntimeException $e) {}
+check('chiave che non compare nel movimento: rifiutata', $e instanceof RuntimeException);
+$r = $cls->classificaUtente((int)$wise['id'], $catId('altre_entrate'), ['applica_simili' => true, 'chiave' => 'wise'], 7);
+check('regola "WISE" applicata subito agli altri 2 movimenti Wise', $r['aggiornati'] === 2 && $r['regola_id'] > 0, $r);
+check('movimento scelto: fonte utente; simili: fonte regola',
+    $movPer('Wise 1944617001')['categoria_fonte'] === 'utente' && $movPer('Wise 2000000002')['categoria_fonte'] === 'regola');
+check('coda Da classificare scesa di 3', $cls->contaDaClassificare() === $daClass - 3, [$daClass, $cls->contaDaClassificare()]);
+$pdo->beginTransaction();
+$e3 = $ric->importaMovimenti([['data_operazione' => '2026-07-01', 'data_valuta' => '2026-07-01', 'importo' => 90.0,
+    'descrizione' => 'Wise 2000000009 Refund', 'controparte' => null, 'riferimento' => 'W9', 'iban' => 'X']], ['banca' => ''], 7);
+$cls->classifica($e3['ids']);
+$pdo->commit();
+check('nuovo import: Wise classificato dalla regola', ($r9 = $movPer('Wise 2000000009'))['categoria_fonte'] === 'regola' && $r9['categoria_id'] == $catId('altre_entrate'));
+$r = $cls->classificaUtente((int)$r9['id'], $catId('rimborsi'), ['aggiorna_regola' => true], 7);
+check('cambio categoria con aggiornamento della regola: anche gli altri movimenti della regola', $r['aggiornati'] === 2
+    && $movPer('Wise 2000000002')['categoria_id'] == $catId('rimborsi')
+    && (int)$pdo->query("SELECT categoria_id FROM {$p}regole_categoria WHERE chiave = 'WISE'")->fetchColumn() === $catId('rimborsi'));
+check('la scelta esplicita dell\'utente non cambia', $movPer('Wise 1944617001')['categoria_id'] == $catId('altre_entrate'));
+
+echo "Proposte da movimenti simili e annullamento\n";
+$f24 = $movPer('delega F24');
+$cls->classificaUtente((int)$f24['id'], $catId('imposte_tasse'), [], 7);
+$pdo->beginTransaction();
+$e4 = $ric->importaMovimenti([['data_operazione' => '2026-07-16', 'data_valuta' => '2026-07-16', 'importo' => -410.0,
+    'descrizione' => 'Pagamento delega F24 commissioni 0002', 'controparte' => null, 'riferimento' => 'F2', 'iban' => 'X']], ['banca' => ''], 7);
+$cls->classifica($e4['ids']);
+$pdo->commit();
+$f24b = $movPer('commissioni 0002');
+check('movimento simile: resta da classificare ma con proposta "Imposte"', $f24b['classificazione'] === 'da_classificare'
+    && (int)$f24b['categoria_proposta_id'] === $catId('imposte_tasse') && strpos((string)$f24b['proposta_motivo'], 'simile') !== false, $f24b);
+$idEuro = (int)$movPer('NR. 67')['id'];
+$ric->annulla($idEuro);
+$cls->classifica([$idEuro]);
+check('riconciliazione annullata: la categoria da fattura si toglie', $ric->movimento($idEuro)['classificazione'] === 'da_classificare');
+$lista = $ric->lista(['origine' => 'estratto_conto', 'classificazione' => 'da_classificare']);
+check('lista coda con chiave suggerita', $lista && isset($lista[0]['chiave_suggerita']));
+check('filtro abbinabili esclude Wise/commissioni/mutuo', !array_filter($ric->lista(['abbinabili' => true]), fn($x) => stripos($x['descrizione'], 'Wise 1944') !== false));
+
+echo "Dati per i grafici\n";
+$cats = [['id' => 1, 'nome' => 'Incassi', 'tipo' => 'entrata', 'colore' => '#10B981'], ['id' => 2, 'nome' => 'Banca', 'tipo' => 'uscita', 'colore' => '#94A3B8']];
+$agg = CategorieMovimenti::aggrega([
+    ['data' => '2026-01-10', 'importo' => 1000, 'categoria_id' => 1], ['data' => '2026-01-20', 'importo' => -1.5, 'categoria_id' => 2],
+    ['data' => '2026-03-05', 'importo' => 200, 'categoria_id' => null], ['data' => '2026-03-06', 'importo' => -50, 'categoria_id' => null],
+], $cats, '2026-01-01', '2026-03-31');
+check('tre mesi anche se febbraio è vuoto', count($agg['mesi']) === 3 && $agg['mesi'][1]['entrate'] === 0.0);
+check('gennaio: entrate 1000, uscite 1,50, netto 998,50', $agg['mesi'][0]['entrate'] === 1000.0 && $agg['mesi'][0]['uscite'] === 1.5 && $agg['mesi'][0]['netto'] === 998.5);
+check('entrate per categoria ordinate, con "Non classificato"', $agg['entrate']['categorie'][0]['nome'] === 'Incassi' && $agg['entrate']['categorie'][1]['id'] === null
+    && $agg['entrate']['categorie'][1]['nome'] === 'Non classificato' && $agg['entrate']['totale'] === 1200.0);
+check('totali', $agg['totali'] === ['entrate' => 1200.0, 'uscite' => 51.5, 'netto' => 1148.5], $agg['totali']);
+$stat = (new CategorieMovimenti($pdo, $p))->statistiche('2026-01-01', '2026-12-31');
+$atteso = (float)$pdo->query("SELECT SUM(importo) FROM {$p}movimenti_banca WHERE origine = 'estratto_conto' AND data_valuta BETWEEN '2026-01-01' AND '2026-12-31'")->fetchColumn();
+check('statistiche dal DB: netto = somma dei movimenti bancari (avvisi esclusi)', abs($stat['totali']['netto'] - $atteso) < 0.01 && count($stat['mesi']) === 12, [$stat['totali'], $atteso]);
+$nc = array_values(array_filter($stat['entrate']['categorie'], fn($c) => $c['id'] === null));
+check('quota "Non classificato" nelle entrate', $nc && $nc[0]['numero'] >= 1);
 
 // ═══ 4. Estratto conto vero (facoltativo) ═══════════════════
 $file = getenv('CBI_FILE') ?: '';

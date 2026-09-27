@@ -1001,3 +1001,13 @@ textarea.form-control {
 .tooltip-val {
     font-weight: 600;
 }
+
+/* ── Contabilità › Andamento (grafici SVG) ── */
+.andamento-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.andamento-scroll { overflow-x: auto; }
+.andamento-scroll svg { min-width: 520px; }
+.andamento-riga { padding: 6px 4px; border-radius: 6px; cursor: pointer; }
+.andamento-riga:hover { background: rgba(255, 255, 255, 0.04); }
+@media (max-width: 800px) {
+  .andamento-grid { grid-template-columns: 1fr; }
+}

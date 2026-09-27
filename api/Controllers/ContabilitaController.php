@@ -861,6 +861,8 @@ class ContabilitaController {
                     'descrizione' => 'Avviso di pagamento — fatture ' . implode(', ', $numeriAvviso),
                     'file_nome' => trim((string)($data['file_nome'] ?? '')),
                 ], $docsAvviso, isset($GLOBALS['userContext']['id']) ? (int)$GLOBALS['userContext']['id'] : null, 2.0);
+                // L'accredito collegato all'avviso diventa "Incassi clienti"
+                RiconciliazioneController::classifica($this->pdo, $this->prefix);
                 foreach ($ric->documenti()->delMovimento($movimentoId) as $d) {
                     Audit::log('UPDATE', 'fatture', $d['id'], null, null, [
                         'azione' => 'pagamento_da_pdf', 'stato' => 'pagata', 'data_pagamento' => $dataPagamento,

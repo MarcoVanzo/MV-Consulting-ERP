@@ -20,6 +20,8 @@ const ModRiconciliazione = (() => {
     async function load() {
         const params = { ...periodo() };
         if (_stato) params.stato = _stato;
+        // La coda da riconciliare mostra solo i movimenti agganciabili a fatture (gli altri sono in "Andamento")
+        if (_stato === 'da_riconciliare') params.abbinabili = '1';
         try {
             _movimenti = await Store.api('movimenti', 'riconciliazione', params) || [];
         } catch (e) {
@@ -29,6 +31,7 @@ const ModRiconciliazione = (() => {
         }
         _proposte = {};
         render();
+        if (window.ModMovimenti) ModMovimenti.aggiornaBadge();
     }
 
     function importo(v) {
@@ -53,6 +56,10 @@ const ModRiconciliazione = (() => {
         tbody.innerHTML = _movimenti.map(m => {
             const s = STATI[m.stato] || { cls: 'badge-blue', label: m.stato };
             const avviso = m.origine === 'avviso_pagamento' ? ' <span class="badge badge-blue">avviso</span>' : '';
+            // Categoria (clic per cambiarla); "Da classificare" se il sistema non l'ha riconosciuta
+            const categoria = m.origine !== 'estratto_conto' || !('classificazione' in m) || !window.ModMovimenti ? ''
+                : ` <span style="cursor:pointer" onclick="ModRiconciliazione.categoria(${m.id})" title="Cambia categoria">${m.categoria_id
+                    ? ModMovimenti.chip(m) : '<span class="badge badge-yellow">Da classificare</span>'}</span>`;
             let abbinato = (m.riconciliazioni || []).map(docLabel).join('');
             if (m.avviso_id) abbinato = '<span style="color:var(--text-muted)">Coperto dall\'avviso di pagamento</span>';
             let azioni = '';
@@ -68,7 +75,7 @@ const ModRiconciliazione = (() => {
             }
             return `<tr data-id="${UI.esc(m.id)}">
                 <td>${UI.formatDate(m.data_valuta || m.data_operazione)}</td>
-                <td><div class="td-primary">${UI.esc(m.controparte || '')}${avviso}</div><div style="font-size:0.78rem;color:var(--text-muted);max-width:520px;white-space:normal">${UI.esc(m.descrizione || '')}</div></td>
+                <td><div class="td-primary">${UI.esc(m.controparte || '')}${avviso}${categoria}</div><div style="font-size:0.78rem;color:var(--text-muted);max-width:520px;white-space:normal">${UI.esc(m.descrizione || '')}</div></td>
                 <td class="text-right">${importo(m.importo)}</td>
                 <td><span class="badge ${s.cls}">${UI.esc(s.label)}</span></td>
                 <td style="font-size:0.82rem">${abbinato || '—'}</td>
@@ -235,11 +242,12 @@ const ModRiconciliazione = (() => {
             .map(m => `<div>${UI.formatDate(m.data)} ${importo(m.importo)} ${UI.esc((m.descrizione || '').slice(0, 90))}</div>`).join('');
         const html = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
                 ${box(r.letti, 'Movimenti letti', 'var(--text-primary)')}
-                ${box(r.non_pertinenti, 'Non pertinenti scartati', 'var(--text-muted)')}
                 ${box(r.nuovi, 'Nuovi', '#6366f1')}
-                ${box(r.abbinati, 'Abbinati in automatico', '#10b981')}
-                ${box(r.da_verificare, 'Da verificare', '#f59e0b')}
+                ${box(r.abbinati, 'Abbinati a fatture', '#10b981')}
+                ${box(r.da_verificare, 'Da verificare (fatture)', '#f59e0b')}
+                ${r.classificazione ? box(r.classificazione.da_classificare, 'Da classificare', '#f59e0b') : ''}
             </div>
+            ${r.classificazione ? `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:8px">Categorie: ${UI.esc(r.classificazione.fattura)} dalle fatture, ${UI.esc(r.classificazione.regola)} dalle regole, ${UI.esc(r.classificazione.codice_banca)} dal tipo di operazione${r.proposte_ai ? `, ${UI.esc(r.proposte_ai)} proposte dall'AI` : ''} · ${UI.esc(r.senza_aggancio ?? 0)} movimenti senza aggancio a fatture</div>` : ''}
             <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:8px">${UI.esc(r.banca || '')} · lettura: ${UI.esc(r.metodo || '')}${r.gia_presenti ? ` · ${UI.esc(r.gia_presenti)} già importati` : ''}</div>
             ${avvisi}${verifica ? `<div style="margin-top:10px;font-size:0.82rem;line-height:1.7"><strong>Da verificare</strong>${verifica}</div>` : ''}`;
         UI.openModal('Import estratto conto', html, null, { readOnly: true });
@@ -264,6 +272,11 @@ const ModRiconciliazione = (() => {
         });
     }
 
-    return { load, init, mostraProposte, confermaProposta, sceltaManuale, annulla, ignora, ripristina };
+    function categoria(id) {
+        const m = _movimenti.find(x => x.id == id);
+        if (m) ModMovimenti.classifica(m, load);
+    }
+
+    return { load, init, categoria, mostraProposte, confermaProposta, sceltaManuale, annulla, ignora, ripristina };
 })();
 window.ModRiconciliazione = ModRiconciliazione;

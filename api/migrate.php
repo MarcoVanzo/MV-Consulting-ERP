@@ -512,7 +512,73 @@ $queries = [
         KEY idx_ric_movimento (movimento_id),
         KEY idx_ric_documento (tipo, documento_id),
         CONSTRAINT fk_ric_movimento FOREIGN KEY (movimento_id) REFERENCES {$prefix}movimenti_banca(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    // ═══ Categorie dei movimenti bancari (v059–v063) ═══
+    // codice: chiave fissa delle categorie usate dal codice (fatture, euristiche); NULL per quelle create dall'utente
+    "CREATE TABLE IF NOT EXISTS {$prefix}categorie_movimento (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        codice VARCHAR(40) DEFAULT NULL,
+        nome VARCHAR(100) NOT NULL,
+        tipo ENUM('entrata','uscita') NOT NULL,
+        colore CHAR(7) NOT NULL DEFAULT '#64748B',
+        ordine INT NOT NULL DEFAULT 0,
+        attiva TINYINT(1) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_categorie_codice (codice),
+        KEY idx_categorie_tipo (tipo, attiva, ordine)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    "INSERT IGNORE INTO {$prefix}categorie_movimento (codice, nome, tipo, colore, ordine) VALUES
+        ('incassi_clienti', 'Incassi clienti', 'entrata', '#10B981', 10),
+        ('finanziamenti', 'Finanziamenti e mutui', 'entrata', '#0EA5E9', 20),
+        ('versamenti_soci', 'Versamenti soci / capitale', 'entrata', '#6366F1', 30),
+        ('rimborsi', 'Rimborsi', 'entrata', '#14B8A6', 40),
+        ('altre_entrate', 'Altre entrate', 'entrata', '#84CC16', 50),
+        ('fornitori_partner', 'Fornitori e partner', 'uscita', '#F97316', 110),
+        ('commercialista_paghe', 'Commercialista e consulenza paghe', 'uscita', '#A855F7', 120),
+        ('compensi_collaboratori', 'Compensi e collaboratori', 'uscita', '#EC4899', 130),
+        ('stipendi_contributi', 'Stipendi e contributi', 'uscita', '#F43F5E', 140),
+        ('imposte_tasse', 'Imposte e tasse (F24)', 'uscita', '#EF4444', 150),
+        ('mutuo_interessi', 'Rate mutuo e interessi', 'uscita', '#0284C7', 160),
+        ('commissioni_banca', 'Commissioni e spese bancarie', 'uscita', '#94A3B8', 170),
+        ('carte_credito', 'Carte di credito', 'uscita', '#EAB308', 180),
+        ('software_abbonamenti', 'Software e abbonamenti', 'uscita', '#8B5CF6', 190),
+        ('viaggi_trasferte', 'Viaggi e trasferte', 'uscita', '#06B6D4', 200),
+        ('altre_uscite', 'Altre uscite', 'uscita', '#78716C', 210)",
+
+    // Classificazione del movimento. abbinabile = 0: nessun aggancio a fatture/clienti/fornitori all'import
+    // (resta fuori dalla coda "da riconciliare", ma si classifica e finisce nei grafici)
+    "ALTER TABLE {$prefix}movimenti_banca
+        ADD COLUMN categoria_id INT DEFAULT NULL,
+        ADD COLUMN categoria_fonte ENUM('fattura','regola','codice_banca','ai','utente') DEFAULT NULL,
+        ADD COLUMN classificazione ENUM('da_classificare','classificato') NOT NULL DEFAULT 'da_classificare',
+        ADD COLUMN regola_id INT DEFAULT NULL,
+        ADD COLUMN categoria_proposta_id INT DEFAULT NULL,
+        ADD COLUMN proposta_motivo VARCHAR(255) DEFAULT NULL,
+        ADD COLUMN abbinabile TINYINT(1) NOT NULL DEFAULT 1,
+        ADD KEY idx_movimenti_classif (classificazione, categoria_id),
+        ADD CONSTRAINT fk_movimenti_categoria FOREIGN KEY (categoria_id) REFERENCES {$prefix}categorie_movimento(id) ON DELETE SET NULL",
+
+    // Regole apprese: chiave normalizzata (controparte/causale) e/o codice operazione CBI, per segno
+    "CREATE TABLE IF NOT EXISTS {$prefix}regole_categoria (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        chiave VARCHAR(150) NOT NULL DEFAULT '',
+        codice_operazione VARCHAR(20) NOT NULL DEFAULT '',
+        segno TINYINT NOT NULL COMMENT '1 entrata, -1 uscita',
+        categoria_id INT NOT NULL,
+        utilizzi INT NOT NULL DEFAULT 0,
+        created_by INT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_regole (chiave, codice_operazione, segno),
+        CONSTRAINT fk_regole_categoria FOREIGN KEY (categoria_id) REFERENCES {$prefix}categorie_movimento(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    "ALTER TABLE {$prefix}fornitori
+        ADD COLUMN categoria_default_id INT DEFAULT NULL,
+        ADD CONSTRAINT fk_fornitori_categoria FOREIGN KEY (categoria_default_id) REFERENCES {$prefix}categorie_movimento(id) ON DELETE SET NULL"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
 

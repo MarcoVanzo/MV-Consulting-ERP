@@ -15,8 +15,8 @@
     <link rel="stylesheet" href="assets/vendor/phosphor/style.css">
     <script src="assets/vendor/pdfjs/pdf.min.js"></script>
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/vendor/pdfjs/pdf.worker.min.js';</script>
-    <link rel="stylesheet" href="css/style.css?v=1790534731">
-    <link rel="stylesheet" href="css/commerciale.css?v=1790534731">
+    <link rel="stylesheet" href="css/style.css?v=1790535818">
+    <link rel="stylesheet" href="css/commerciale.css?v=1790535818">
 
     <style>
         /* ── Auth Screen (inline for instant render) ── */
@@ -175,6 +175,7 @@
                 <div class="nav-item" data-view="contabilita" id="nav-contabilita">
                     <i class="ph ph-chart-line-up"></i>
                     <span>Contabilità</span>
+                    <span class="badge badge-yellow" id="nav-badge-classificare" style="display:none;margin-left:auto" title="Movimenti da classificare"></span>
                 </div>
             </div>
             <div class="sidebar-footer">
@@ -367,6 +368,12 @@
                     <div class="tab" data-target="tab-riconciliazione" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">
                         <i class="ph ph-bank"></i> Riconciliazione
                     </div>
+                    <div class="tab" data-target="tab-classificare" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">
+                        <i class="ph ph-tag"></i> Da classificare <span class="badge badge-yellow" id="badge-da-classificare" style="display:none"></span>
+                    </div>
+                    <div class="tab" data-target="tab-andamento" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">
+                        <i class="ph ph-chart-bar"></i> Andamento
+                    </div>
                 </div>
 
                 <!-- ══ TAB: INCARICHI ══ -->
@@ -534,6 +541,52 @@
                         </table>
                     </div>
                 </div>
+
+                <!-- ══ TAB: DA CLASSIFICARE ══ -->
+                <div id="tab-classificare" class="tab-content" style="display: none;">
+                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn btn-secondary" id="btn-mov-riclassifica"><i class="ph ph-arrows-clockwise"></i> Classifica automaticamente</button>
+                        <button class="btn btn-secondary" id="btn-mov-ai" style="display:none"><i class="ph ph-sparkle"></i> Proposte AI</button>
+                        <button class="btn btn-ghost" id="btn-mov-regole"><i class="ph ph-list-checks"></i> Regole</button>
+                        <button class="btn btn-ghost" id="btn-mov-categorie" style="display:none"><i class="ph ph-palette"></i> Categorie</button>
+                    </div>
+                    <div class="table-container">
+                        <h3 style="padding: 16px 20px 8px; color: var(--text-muted); font-size: 0.9rem; font-weight: 600;">
+                            <i class="ph ph-question"></i> Movimenti che il sistema non ha riconosciuto: scegli la categoria
+                        </h3>
+                        <table class="data-table" id="table-classificare">
+                            <thead>
+                                <tr>
+                                    <th>Valuta</th>
+                                    <th>Movimento</th>
+                                    <th class="text-right">Importo</th>
+                                    <th>Proposta</th>
+                                    <th style="width:100px"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-classificare">
+                                <tr><td colspan="5"><div class="empty-state"><i class="ph ph-tag"></i><h3>Nessun movimento</h3></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ══ TAB: ANDAMENTO ══ -->
+                <div id="tab-andamento" class="tab-content" style="display: none;">
+                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                        <label for="andamento-periodo" style="color: var(--text-muted); font-size: 0.85rem;">Periodo</label>
+                        <select class="form-control" id="andamento-periodo" style="width: auto;">
+                            <option value="anno">Anno intero</option>
+                            <option value="s1">1° semestre</option>
+                            <option value="s2">2° semestre</option>
+                            <option value="t1">1° trimestre</option>
+                            <option value="t2">2° trimestre</option>
+                            <option value="t3">3° trimestre</option>
+                            <option value="t4">4° trimestre</option>
+                        </select>
+                    </div>
+                    <div id="andamento-contenuto"></div>
+                </div>
             </section>
 
             <!-- ═══ VIEW: UTENTI ═══ -->
@@ -573,21 +626,23 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- Core Scripts -->
-    <script src="js/core/store.js?v=1790534731" defer></script>
-    <script src="js/core/auth.js?v=1790534731" defer></script>
-    <script src="js/core/ui.js?v=1790534731" defer></script>
-    <script src="js/modules/clienti.js?v=1790534731" defer></script>
-    <script src="js/modules/trasferte.js?v=1790534731" defer></script>
-    <script src="js/modules/mezzi.js?v=1790534731" defer></script>
-    <script src="js/modules/incarichi.js?v=1790534731" defer></script>
-    <script src="js/modules/contabilita.js?v=1790534731" defer></script>
-    <script src="js/modules/riconciliazione.js?v=1790534731" defer></script>
-    <script src="js/modules/admin.js?v=1790534731" defer></script>
-    <script src="js/modules/commerciale.js?v=1790534731" defer></script>
-    <script src="js/modules/offerte.js?v=1790534731" defer></script>
-    <script src="js/modules/partner.js?v=1790534731" defer></script>
-    <script src="js/modules/commessa.js?v=1790534731" defer></script>
-    <script src="js/app.js?v=1790534731" defer></script>
+    <script src="js/core/store.js?v=1790535818" defer></script>
+    <script src="js/core/auth.js?v=1790535818" defer></script>
+    <script src="js/core/ui.js?v=1790535818" defer></script>
+    <script src="js/modules/clienti.js?v=1790535818" defer></script>
+    <script src="js/modules/trasferte.js?v=1790535818" defer></script>
+    <script src="js/modules/mezzi.js?v=1790535818" defer></script>
+    <script src="js/modules/incarichi.js?v=1790535818" defer></script>
+    <script src="js/modules/contabilita.js?v=1790535818" defer></script>
+    <script src="js/modules/riconciliazione.js?v=1790535818" defer></script>
+    <script src="js/modules/movimenti.js?v=1790535818" defer></script>
+    <script src="js/modules/andamento.js?v=1790535818" defer></script>
+    <script src="js/modules/admin.js?v=1790535818" defer></script>
+    <script src="js/modules/commerciale.js?v=1790535818" defer></script>
+    <script src="js/modules/offerte.js?v=1790535818" defer></script>
+    <script src="js/modules/partner.js?v=1790535818" defer></script>
+    <script src="js/modules/commessa.js?v=1790535818" defer></script>
+    <script src="js/app.js?v=1790535818" defer></script>
 
 </body>
 </html>

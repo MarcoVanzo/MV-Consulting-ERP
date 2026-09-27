@@ -17,6 +17,7 @@ require_once __DIR__ . '/../Controllers/FornitoriController.php';
 require_once __DIR__ . '/../Controllers/FatturePassiveController.php';
 require_once __DIR__ . '/../Controllers/CommesseController.php';
 require_once __DIR__ . '/../Controllers/RiconciliazioneController.php';
+require_once __DIR__ . '/../Controllers/MovimentiController.php';
 
 class ApiRouter {
     // Rate limit per IP condiviso da login e reset_password: max 10 tentativi in 15 minuti
@@ -44,6 +45,7 @@ class ApiRouter {
         'passive'      => ['list'],
         'commesse'     => ['get', 'margini', 'scadenzario', 'fatture_libere'],
         'riconciliazione' => ['movimenti', 'proposte', 'documenti_aperti'],
+        'movimenti'    => ['categorie', 'conteggio', 'elenco', 'statistiche', 'regole'],
         'admin'        => ['listUsers', 'listBackups', 'downloadBackup', 'listLogs'],
     ];
 
@@ -105,6 +107,9 @@ class ApiRouter {
                 break;
             case 'riconciliazione':
                 self::handleRiconciliazione($action, $data);
+                break;
+            case 'movimenti':
+                self::handleMovimenti($action, $data);
                 break;
             case 'admin':
                 self::handleAdmin($action, $data, $isDeployKeyAuth);
@@ -379,6 +384,23 @@ class ApiRouter {
             case 'annulla':          $ctrl->annulla($data); break;
             case 'ignora':           $ctrl->ignora($data); break;
             default:                 Response::json(false, "Azione riconciliazione non supportata: $action");
+        }
+    }
+
+    private static function handleMovimenti(string $action, array $data): void {
+        $ctrl = new MovimentiController();
+        switch ($action) {
+            case 'categorie':       $ctrl->categorie(); break;
+            case 'conteggio':       $ctrl->conteggio(); break;
+            case 'elenco':          $ctrl->elenco(); break;
+            case 'statistiche':     $ctrl->statistiche(); break;
+            case 'regole':          $ctrl->regole(); break;
+            case 'classifica':      $ctrl->classifica($data); break;
+            case 'riclassifica':    $ctrl->riclassifica(); break;
+            case 'proponi_ai':      $ctrl->proponiAi(); break;
+            case 'salva_categoria': $ctrl->salvaCategoria($data); break;
+            case 'elimina_regola':  $ctrl->eliminaRegola($data); break;
+            default:                Response::json(false, "Azione movimenti non supportata: $action");
         }
     }
 
