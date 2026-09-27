@@ -134,7 +134,8 @@ const ModPartner = (() => {
             <div class="form-group full-width"><label>Ragione sociale *</label><input class="form-control" id="fo-rs" value="${UI.esc(f.ragione_sociale || '')}"></div>
             <div class="form-group"><label>Tipo</label><select class="form-control" id="fo-tipo">${t}</select></div>
             <div class="form-group"><label>Pagamento standard (gg)</label><input type="number" class="form-control" id="fo-gg" value="${UI.esc(f.giorni_pagamento ?? 30)}"></div>
-            <div class="form-group"><label>P.IVA</label><input class="form-control" id="fo-piva" value="${UI.esc(f.partita_iva || '')}"></div>
+            <div class="form-group"><label>P.IVA</label><div style="display:flex;gap:4px"><input class="form-control" id="fo-piva" value="${UI.esc(f.partita_iva || '')}" inputmode="numeric">
+                <button type="button" class="btn btn-secondary btn-sm" id="fo-cerca" title="Compila dai dati della partita IVA" aria-label="Compila dai dati della partita IVA"><i class="ph ph-magnifying-glass"></i></button></div></div>
             <div class="form-group"><label>Codice fiscale</label><input class="form-control" id="fo-cf" value="${UI.esc(f.codice_fiscale || '')}"></div>
             <div class="form-group full-width"><label>IBAN</label><input class="form-control" id="fo-iban" value="${UI.esc(f.iban || '')}"></div>
             <div class="form-group full-width" id="fo-cat-box" style="display:none"><label>Categoria dei pagamenti</label><select class="form-control" id="fo-cat"><option value="">— Fornitori e partner —</option></select></div>
@@ -151,6 +152,17 @@ const ModPartner = (() => {
             UI.closeModal();
             UI.toast('Partner salvato');
             load();
+        });
+        // Compila ragione sociale, CF e PEC dalla partita IVA (stesso servizio dei clienti)
+        document.getElementById('fo-cerca').addEventListener('click', async () => {
+            const piva = document.getElementById('fo-piva').value.replace(/\D/g, '');
+            try {
+                const d = await Store.api('lookup-vat', 'clienti', { vat: piva }) || {};
+                if (d.ragione_sociale) document.getElementById('fo-rs').value = d.ragione_sociale;
+                if (d.codice_fiscale) document.getElementById('fo-cf').value = d.codice_fiscale;
+                document.getElementById('fo-piva').value = piva;
+                UI.toast('Dati compilati dalla partita IVA');
+            } catch (e) { UI.toast(e.message, 'error'); }
         });
         // Categorie di uscita (grafici "Andamento"): il campo compare solo se il modulo categorie è attivo
         if (window.ModMovimenti) ModMovimenti.categorie('uscita').then(cats => {
@@ -268,15 +280,56 @@ const ModPartner = (() => {
                 </td></tr>`).join('')}</tbody></table>
             <div class="rows-total"><span>Costi previsti <b>${UI.formatCurrency(tot)}</b></span></div>` : '<div class="scad-empty">Nessun partner su questa commessa.</div>'}
             <div class="inline-form" id="cst-form">
-                <div><label>Partner</label><select class="form-control" id="cst-forn"><option value="">—</option>${fOpts('')}</select></div>
+                <div><label>Partner</label><div style="display:flex;gap:4px"><select class="form-control" id="cst-forn"><option value="">—</option>${fOpts('')}</select>
+                    <button type="button" class="btn btn-secondary btn-sm" id="cst-nuovo" title="Nuovo partner da partita IVA" aria-label="Nuovo partner da partita IVA"><i class="ph ph-plus"></i></button></div></div>
                 <div><label>Cosa fa</label><input class="form-control" id="cst-desc" placeholder="es. docenza, audit tecnico"></div>
                 <div><label>Importo €</label><input type="number" step="0.01" class="form-control" id="cst-imp"></div>
                 <div><label>Pagamento</label><select class="form-control" id="cst-cond"><option value="scadenza">A scadenza</option><option value="back_to_back">Quando incasso</option></select></div>
                 <div><label>Offerta partner (n. / file)</label><input class="form-control" id="cst-offnum" placeholder="n."><input type="file" class="form-control" id="cst-file" accept=".pdf,.docx,.jpg,.png" style="margin-top:4px"></div>
                 <div><button type="button" class="btn btn-primary btn-sm" id="cst-save"><i class="ph ph-plus"></i> <span id="cst-save-lbl">Aggiungi</span></button></div>
             </div>
+            <div class="inline-form" id="np-form" style="display:none">
+                <div><label>P.IVA nuovo partner</label><input class="form-control" id="np-piva" inputmode="numeric" placeholder="11 cifre"></div>
+                <div><button type="button" class="btn btn-secondary btn-sm" id="np-cerca"><i class="ph ph-magnifying-glass"></i> Cerca</button></div>
+                <div><label>Ragione sociale</label><input class="form-control" id="np-rs"></div>
+                <div><button type="button" class="btn btn-primary btn-sm" id="np-crea"><i class="ph ph-check"></i> Crea partner</button></div>
+                <div id="np-stato" style="font-size:0.8rem;color:var(--text-muted)"></div>
+            </div>
             <input type="hidden" id="cst-id">
-            ${_fornitori.length ? '' : '<div class="scad-empty">Prima crea il partner nella scheda Partner.</div>'}`;
+            ${_fornitori.length ? '' : '<div class="scad-empty">Nessun partner in anagrafica: crealo con il pulsante + accanto a Partner.</div>'}`;
+
+        // Nuovo partner da P.IVA senza lasciare l'offerta (la modale è una sola: aprirne un'altra perderebbe il form)
+        let trovato = {};
+        const np = id => document.getElementById(id);
+        const stato = (t, err) => { np('np-stato').textContent = t; np('np-stato').style.color = err ? 'var(--danger)' : 'var(--text-muted)'; };
+        const scegli = id => { np('cst-forn').innerHTML = `<option value="">—</option>${fOpts(id)}`; np('np-form').style.display = 'none'; };
+        np('cst-nuovo').addEventListener('click', () => {
+            const f = np('np-form'); f.style.display = f.style.display === 'none' ? '' : 'none';
+            if (f.style.display === '') np('np-piva').focus();
+        });
+        np('np-cerca').addEventListener('click', async () => {
+            const piva = np('np-piva').value.replace(/\D/g, '');
+            if (piva.length !== 11) { stato('La partita IVA ha 11 cifre', true); return; }
+            const gia = _fornitori.find(f => String(f.partita_iva || '').replace(/\D/g, '') === piva);
+            if (gia) { scegli(gia.id); UI.toast(`${gia.ragione_sociale} è già tra i partner: selezionato`); return; }
+            stato('Ricerca in corso...');
+            try {
+                trovato = await Store.api('lookup-vat', 'clienti', { vat: piva }) || {};
+                np('np-rs').value = trovato.ragione_sociale || '';
+                stato('Dati trovati: controlla e crea il partner.');
+            } catch (e) { trovato = {}; stato(e.message + ' — scrivi la ragione sociale a mano.', true); np('np-rs').focus(); }
+        });
+        np('np-crea').addEventListener('click', async () => {
+            const piva = np('np-piva').value.replace(/\D/g, ''), rs = np('np-rs').value.trim();
+            if (!rs) { stato('Serve la ragione sociale', true); return; }
+            try {
+                const r = await Store.api('save', 'fornitori', { ragione_sociale: rs, tipo: 'partner', partita_iva: piva,
+                    codice_fiscale: trovato.codice_fiscale || '', pec: trovato.pec || '', giorni_pagamento: 30 });
+                await fornitori(true);
+                scegli(r?.id);
+                UI.toast('Partner creato');
+            } catch (e) { stato(e.message, true); }
+        });
 
         box.querySelectorAll('[data-cdoc]').forEach(b => b.addEventListener('click', () =>
             window.open(`api/router.php?module=fornitori&action=documento_costo&id=${encodeURIComponent(b.dataset.cdoc)}`, '_blank', 'noopener')));
