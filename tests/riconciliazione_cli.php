@@ -344,6 +344,7 @@ check('due regole ugualmente specifiche e discordi: nessuna', Classificatore::sc
 check('euristica univoca: commissioni', Classificatore::euristica(['importo' => -1.5, 'descrizione' => 'Commissioni bonifico', 'controparte' => null]) === 'commissioni_banca');
 check('euristica: F24 + commissioni = ambigua', Classificatore::euristica(['importo' => -300, 'descrizione' => 'Pagamento delega F24 commissioni', 'controparte' => null]) === null);
 check('euristica: segno sbagliato non vale', Classificatore::euristica(['importo' => 1.5, 'descrizione' => 'Commissioni', 'controparte' => null]) === null);
+check('euristica: polizza → assicurazioni', Classificatore::euristica(['importo' => -500, 'descrizione' => 'Bonifico a agenzia Rossi snc polizza 123456', 'controparte' => null]) === 'assicurazioni');
 check('euristica: erogazione mutuo in entrata', Classificatore::euristica(['importo' => 50000, 'descrizione' => 'Erogazione mutuo', 'controparte' => null]) === 'finanziamenti');
 
 echo "Classificazione automatica e coda Da classificare\n";
