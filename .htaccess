@@ -1,0 +1,19 @@
+# MV Consulting ERP — protezione della cartella /ERP
+# Online devono restare raggiungibili solo index.html, css/, js/, assets/ e api/router.php|health.php.
+
+Options -Indexes
+
+# File nascosti (.env, .env.*, .git*, .deploy_*) e file di lavoro/configurazione
+<FilesMatch "(^\.|\.(env|json|log|config|md|sh|py|sql|bak|lock)$)">
+    Require all denied
+</FilesMatch>
+
+# Script di deploy alternativo: la chiave è da considerare compromessa
+<Files "deploy_update.php">
+    Require all denied
+</Files>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(\.agents|\.git|cron|scripts|storage|deploy_backup|deploy_tmp|tmp_[^/]*)(/|$) - [F,L]
+</IfModule>
