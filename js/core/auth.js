@@ -81,39 +81,61 @@ const AuthFlow = (() => {
 
         resetScreen.classList.remove('hidden');
 
-        const form = document.getElementById('reset-form');
-        if (!form) return;
+        // Clona il form per eliminare listener di chiamate precedenti (come showLoginScreen)
+        const oldForm = document.getElementById('reset-form');
+        if (!oldForm) return;
+        const form = oldForm.cloneNode(true);
+        oldForm.parentNode.replaceChild(form, oldForm);
 
         form.addEventListener('submit', async (e) => {
+            // Sempre: il form non deve mai ricaricare la pagina
             e.preventDefault();
-            const btn = document.getElementById('reset-btn');
-            const errEl = document.getElementById('reset-error');
-            const current = document.getElementById('reset-current').value;
-            const newPwd = document.getElementById('reset-new').value;
+            const btn = form.querySelector('#reset-btn');
+            const errEl = form.querySelector('#reset-error');
+            const current = form.querySelector('#reset-current').value;
+            const newPwd = form.querySelector('#reset-new').value;
 
-            if (newPwd.length < 12) {
-                errEl.textContent = 'La password deve essere di almeno 12 caratteri';
+            const complexityErr = _checkPasswordComplexity(newPwd);
+            if (!current) {
+                errEl.textContent = 'Inserisci la password attuale';
+                errEl.classList.remove('hidden');
+                return;
+            }
+            if (complexityErr) {
+                errEl.textContent = complexityErr;
                 errEl.classList.remove('hidden');
                 return;
             }
 
+            errEl.classList.add('hidden');
             btn.disabled = true;
             btn.textContent = 'SALVATAGGIO...';
 
             try {
                 await Store.api('reset_password', 'auth', { user_id: userId, current_password: current, new_password: newPwd });
-                
+
                 // Usually we'd want a UI toast, but since we're in login flow:
                 alert('Password aggiornata con successo. Effettua il login.');
-                
+
                 setTimeout(() => window.location.reload(), 500);
             } catch (err) {
                 errEl.textContent = err.message || "Errore durante l'aggiornamento";
                 errEl.classList.remove('hidden');
                 btn.disabled = false;
-                btn.textContent = 'SALVA NUOVA PASSWORD';
+                btn.innerHTML = 'SALVA NUOVA PASSWORD <i class="ph ph-caret-right"></i>';
             }
-        }, { once: true });
+        }, { signal: _abortAuth.signal });
+    }
+
+    /** Stesse regole del backend (Security::validatePasswordComplexity). Ritorna il messaggio d'errore o '' */
+    function _checkPasswordComplexity(pwd) {
+        const missing = [];
+        if (pwd.length < 12) missing.push('almeno 12 caratteri');
+        if (!/[A-Z]/.test(pwd)) missing.push('una lettera maiuscola');
+        if (!/[a-z]/.test(pwd)) missing.push('una lettera minuscola');
+        if (!/[0-9]/.test(pwd)) missing.push('un numero');
+        if (!/[^A-Za-z0-9]/.test(pwd)) missing.push('un carattere speciale');
+        return missing.length ? 'La nuova password deve contenere: ' + missing.join(', ') + '.' : '';
     }
 
     function renderForgotPassword() {

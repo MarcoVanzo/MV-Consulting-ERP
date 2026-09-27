@@ -26,15 +26,15 @@ const ModClienti = (() => {
         }
 
         tbody.innerHTML = _clienti.map(c => `
-            <tr data-id="${c.id}">
+            <tr data-id="${UI.esc(c.id)}">
                 <td>
-                    ${parseInt(c.num_sottoclienti) > 0 ? `<button class="expand-btn" data-cliente-id="${c.id}" title="Espandi sottoclienti"><i class="ph ph-caret-right"></i></button>` : ''}
+                    ${parseInt(c.num_sottoclienti) > 0 ? `<button class="expand-btn" data-cliente-id="${UI.esc(c.id)}" title="Espandi sottoclienti"><i class="ph ph-caret-right"></i></button>` : ''}
                 </td>
                 <td class="td-primary">${UI.esc(c.ragione_sociale)}</td>
                 <td class="td-mono">${UI.esc(c.partita_iva || '—')}</td>
                 <td>${UI.esc(c.citta || '')}${c.provincia ? ` (${UI.esc(c.provincia)})` : ''}</td>
                 <td>${UI.esc(c.email || c.pec || '—')}</td>
-                <td>${parseInt(c.num_sottoclienti) > 0 ? `<span class="badge badge-purple">${c.num_sottoclienti}</span>` : '—'}</td>
+                <td>${parseInt(c.num_sottoclienti) > 0 ? `<span class="badge badge-purple">${parseInt(c.num_sottoclienti)}</span>` : '—'}</td>
                 <td>
                     <div class="flex gap-2">
                         <button class="btn btn-sm btn-ghost" onclick="ModClienti.openSottoclienteModal(${c.id})" title="Aggiungi sottocliente"><i class="ph ph-plus-circle"></i></button>
@@ -164,7 +164,7 @@ const ModClienti = (() => {
                     <textarea class="form-control" id="f-note">${UI.esc(data.note || '')}</textarea>
                 </div>
             </div>
-            <input type="hidden" id="f-cliente-id" value="${data.id || ''}">
+            <input type="hidden" id="f-cliente-id" value="${UI.esc(data.id || '')}">
         `;
     }
 
@@ -327,8 +327,8 @@ const ModClienti = (() => {
                     <textarea class="form-control" id="f-sotto-note">${UI.esc(data.note || '')}</textarea>
                 </div>
             </div>
-            <input type="hidden" id="f-sotto-id" value="${data.id || ''}">
-            <input type="hidden" id="f-sotto-cliente-id" value="${clienteId}">
+            <input type="hidden" id="f-sotto-id" value="${UI.esc(data.id || '')}">
+            <input type="hidden" id="f-sotto-cliente-id" value="${UI.esc(clienteId)}">
         `;
         UI.openModal(data.id ? 'Modifica Sottocliente' : 'Nuovo Sottocliente', html, saveSottocliente);
         setTimeout(() => initVatLookup(true), 100);

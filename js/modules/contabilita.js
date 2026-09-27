@@ -47,11 +47,11 @@ const ModContabilita = (() => {
     function renderTable() {
         const tbody = document.getElementById('tbody-fatture');
         if (!_fatture.length) { tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="ph ph-chart-line-up"></i><h3>Nessuna fattura</h3></div></td></tr>'; return; }
-        tbody.innerHTML = _fatture.map(f => `<tr data-id="${f.id}">
+        tbody.innerHTML = _fatture.map(f => `<tr data-id="${UI.esc(f.id)}">
             <td class="td-mono">${UI.esc(f.numero_fattura)}</td>
             <td>${UI.formatDate(f.data_emissione)}</td>
             <td class="td-primary">${UI.esc(f.cliente_nome||'—')}${f.sottocliente_nome?` <span style="color:var(--text-muted)">/ ${UI.esc(f.sottocliente_nome)}</span>`:''}</td>
-            <td style="font-size:0.8rem;color:var(--text-muted)">${f.incarico_id?'<i class="ph ph-link" style="color:var(--accent-secondary)"></i> #'+f.incarico_id:'—'}</td>
+            <td style="font-size:0.8rem;color:var(--text-muted)">${f.incarico_id?'<i class="ph ph-link" style="color:var(--accent-secondary)"></i> #'+UI.esc(f.incarico_id):'—'}</td>
             <td class="text-right">${UI.formatCurrency(f.imponibile)}</td>
             <td class="text-right td-primary">${UI.formatCurrency(f.importo_totale)}</td>
             <td>${UI.statoBadge(f.stato)}</td>
@@ -64,20 +64,20 @@ const ModContabilita = (() => {
 
     function getFormHtml(d={}) {
         const clienti = ModClienti.getClienti();
-        const cOpts = clienti.map(c => `<option value="${c.id}" ${c.id==d.cliente_id?'selected':''}>${UI.esc(c.ragione_sociale)}</option>`).join('');
+        const cOpts = clienti.map(c => `<option value="${UI.esc(c.id)}" ${c.id==d.cliente_id?'selected':''}>${UI.esc(c.ragione_sociale)}</option>`).join('');
         const stati = ['emessa','inviata','pagata','scaduta'];
         const sOpts = stati.map(s => `<option value="${s}" ${s===(d.stato||'emessa')?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('');
         return `<div class="form-grid">
             <div class="form-group"><label>Numero Fattura *</label><input type="text" class="form-control" id="f-f-numero" value="${UI.esc(d.numero_fattura||'')}" placeholder="es. 2026/001"></div>
-            <div class="form-group"><label>Data Emissione *</label><input type="date" class="form-control" id="f-f-data" value="${d.data_emissione||new Date().toISOString().split('T')[0]}"></div>
+            <div class="form-group"><label>Data Emissione *</label><input type="date" class="form-control" id="f-f-data" value="${UI.esc(d.data_emissione||UI.todayLocal())}"></div>
             <div class="form-group"><label>Cliente</label><select class="form-control" id="f-f-cliente"><option value="">— Seleziona —</option>${cOpts}</select></div>
             <div class="form-group"><label>Sottocliente</label><select class="form-control" id="f-f-sottocliente"><option value="">— Nessuno —</option></select></div>
             <div class="form-group"><label>Incarico collegato</label><select class="form-control" id="f-f-incarico"><option value="">— Nessuno —</option></select></div>
-            <div class="form-group"><label>Imponibile (€)</label><input type="number" class="form-control" id="f-f-imponibile" value="${d.imponibile||0}" step="0.01"></div>
-            <div class="form-group"><label>IVA %</label><input type="number" class="form-control" id="f-f-iva" value="${d.iva_percentuale||22}" step="0.01"></div>
+            <div class="form-group"><label>Imponibile (€)</label><input type="number" class="form-control" id="f-f-imponibile" value="${UI.esc(d.imponibile||0)}" step="0.01"></div>
+            <div class="form-group"><label>IVA %</label><input type="number" class="form-control" id="f-f-iva" value="${UI.esc(d.iva_percentuale||22)}" step="0.01"></div>
             <div class="form-group"><label>Stato</label><select class="form-control" id="f-f-stato">${sOpts}</select></div>
-            <div class="form-group"><label>Data Scadenza</label><input type="date" class="form-control" id="f-f-scadenza" value="${d.data_scadenza||''}"></div>
-            <div class="form-group"><label>Data Pagamento</label><input type="date" class="form-control" id="f-f-pagamento" value="${d.data_pagamento||''}"></div>
+            <div class="form-group"><label>Data Scadenza</label><input type="date" class="form-control" id="f-f-scadenza" value="${UI.esc(d.data_scadenza||'')}"></div>
+            <div class="form-group"><label>Data Pagamento</label><input type="date" class="form-control" id="f-f-pagamento" value="${UI.esc(d.data_pagamento||'')}"></div>
             <div class="form-group"><label>Metodo Pagamento</label><select class="form-control" id="f-f-metodo">
                 <option value="" ${!d.metodo_pagamento?'selected':''}>—</option>
                 <option value="bonifico" ${d.metodo_pagamento==='bonifico'?'selected':''}>Bonifico</option>
@@ -86,7 +86,7 @@ const ModContabilita = (() => {
             </select></div>
             <div class="form-group full-width"><label>Descrizione</label><textarea class="form-control" id="f-f-desc">${UI.esc(d.descrizione||'')}</textarea></div>
             <div class="form-group full-width"><label>Note</label><textarea class="form-control" id="f-f-note">${UI.esc(d.note||'')}</textarea></div>
-        </div><input type="hidden" id="f-f-id" value="${d.id||''}">`;
+        </div><input type="hidden" id="f-f-id" value="${UI.esc(d.id||'')}">`;
     }
 
     function openNew() { UI.openModal('Nuova Fattura',getFormHtml(),saveFromForm); setTimeout(initClienteWatch,100); }
@@ -112,10 +112,10 @@ const ModContabilita = (() => {
         try {
             const list = await Store.api('get_by_cliente','incarichi',{cliente_id:cid});
             if (list?.length) list.forEach(i => {
-                const residuo = (parseFloat(i.importo_totale)-parseFloat(i.importo_fatturato)).toFixed(2);
+                const residuo = UI.formatCurrency((parseFloat(i.importo_totale)||0)-(parseFloat(i.importo_fatturato)||0));
                 const o = document.createElement('option');
                 o.value = i.id;
-                o.textContent = `${i.tipo_commessa.toUpperCase()} ${UI.formatDate(i.data_incarico)} — Residuo: €${residuo}${i.sottocliente_nome?' ('+i.sottocliente_nome+')':''}`;
+                o.textContent = `${i.tipo_commessa.toUpperCase()} ${UI.formatDate(i.data_incarico)} — Residuo: ${residuo}${i.sottocliente_nome?' ('+i.sottocliente_nome+')':''}`;
                 if (i.id==selId) o.selected = true;
                 sel.appendChild(o);
             });
@@ -193,13 +193,8 @@ const ModContabilita = (() => {
             const pages=[];
             for(let i=1;i<=pdf.numPages;i++){const pg=await pdf.getPage(i);const tc=await pg.getTextContent();pages.push(tc.items.map(x=>x.str).join(' '));}
             btn.innerHTML='<i class="ph ph-spinner ph-spin"></i> Analisi...';
-            // Use direct fetch with JSON to preserve the pages array (FormData flattens arrays)
-            const token=localStorage.getItem('erp_token'); const hdr={'Content-Type':'application/json'};
-            if(token) hdr['Authorization']='Bearer '+token;
-            const resp=await fetch('api/router.php',{method:'POST',headers:hdr,credentials:'include',body:JSON.stringify({module:'contabilita',action:'import_pdf',pages})});
-            const result=await resp.json();
-            if(!result.success) throw new Error(result.message||'Errore analisi PDF');
-            const req=result.data;
+            // pages[] come array: FormData con CSRF tramite Store.upload
+            const req=await Store.upload('import_pdf','contabilita',Store.formDataFromArray('pages',pages));
             if(req){UI.toast(`Importazione: ${req.num_imported} fatture.`); if(req.errors?.length)UI.toast(`${req.errors.length} errori (console)`,'error'); load();}
         }catch(e){UI.toast('Errore importazione PDF: '+e.message,'error');}
         finally{btn.innerHTML=prev;btn.disabled=false;}
@@ -215,8 +210,11 @@ const ModContabilita = (() => {
             for(let i=0;i<valid.length;i++){
                 btn.innerHTML=`<i class="ph ph-spinner ph-spin"></i> XML (${i+1}/${valid.length})...`;
                 const text=await valid[i].text();
-                const req=await Store.api('import_xml','contabilita',{xml:text});
-                if(req?.success){tot+=req.num_imported||0; if(req.errors?.length)errs+=req.errors.length;}else errs++;
+                // Store.api restituisce già result.data: {num_imported, errors}
+                try {
+                    const req=await Store.api('import_xml','contabilita',{xml:text});
+                    tot+=req?.num_imported||0; if(req?.errors?.length)errs+=req.errors.length;
+                } catch(err) { errs++; }
             }
             UI.toast(errs>0?`${tot} righe, ${errs} anomalie`:`${tot} righe importate`); load();
         }catch(e){UI.toast('Errore XML: '+e.message,'error');}
@@ -236,18 +234,20 @@ const ModContabilita = (() => {
                 const ab=await file.arrayBuffer(); const pdf=await pdfjsLib.getDocument({data:ab}).promise; const pages=[];
                 for(let p=1;p<=pdf.numPages;p++){const pg=await pdf.getPage(p);const tc=await pg.getTextContent();pages.push(tc.items.map(x=>x.str).join(' '));}
                 btn.innerHTML=`<i class="ph ph-spinner ph-spin"></i> Analisi (${i+1}/${valid.length})...`;
-                const token=localStorage.getItem('erp_token'); const hdr={'Content-Type':'application/json'};
-                if(token)hdr['Authorization']='Bearer '+token;
-                const resp=await fetch('api/router.php',{method:'POST',headers:hdr,credentials:'include',body:JSON.stringify({module:'contabilita',action:'import_payment_pdf',pages})});
-                const result=await resp.json(); const req=result.success?result.data:result;
-                if(result.success){totalM+=req.num_matched||0;totalAP+=req.num_already_paid||0;totalNF+=req.num_not_found||0;if(req.messages?.length){msgs.push(`<strong>${file.name}</strong>`);msgs.push(...req.messages);msgs.push('');}}
-                else msgs.push(`<strong style="color:var(--danger)">❌ ${file.name}</strong>: ${req?.message||'Errore'}`);
+                // msgs: {html} per le intestazioni già escapate, stringhe semplici per il resto
+                try {
+                    const req=await Store.upload('import_payment_pdf','contabilita',Store.formDataFromArray('pages',pages))||{};
+                    totalM+=req.num_matched||0;totalAP+=req.num_already_paid||0;totalNF+=req.num_not_found||0;
+                    if(req.messages?.length){msgs.push({html:`<strong>${UI.esc(file.name)}</strong>`});msgs.push(...req.messages);msgs.push('');}
+                } catch(err) {
+                    msgs.push({html:`<strong style="color:var(--danger)">❌ ${UI.esc(file.name)}</strong>: ${UI.esc(err.message||'Errore')}`});
+                }
             }
             const html=`<div style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap">
                 <div style="flex:1;min-width:120px;padding:12px 16px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);border-radius:8px;text-align:center"><div style="font-size:1.8rem;font-weight:700;color:#10b981">${totalM}</div><div style="font-size:0.75rem;color:var(--text-muted)">Pagate ora</div></div>
                 <div style="flex:1;min-width:120px;padding:12px 16px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);border-radius:8px;text-align:center"><div style="font-size:1.8rem;font-weight:700;color:#6366f1">${totalAP}</div><div style="font-size:0.75rem;color:var(--text-muted)">Già pagate</div></div>
                 <div style="flex:1;min-width:120px;padding:12px 16px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:8px;text-align:center"><div style="font-size:1.8rem;font-weight:700;color:#ef4444">${totalNF}</div><div style="font-size:0.75rem;color:var(--text-muted)">Non trovate</div></div>
-            </div><div style="max-height:300px;overflow-y:auto;padding:12px;background:rgba(0,0,0,0.2);border-radius:8px;font-size:0.85rem;line-height:1.8">${msgs.map(m=>`<div>${m.startsWith('<strong')?m:UI.esc(m)}</div>`).join('')}</div>`;
+            </div><div style="max-height:300px;overflow-y:auto;padding:12px;background:rgba(0,0,0,0.2);border-radius:8px;font-size:0.85rem;line-height:1.8">${msgs.map(m=>`<div>${typeof m==='object'&&m?m.html:UI.esc(m)}</div>`).join('')}</div>`;
             UI.openModal('Risultato Importazione Pagamenti',html,null);
             const saveBtn=document.getElementById('modal-save'); if(saveBtn)saveBtn.style.display='none';
             const cancelBtn=document.getElementById('modal-cancel'); if(cancelBtn)cancelBtn.textContent='Chiudi';

@@ -67,7 +67,11 @@ class AdminController {
 
         $email = trim($data['email']);
         $name = trim($data['full_name']);
-        $role = $data['role'] ?? 'operatore';
+        // Whitelist ruoli: niente valori arbitrari
+        $role = $data['role'] ?? Auth::DEFAULT_ROLE;
+        if (!in_array($role, Auth::ROLES, true)) {
+            Response::json(false, 'Ruolo non valido');
+        }
         
         $tempPassword = Security::generateTempPassword();
         $hash = password_hash($tempPassword, PASSWORD_DEFAULT);
@@ -106,10 +110,23 @@ class AdminController {
         $tempPassword = Security::generateTempPassword();
         $hash = password_hash($tempPassword, PASSWORD_DEFAULT);
         
-        $this->pdo->prepare("UPDATE {$this->prefix}users SET password = ? WHERE id = ?")->execute([$hash, $id]);
+        // Password temporanea: va cambiata al primo accesso
+        $this->pdo->prepare("UPDATE {$this->prefix}users SET password = ?, must_change_password = 1 WHERE id = ?")->execute([$hash, $id]);
         Audit::log('UPDATE', 'users', $id, null, null, ['action' => 'reset_password']);
         
         Response::json(true, 'Password resettata', ['tempPassword' => $tempPassword]);
+    }
+
+    /** Sblocca un account: blocco temporaneo, contatore errori e flag blocked */
+    public function unlockUser($data = null) {
+        if (!$data) $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+        $id = $data['id'] ?? null;
+        if (!$id) Response::json(false, 'ID utente mancante');
+
+        $this->pdo->prepare("UPDATE {$this->prefix}users SET blocked = 0, failed_attempts = 0 WHERE id = ?")->execute([$id]);
+        Security::unlockAccount($id);
+        Audit::log('UPDATE', 'users', (string)$id, null, null, ['action' => 'unlock']);
+        Response::json(true, 'Utente sbloccato');
     }
 
     // ─── BACKUP ─────────────────────────────────────────────────────────────
@@ -130,11 +147,11 @@ class AdminController {
             require_once dirname(__DIR__) . '/Shared/BackupService.php';
             require_once dirname(__DIR__) . '/Shared/GoogleDrive.php';
             
-            // L'utente corrente (puoi prenderlo dalla sessione se disponibile, altrimenti admin manuale)
-            $userId = $_SESSION['user_id'] ?? null;
+            // Utente corrente dal middleware JWT (null se assente: created_by è INT NULL)
+            $userId = $GLOBALS['userContext']['id'] ?? null;
             
             $service = new BackupService($this->pdo, $this->prefix);
-            $result = $service->dump((string)$userId, 'Manuale da Pannello');
+            $result = $service->dump($userId !== null ? (string)$userId : null, 'Manuale da Pannello');
             
             if (!$result['success']) {
                 Response::json(false, "Errore backup: " . $result['error']);

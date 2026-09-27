@@ -174,13 +174,21 @@ class MezziController {
             Response::json(false, "Data e tipo sono obbligatori");
         }
 
+        // Mezzo valido prima di salvare l'allegato: evita file orfani su disco
+        $vehicleId = (int)($data['vehicle_id'] ?? 0);
+        $stmtV = $this->pdo->prepare("SELECT 1 FROM {$this->prefix}mezzi WHERE id = ?");
+        $stmtV->execute([$vehicleId]);
+        if ($vehicleId <= 0 || !$stmtV->fetchColumn()) {
+            Response::json(false, "Mezzo non valido");
+        }
+
         $allegatoUrl = $this->handleFileUpload();
 
         try {
             $sql = "INSERT INTO {$this->prefix}mezzi_manutenzioni (mezzo_id, data_manutenzione, tipo, descrizione, costo, chilometraggio, prossima_scadenza_data, prossima_scadenza_km, allegato_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute([
-                $data['vehicle_id'],
+                $vehicleId,
                 $data['maintenance_date'],
                 $data['type'],
                 $data['description'] ?? null,
@@ -202,8 +210,8 @@ class MezziController {
             Response::json(false, "Dati anomalia mancanti");
         }
         
-        // Supponiamo di estrarre l'ID utente dal token (non implementato globalmente nel mock, passiamo null o lo prendiamo dalla session se presente)
-        $userId = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
+        // Utente dal middleware di router.php (la sessione PHP non è usata)
+        $userId = $GLOBALS['userContext']['id'] ?? null;
 
         try {
             $sql = "INSERT INTO {$this->prefix}mezzi_anomalie (mezzo_id, segnalatore_id, descrizione, gravita, stato) VALUES (?, ?, ?, ?, 'open')";
@@ -253,7 +261,12 @@ class MezziController {
             Response::json(false, "Dati manutenzione mancanti");
         }
 
-        $allegatoUrl = $this->handleFileUpload($data['existing_allegato'] ?? null);
+        // Allegato esistente dal client: accettato solo se è un percorso interno a uploads/
+        $existing = $data['existing_allegato'] ?? null;
+        if (!is_string($existing) || strpos($existing, 'uploads/') !== 0 || strpos($existing, '..') !== false) {
+            $existing = null;
+        }
+        $allegatoUrl = $this->handleFileUpload($existing);
 
         try {
             $sql = "UPDATE {$this->prefix}mezzi_manutenzioni SET data_manutenzione=?, tipo=?, descrizione=?, costo=?, chilometraggio=?, prossima_scadenza_data=?, prossima_scadenza_km=?, allegato_url=? WHERE id=?";

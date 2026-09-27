@@ -287,7 +287,8 @@ class IncarchiController {
         // Helper: converte stringa importo italiano in float
         // "5.000,00" → 5000.00, "5.000" → 5000, "5000" → 5000, "5,50" → 5.50
         $parseImporto = function($str) {
-            $str = trim($str);
+            // Separatore migliaia a spazio (anche NBSP / spazio stretto): "5 000,00" → "5000,00"
+            $str = preg_replace('/[\s\x{00A0}\x{202F}]+/u', '', $str) ?? trim($str);
             // Se contiene sia . che , → il punto è separatore migliaia, la virgola decimali
             if (strpos($str, '.') !== false && strpos($str, ',') !== false) {
                 return (float)str_replace(['.', ','], ['', '.'], $str);
@@ -602,26 +603,6 @@ class IncarchiController {
             }
         }
 
-        // DEBUG: scrivi info di debug su file (solo in sviluppo, mai in produzione)
-        if (getenv('APP_ENV') !== 'production') {
-            $debugLog = [
-                'timestamp' => date('Y-m-d H:i:s'),
-                'full_text' => $fullText,
-                'text_length' => mb_strlen($fullText, 'UTF-8'),
-                'importo_candidates' => $extracted['_debug_importo_candidates'],
-                'giornate_candidates' => $extracted['_debug_giornate_candidates'],
-                'result' => [
-                    'importo_totale' => $extracted['importo_totale'],
-                    'num_giornate' => $extracted['num_giornate'],
-                    'tipo_commessa' => $extracted['tipo_commessa'],
-                    'data_incarico' => $extracted['data_incarico'],
-                    'cliente_id' => $extracted['cliente_id'],
-                    'sottocliente_id' => $extracted['sottocliente_id']
-                ]
-            ];
-            file_put_contents(__DIR__ . '/../_pdf_debug.json', json_encode($debugLog, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-        }
-
         Response::json(true, 'Analisi PDF completata', $extracted);
     }
 
@@ -632,10 +613,10 @@ class IncarchiController {
     public function recalculate($incaricoId) {
         $p = $this->prefix;
 
-        // Somma fatturato
+        // Somma fatturato: imponibile (netto IVA), confrontabile con l'importo dell'incarico
         $stmt = $this->pdo->prepare("SELECT 
-            COALESCE(SUM(importo_totale), 0) as fatturato,
-            COALESCE(SUM(CASE WHEN stato = 'pagata' THEN importo_totale ELSE 0 END), 0) as pagato
+            COALESCE(SUM(imponibile), 0) as fatturato,
+            COALESCE(SUM(CASE WHEN stato = 'pagata' THEN imponibile ELSE 0 END), 0) as pagato
             FROM {$p}fatture WHERE incarico_id = ?");
         $stmt->execute([$incaricoId]);
         $row = $stmt->fetch();

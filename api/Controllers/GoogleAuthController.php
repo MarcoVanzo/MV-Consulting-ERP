@@ -22,15 +22,40 @@ class GoogleAuthController {
         $this->calendarIds = $calIds ? array_map('trim', explode(',', $calIds)) : [];
     }
 
+    private const STATE_COOKIE = 'google_oauth_state';
+
+    /** Solo un admin autenticato (contesto impostato dal middleware di router.php) */
+    private function isAdmin(): bool {
+        return (($GLOBALS['userContext']['role'] ?? '') === 'admin');
+    }
+
+    private function setStateCookie(string $value, int $expires): void {
+        setcookie(self::STATE_COOKIE, $value, [
+            'expires'  => $expires,
+            'path'     => '/',
+            'httponly' => true,
+            'secure'   => (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on'),
+            'samesite' => 'Lax' // inviato nel redirect top-level di ritorno da Google
+        ]);
+    }
+
     /**
      * Reindirizza l'utente a Google per l'autenticazione
      */
     public function auth() {
+        if (!$this->isAdmin()) {
+            Response::json(false, 'Accesso negato. Solo un amministratore può collegare Google Calendar.', null, 403);
+        }
         if (!$this->clientId) {
             Response::json(false, "GOOGLE_CLIENT_ID non configurato nel file .env");
         }
 
+        // State anti-CSRF, verificato nel callback
+        $state = bin2hex(random_bytes(32));
+        $this->setStateCookie($state, time() + 600);
+
         $params = [
+            'state' => $state,
             'client_id' => $this->clientId,
             'redirect_uri' => $this->redirectUri,
             'response_type' => 'code',
@@ -47,6 +72,22 @@ class GoogleAuthController {
      * Callback OAuth2 da Google: salva il token nel database
      */
     public function callback() {
+        // Verifica state: deve coincidere con il cookie emesso da auth()
+        $state = (string)($_GET['state'] ?? '');
+        $cookieState = (string)($_COOKIE[self::STATE_COOKIE] ?? '');
+        $this->setStateCookie('', time() - 3600); // monouso
+        if ($state === '' || $cookieState === '' || !hash_equals($cookieState, $state)) {
+            http_response_code(400);
+            echo "Richiesta OAuth non valida (state).";
+            exit;
+        }
+        // Il cookie auth_token (SameSite=Lax) arriva nel redirect: deve essere un admin
+        if (!$this->isAdmin()) {
+            http_response_code(403);
+            echo "Accesso negato. Effettua il login come amministratore e riprova.";
+            exit;
+        }
+
         $code = $_GET['code'] ?? null;
         if (!$code) {
             echo "Nessun codice ricevuto da Google.";

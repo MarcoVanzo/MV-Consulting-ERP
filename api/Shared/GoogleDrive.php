@@ -17,7 +17,7 @@
  *   APP_SECRET (used as HMAC key)
  */
 
-namespace FusionERP\Shared;
+// Nessun namespace: la classe è usata come globale da cron/backup_nightly.php e AdminController.
 
 class GoogleDrive
 {

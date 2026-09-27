@@ -26,6 +26,11 @@ const UI = (() => {
         document.getElementById('modal-title').textContent = title;
         document.getElementById('modal-body').innerHTML = bodyHtml;
         _modalSaveCallback = onSave;
+        // Ripristina i pulsanti del footer (qualche modulo li nasconde o rinomina)
+        const saveBtn = document.getElementById('modal-save');
+        if (saveBtn) saveBtn.style.display = '';
+        const cancelBtn = document.getElementById('modal-cancel');
+        if (cancelBtn) cancelBtn.textContent = 'Annulla';
         document.getElementById('modal-overlay').classList.add('active');
     }
 
@@ -37,8 +42,17 @@ const UI = (() => {
     function initModalEvents() {
         document.getElementById('modal-close').addEventListener('click', closeModal);
         document.getElementById('modal-cancel').addEventListener('click', closeModal);
-        document.getElementById('modal-overlay').addEventListener('click', (e) => {
-            if (e.target === e.currentTarget) closeModal();
+        // Chiudi solo se pressione e rilascio avvengono entrambi sull'overlay
+        const overlay = document.getElementById('modal-overlay');
+        let downOnOverlay = false;
+        overlay.addEventListener('mousedown', (e) => { downOnOverlay = e.target === overlay; });
+        overlay.addEventListener('click', (e) => {
+            if (downOnOverlay && e.target === overlay) closeModal();
+            downOnOverlay = false;
+        });
+        // Chiusura con Esc
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && overlay.classList.contains('active')) closeModal();
         });
         const saveBtn = document.getElementById('modal-save');
         saveBtn.addEventListener('click', async () => {
@@ -85,7 +99,7 @@ const UI = (() => {
             'scaduta': { class: 'badge-red',    label: 'Scaduta' }
         };
         const s = map[stato] || { class: 'badge-blue', label: stato || '—' };
-        return `<span class="badge ${s.class}">${s.label}</span>`;
+        return `<span class="badge ${s.class}">${esc(s.label)}</span>`;
     }
 
     // ── Year Selector ──
@@ -102,17 +116,35 @@ const UI = (() => {
         }
     }
 
-    // ── Escape HTML ──
+    // ── Escape HTML (anche per attributi: include " e ') ──
     function esc(str) {
-        const div = document.createElement('div');
-        div.textContent = str || '';
-        return div.innerHTML;
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // ── URL sicuro per href: solo percorsi 'uploads/' o http(s) ──
+    function safeUrl(url) {
+        const u = String(url || '').trim();
+        if (/^uploads\//.test(u) || /^https?:\/\//i.test(u)) return esc(u);
+        return '';
+    }
+
+    // ── Data di oggi in formato YYYY-MM-DD (fuso locale, non UTC) ──
+    function todayLocal() {
+        const d = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     }
 
     return {
         toast, openModal, closeModal, initModalEvents,
         formatCurrency, formatDate, formatNumber,
-        statoBadge, populateYearSelect, esc
+        statoBadge, populateYearSelect, esc, safeUrl, todayLocal
     };
 })();
 
