@@ -51,12 +51,23 @@ class RiconciliazioneController {
         return $id ? (int)$id : null;
     }
 
-    /** Import estratto conto: XML CBI (campo xml) oppure testo delle pagine del PDF (pages[]). */
+    /**
+     * Import estratto conto: XML CBI (campo xml) oppure testo delle pagine del PDF (pages[]).
+     * Con tipo=carta le pagine sono l'estratto della carta di credito: movimenti con origine estratto_carta.
+     */
     public function importEstratto($data) {
         $ric = $this->riconciliatore();
         $fileNome = trim((string)($data['file_nome'] ?? ''));
+        $carta = ($data['tipo'] ?? '') === 'carta';
+        if ($carta && !$this->origineCartaPresente()) {
+            Response::json(false, 'Import dell\'estratto carta non ancora attivo: lancia la migrazione del database.');
+        }
         try {
-            if (trim((string)($data['xml'] ?? '')) !== '') {
+            if ($carta) {
+                $pages = $data['pages'] ?? [];
+                if (empty($pages) || !is_array($pages)) Response::json(false, 'Nessun dato letto dal file');
+                $letto = EstrattoContoParser::parseEstrattoCarta($pages);
+            } elseif (trim((string)($data['xml'] ?? '')) !== '') {
                 $letto = EstrattoContoParser::parseXmlCbi((string)$data['xml'], trim((string)($data['banca'] ?? '')));
             } else {
                 $pages = $data['pages'] ?? [];
@@ -74,8 +85,10 @@ class RiconciliazioneController {
         @set_time_limit(120);
         $this->pdo->beginTransaction();
         try {
-            $esito = $ric->importaMovimenti($letto['movimenti'], ['banca' => $letto['banca'], 'iban' => $letto['iban'], 'file_nome' => $fileNome], $this->userId());
-            $esito['classificazione'] = self::classifica($this->pdo, $this->prefix, $esito['ids']);
+            $esito = $ric->importaMovimenti($letto['movimenti'], ['banca' => $letto['banca'], 'iban' => $letto['iban'], 'file_nome' => $fileNome],
+                $this->userId(), $carta ? 'estratto_carta' : 'estratto_conto');
+            // Le spese della carta non entrano nelle categorie: sul conto c'è già il loro addebito mensile
+            $esito['classificazione'] = $carta ? null : self::classifica($this->pdo, $this->prefix, $esito['ids']);
             $this->pdo->commit();
         } catch (Throwable $e) {
             if ($this->pdo->inTransaction()) $this->pdo->rollBack();
@@ -98,7 +111,13 @@ class RiconciliazioneController {
         $esito['metodo'] = $letto['metodo'];
         $esito['banca'] = $letto['banca'];
         $esito['avvisi'] = array_merge($letto['avvisi'], $esito['avvisi'] ?? []);
-        Response::json(true, 'Estratto conto importato', $esito);
+        Response::json(true, $carta ? 'Estratto carta importato' : 'Estratto conto importato', $esito);
+    }
+
+    /** La migrazione v070 aggiunge estratto_carta ai valori di movimenti_banca.origine. */
+    private function origineCartaPresente(): bool {
+        $col = $this->pdo->query("SHOW COLUMNS FROM {$this->prefix}movimenti_banca LIKE 'origine'")->fetch(PDO::FETCH_ASSOC);
+        return $col && str_contains((string)$col['Type'], 'estratto_carta');
     }
 
     public function movimenti() {
@@ -106,7 +125,7 @@ class RiconciliazioneController {
         $origine = $_GET['origine'] ?? $_POST['origine'] ?? '';
         $f = [
             'stato' => in_array($stato, ['da_riconciliare', 'riconciliato', 'ignorato'], true) ? $stato : '',
-            'origine' => in_array($origine, ['estratto_conto', 'avviso_pagamento'], true) ? $origine : '',
+            'origine' => in_array($origine, ['estratto_conto', 'avviso_pagamento', 'estratto_carta'], true) ? $origine : '',
             'dal' => $this->data($_GET['dal'] ?? $_POST['dal'] ?? null),
             'al' => $this->data($_GET['al'] ?? $_POST['al'] ?? null),
             'abbinabili' => ($_GET['abbinabili'] ?? $_POST['abbinabili'] ?? '') === '1',

@@ -593,6 +593,38 @@ $pdf = $importa([['data_operazione' => '2026-08-01', 'data_valuta' => '2026-08-0
     'descrizione' => 'BONIFICO A VS FAVORE ZETA CONSULENZE CAUSALE PROVA', 'controparte' => null]], ['iban' => '']);
 check('#20 stesso movimento dal PDF dopo l\'XML: non duplicato, con avviso', $pdf['altro_formato'] === 1 && $pdf['nuovi'] === 0 && $pdf['avvisi']);
 
+// Estratto carta di credito (testo come lo ricostruisce pdf.js: a capo per riga, acquisto in valuta su più righe)
+echo "Estratto carta\n";
+$paginaCarta = "DATA ACQUISTO  DATA REGISTR.  DESCRIZIONE DELLE OPERAZIONI  IMPORTO IN EURO\n"
+    . " 01/07/2026  02/07/2026  STUDIO PAGHE ALFA ROMA ITA  150,00\n"
+    . "02/07/2026  03/07/2026  \nSOFTWARE BETA SAN FRANCISCO CA\n 20,00 USD  \n18,50\n"
+    . "03/07/2026  03/07/2026  COMMISSIONE DI CONVERSIONE VALUTARIA  0,30\n"
+    . "04/07/2026  06/07/2026  NEGOZIO GAMMA MILANO ITA  -40,00\n"
+    . " TOTALE OPERAZIONI  128,80\n Carta Numero:  1234 **** **** 9876\nNumia S.p.A.";
+$carta = EstrattoContoParser::parseEstrattoCarta([$paginaCarta]);
+check('carta: 4 righe, totale che torna, nessun avviso', count($carta['movimenti']) === 4 && !$carta['avvisi'], $carta['avvisi']);
+check('carta: spese negative, rimborso positivo', array_column($carta['movimenti'], 'importo') === [-150.0, -18.5, -0.3, 40.0]);
+check('carta: valuta estera nella descrizione', $carta['movimenti'][1]['descrizione'] === 'SOFTWARE BETA SAN FRANCISCO CA (20,00 USD)');
+check('carta: data acquisto e data registrazione', $carta['movimenti'][1]['data_operazione'] === '2026-07-02' && $carta['movimenti'][1]['data_valuta'] === '2026-07-03');
+check('carta: banca dal numero mascherato', $carta['banca'] === 'CartaBCC 1234 **** 9876', $carta['banca']);
+$sbagliata = EstrattoContoParser::parseEstrattoCarta([str_replace('128,80', '999,00', $paginaCarta)]);
+check('carta: totale diverso → avviso', count($sbagliata['avvisi']) === 1);
+$pdo->beginTransaction();
+$ec = $ric->importaMovimenti($carta['movimenti'], ['banca' => $carta['banca'], 'iban' => '', 'file_nome' => 'carta.pdf'], 7, 'estratto_carta');
+$pdo->commit();
+$origini = $pdo->query("SELECT DISTINCT origine FROM {$p}movimenti_banca WHERE file_nome = 'carta.pdf'")->fetchAll(PDO::FETCH_COLUMN);
+check('carta: movimenti salvati con origine estratto_carta', $ec['nuovi'] === 4 && $origini === ['estratto_carta'], [$ec['nuovi'], $origini]);
+$fornitoreCarta = (int)$pdo->query("SELECT abbinabile FROM {$p}movimenti_banca WHERE file_nome = 'carta.pdf' AND importo = -150")->fetchColumn();
+check('carta: la spesa di un fornitore in anagrafica va in coda da riconciliare', $fornitoreCarta === 1);
+$pdo->beginTransaction();
+$ec2 = $ric->importaMovimenti($carta['movimenti'], ['banca' => $carta['banca'], 'iban' => '', 'file_nome' => 'carta.pdf'], 7, 'estratto_carta');
+$pdo->commit();
+check('carta: reimport senza doppioni', $ec2['nuovi'] === 0 && $ec2['gia_presenti'] === 4);
+$daClassificare = (int)$pdo->query("SELECT COUNT(*) FROM {$p}movimenti_banca WHERE file_nome = 'carta.pdf' AND categoria_id IS NOT NULL")->fetchColumn();
+$cls->classifica(null);
+check('carta: fuori dalle categorie (sul conto c\'è già l\'addebito mensile)', $daClassificare === 0
+    && (int)$pdo->query("SELECT COUNT(*) FROM {$p}movimenti_banca WHERE file_nome = 'carta.pdf' AND categoria_id IS NOT NULL")->fetchColumn() === 0);
+
 // #12 lista senza una query per movimento
 $n = (int)$pdo->query("SELECT COUNT(*) FROM {$p}movimenti_banca")->fetchColumn();
 $pdo->n = 0;
