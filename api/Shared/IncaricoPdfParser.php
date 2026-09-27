@@ -232,7 +232,9 @@ class IncaricoPdfParser
                 }
             }
 
-            if ($isDpo) {
+            if (preg_match('/\bnis\s?2\b|138\/2024/u', $textLower)) {
+                $extracted['tipo_commessa'] = 'nis2';
+            } elseif ($isDpo) {
                 $extracted['tipo_commessa'] = 'dpo';
             } elseif (strpos($textLower, 'formazione') !== false || strpos($textLower, 'corso') !== false || strpos($textLower, 'training') !== false) {
                 $extracted['tipo_commessa'] = 'formazione';

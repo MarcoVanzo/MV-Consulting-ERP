@@ -12,6 +12,12 @@ declare(strict_types=1);
 
 class CommessaService
 {
+    /** Tipi di commessa di offerte e incarichi: codice → etichetta (stesso elenco in js/core/ui.js). */
+    public const TIPI = [
+        'assistenza' => 'Assistenza', 'dpo' => 'DPO', 'formazione' => 'Formazione', 'nis2' => 'Consulenza NIS 2',
+        'ict' => 'Consulenza ICT', 'digital' => 'Consulenza Digital', 'sviluppo_software' => 'Sviluppo Software',
+    ];
+
     private $pdo;
     private $p;
 
@@ -209,7 +215,7 @@ class CommessaService
     /** Descrizione da copiare in Sistemi: contiene il riferimento che poi riaggancia la fattura. */
     public function testoFattura(array $inc, array $rata): string
     {
-        $oggetto = trim((string)($inc['offerta_oggetto'] ?? '')) ?: trim((string)($inc['descrizione'] ?? '')) ?: ucfirst((string)$inc['tipo_commessa']);
+        $oggetto = trim((string)($inc['offerta_oggetto'] ?? '')) ?: trim((string)($inc['descrizione'] ?? '')) ?: (self::TIPI[$inc['tipo_commessa']] ?? ucfirst((string)$inc['tipo_commessa']));
         $rif = [];
         if (!empty($inc['offerta_numero'])) $rif[] = 'Rif. ' . $inc['offerta_numero'];
         if (!empty($inc['numero_protocollo'])) $rif[] = 'Prot. n. ' . $inc['numero_protocollo'];
