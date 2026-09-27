@@ -170,6 +170,9 @@ function initApplication(userData) {
         });
     }
 
+    // ── Clienti nel conteggio di KPI e grafico ──
+    document.getElementById('btn-filtro-clienti')?.addEventListener('click', () => ModContabilita.apriFiltroClienti());
+
     // ── Lista fatture di Sistemi (.xlsx) ──
     const btnImportLista = document.getElementById('btn-import-lista-fatture');
     const inputImportLista = document.getElementById('input-lista-fatture');
