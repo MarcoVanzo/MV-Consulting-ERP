@@ -355,6 +355,7 @@ class ApiRouter {
             case 'import_xml':         $ctrl->importXmlData($data); break;
             case 'import_payment_pdf': $ctrl->importPaymentPdf($data); break;
             case 'import_lista':       $ctrl->importListaFatture(); break;
+            case 'filtro_clienti':     $ctrl->salvaFiltroClienti($data); break;
             default:                   Response::json(false, "Azione contabilità non supportata: $action");
         }
     }

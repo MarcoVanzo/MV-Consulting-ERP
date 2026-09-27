@@ -140,6 +140,10 @@ class ContabilitaController {
     public function overview() {
         $year = $_POST['year'] ?? $_GET['year'] ?? date('Y');
         $p = $this->prefix;
+        // Clienti tolti da KPI e grafico (scelta dell'utente, salvata sul server). 0 = fatture senza cliente
+        $esclusi = $this->clientiEsclusi();
+        // Id già interi (clientiEsclusi): scritti nella query, come numeri
+        $filtro = $esclusi ? ' AND COALESCE(cliente_id, 0) NOT IN (' . implode(',', $esclusi) . ')' : '';
 
         // Fatturato totale
         $stmt = $this->pdo->prepare("SELECT 
@@ -151,7 +155,7 @@ class ContabilitaController {
             COUNT(CASE WHEN stato = 'pagata' THEN 1 END) as num_pagate,
             COUNT(CASE WHEN stato IN ('emessa','inviata') THEN 1 END) as num_attesa,
             COUNT(CASE WHEN stato = 'scaduta' THEN 1 END) as num_scadute
-            FROM {$p}fatture WHERE YEAR(data_emissione) = ?");
+            FROM {$p}fatture WHERE YEAR(data_emissione) = ?$filtro");
         $stmt->execute([$year]);
         $kpis = $stmt->fetch();
 
@@ -161,7 +165,7 @@ class ContabilitaController {
             COALESCE(SUM(importo_totale), 0) as fatturato,
             COALESCE(SUM(CASE WHEN stato = 'pagata' THEN importo_totale ELSE 0 END), 0) as pagato,
             COUNT(id) as num_fatture
-            FROM {$p}fatture WHERE YEAR(data_emissione) = ?
+            FROM {$p}fatture WHERE YEAR(data_emissione) = ?$filtro
             GROUP BY MONTH(data_emissione) ORDER BY mese ASC");
         $stmt2->execute([$year]);
         $monthly = $stmt2->fetchAll();
@@ -172,17 +176,54 @@ class ContabilitaController {
             COALESCE(SUM(f.importo_totale), 0) as fatturato
             FROM {$p}fatture f
             LEFT JOIN {$p}clienti c ON c.id = f.cliente_id
-            WHERE YEAR(f.data_emissione) = ?
+            WHERE YEAR(f.data_emissione) = ?" . str_replace('cliente_id', 'f.cliente_id', $filtro) . "
             GROUP BY f.cliente_id ORDER BY fatturato DESC LIMIT 5");
         $stmt3->execute([$year]);
         $topClienti = $stmt3->fetchAll();
+
+        // Clienti con fatture nell'anno, per la scelta di chi contare
+        $stmt4 = $this->pdo->prepare("SELECT COALESCE(f.cliente_id, 0) AS id, COALESCE(c.ragione_sociale, 'Senza cliente') AS nome,
+                COALESCE(SUM(f.importo_totale), 0) AS fatturato, COUNT(*) AS num_fatture
+            FROM {$p}fatture f LEFT JOIN {$p}clienti c ON c.id = f.cliente_id
+            WHERE YEAR(f.data_emissione) = ?
+            GROUP BY COALESCE(f.cliente_id, 0), c.ragione_sociale ORDER BY nome");
+        $stmt4->execute([$year]);
+        $clientiAnno = $stmt4->fetchAll();
 
         Response::json(true, '', [
             'kpis' => $kpis,
             'mensile' => $monthly,
             'top_clienti' => $topClienti,
+            'clienti' => $clientiAnno,
+            'esclusi' => $esclusi,
             'anno' => $year
         ]);
+    }
+
+    /** Salva i clienti da togliere da KPI e grafico: esclusi = JSON [id, ...] (0 = senza cliente). */
+    public function salvaFiltroClienti($data) {
+        $ids = json_decode((string)($data['esclusi'] ?? '[]'), true);
+        if (!is_array($ids)) Response::json(false, 'Elenco clienti non valido', null, 422);
+        $ids = array_values(array_unique(array_map('intval', array_filter($ids, 'is_numeric'))));
+        $this->pdo->prepare("REPLACE INTO {$this->prefix}settings (setting_key, setting_value) VALUES (?, ?)")
+            ->execute([$this->chiaveFiltroClienti(), json_encode($ids)]);
+        Response::json(true, 'Scelta salvata', ['esclusi' => $ids]);
+    }
+
+    /** Una scelta per utente: chi entra nel conteggio è una preferenza di visualizzazione. */
+    private function chiaveFiltroClienti(): string {
+        return 'fatture_clienti_esclusi_u' . (int)($GLOBALS['userContext']['id'] ?? 0);
+    }
+
+    private function clientiEsclusi(): array {
+        try {
+            $stmt = $this->pdo->prepare("SELECT setting_value FROM {$this->prefix}settings WHERE setting_key = ?");
+            $stmt->execute([$this->chiaveFiltroClienti()]);
+            $v = json_decode((string)$stmt->fetchColumn(), true);
+            return is_array($v) ? array_values(array_map('intval', $v)) : [];
+        } catch (PDOException $e) {
+            return [];
+        }
     }
 
     /**
