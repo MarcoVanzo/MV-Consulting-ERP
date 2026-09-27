@@ -128,6 +128,10 @@ class OfferteController {
         }
 
         $this->pdo->beginTransaction();
+        if (!$fields['cliente_id']) {
+            $fields['cliente_id'] = $this->clienteDaProspect($fields['cliente_nome']);
+            $fields['cliente_nome'] = null;
+        }
         if ($id) {
             if ($file) $fields['file_path'] = $file;
             $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($fields)));
@@ -342,7 +346,7 @@ class OfferteController {
             $note[] = 'Totale del documento (' . number_format((float)$x['imponibile'], 2, ',', '.') . ' €) diverso dalla somma delle righe: verifica.';
         }
         if (!empty($x['note_estrazione'])) $note[] = $x['note_estrazione'];
-        if (!$clienteId && $nome) $note[] = "Cliente \"$nome\" non trovato in anagrafica.";
+        if (!$clienteId && $nome) $note[] = "Cliente \"$nome\" non era in anagrafica: aggiunto, completane i dati.";
 
         $piano = [];
         foreach ($x['piano_rate'] ?? [] as $r) {
@@ -375,6 +379,11 @@ class OfferteController {
             'note' => $note ? implode("\n", $note) : null,
         ];
         $this->pdo->beginTransaction();
+        if (!$clienteId && $nome) {
+            $fields['cliente_id'] = $this->clienteDaProspect($nome, $x['cliente']['partita_iva'] ?? null,
+                $x['cliente']['codice_fiscale'] ?? null, $x['cliente']['email'] ?? null);
+            $fields['cliente_nome'] = null;
+        }
         $cols = implode(', ', array_keys($fields));
         $ph = implode(', ', array_fill(0, count($fields), '?'));
         $this->pdo->prepare("INSERT INTO {$p}offerte ($cols) VALUES ($ph)")->execute(array_values($fields));
@@ -398,6 +407,23 @@ class OfferteController {
         $stmt = $this->pdo->prepare("SELECT * FROM {$this->prefix}offerte WHERE id = ? AND deleted_at IS NULL");
         $stmt->execute([$id]);
         return $stmt->fetch() ?: null;
+    }
+
+    /**
+     * Un prospect che non è in anagrafica ci entra con il primo preventivo: si riusa il cliente
+     * se il nome (o la P.IVA) lo riconosce, altrimenti si crea con i pochi dati che si hanno.
+     */
+    private function clienteDaProspect(string $nome, ?string $piva = null, ?string $cf = null, ?string $email = null): int {
+        $p = $this->prefix;
+        $esistente = AnagraficaMatcher::trovaCliente($this->pdo, $p, $piva, $cf, $nome);
+        if ($esistente) return $esistente;
+        $dati = ['ragione_sociale' => mb_substr($nome, 0, 255), 'partita_iva' => $piva ?: null,
+            'codice_fiscale' => $cf ?: null, 'email' => $email ?: null, 'note' => 'Prospect: aggiunto da un preventivo'];
+        $this->pdo->prepare("INSERT INTO {$p}clienti (ragione_sociale, partita_iva, codice_fiscale, email, note) VALUES (?, ?, ?, ?, ?)")
+            ->execute(array_values($dati));
+        $id = (int)$this->pdo->lastInsertId();
+        Audit::log('INSERT', 'clienti', (string)$id, null, ['ragione_sociale' => $dati['ragione_sociale'], 'origine' => 'offerta']);
+        return $id;
     }
 
     private function nuovoNumero(int $anno): string {
