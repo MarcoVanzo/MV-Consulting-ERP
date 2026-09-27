@@ -4,6 +4,11 @@
  * CRUD + Overview + PDF Import + Ricalcolo automatico importi
  */
 
+require_once __DIR__ . '/../Shared/Documenti.php';
+require_once __DIR__ . '/../Shared/DocumentAi.php';
+require_once __DIR__ . '/../Shared/AnagraficaMatcher.php';
+require_once __DIR__ . '/../Shared/IncaricoPdfParser.php';
+
 class IncarchiController {
     private $pdo;
     private $prefix;
@@ -20,12 +25,17 @@ class IncarchiController {
         $year = $_POST['year'] ?? $_GET['year'] ?? date('Y');
         $clienteId = $_POST['cliente_id'] ?? $_GET['cliente_id'] ?? null;
 
+        $p = $this->prefix;
         $sql = "SELECT i.*, 
                 c.ragione_sociale as cliente_nome,
-                sc.nome as sottocliente_nome
-            FROM {$this->prefix}incarichi i
-            LEFT JOIN {$this->prefix}clienti c ON c.id = i.cliente_id
-            LEFT JOIN {$this->prefix}sottoclienti sc ON sc.id = i.sottocliente_id
+                sc.nome as sottocliente_nome,
+                o.numero as offerta_numero,
+                (SELECT COUNT(*) FROM {$p}incarichi_rate r WHERE r.incarico_id = i.id) as num_rate,
+                (SELECT COALESCE(SUM(cc.importo_previsto), 0) FROM {$p}commessa_costi cc WHERE cc.incarico_id = i.id) as costi_previsti
+            FROM {$p}incarichi i
+            LEFT JOIN {$p}clienti c ON c.id = i.cliente_id
+            LEFT JOIN {$p}sottoclienti sc ON sc.id = i.sottocliente_id
+            LEFT JOIN {$p}offerte o ON o.id = i.offerta_id
             WHERE YEAR(i.data_incarico) = ?";
         $params = [$year];
 
@@ -66,43 +76,58 @@ class IncarchiController {
 
     /**
      * CRUD Incarico — Save (Create / Update)
+     * Alla creazione nasce anche il piano di fatturazione: una rata unica di saldo,
+     * da dettagliare poi nella scheda commessa.
      */
     public function save($data) {
-        $id = $data['id'] ?? null;
+        $p = $this->prefix;
+        $id = !empty($data['id']) ? (int)$data['id'] : null;
 
         $fields = [
-            'cliente_id'        => !empty($data['cliente_id']) ? (int)$data['cliente_id'] : null,
-            'sottocliente_id'   => !empty($data['sottocliente_id']) ? (int)$data['sottocliente_id'] : null,
-            'data_incarico'     => $data['data_incarico'] ?? date('Y-m-d'),
-            'tipo_commessa'     => $data['tipo_commessa'] ?? 'assistenza',
-            'numero_protocollo' => !empty($data['numero_protocollo']) ? trim($data['numero_protocollo']) : null,
-            'num_giornate'      => floatval($data['num_giornate'] ?? 0),
-            'importo_totale'    => floatval($data['importo_totale'] ?? 0),
-            'note'              => trim($data['note'] ?? '')
+            'cliente_id'           => !empty($data['cliente_id']) ? (int)$data['cliente_id'] : null,
+            'sottocliente_id'      => !empty($data['sottocliente_id']) ? (int)$data['sottocliente_id'] : null,
+            'data_incarico'        => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($data['data_incarico'] ?? '')) ? $data['data_incarico'] : date('Y-m-d'),
+            'tipo_commessa'        => in_array($data['tipo_commessa'] ?? '', ['assistenza', 'dpo', 'formazione'], true) ? $data['tipo_commessa'] : 'assistenza',
+            'numero_protocollo'    => !empty($data['numero_protocollo']) ? trim($data['numero_protocollo']) : null,
+            'descrizione'          => trim((string)($data['descrizione'] ?? '')) ?: null,
+            'num_giornate'         => floatval($data['num_giornate'] ?? 0),
+            'importo_totale'       => round(floatval($data['importo_totale'] ?? 0), 2),
+            'giorni_pagamento'     => max(0, (int)($data['giorni_pagamento'] ?? 30)),
+            'condizioni_pagamento' => trim((string)($data['condizioni_pagamento'] ?? '')) ?: null,
+            'note'                 => trim($data['note'] ?? '')
         ];
+        // PDF archiviato dall'import: si accetta solo un riferimento valido in storage/documenti
+        if (!empty($data['pdf_path']) && Documenti::percorso($data['pdf_path'])) {
+            $fields['pdf_path'] = $data['pdf_path'];
+        }
 
         if (empty($fields['cliente_id'])) {
             Response::json(false, 'Cliente obbligatorio');
-            return;
         }
         if ($fields['importo_totale'] <= 0) {
             Response::json(false, 'Importo totale deve essere maggiore di zero');
-            return;
+        }
+
+        $this->pdo->beginTransaction();
+        // Sottocliente letto dal PDF ma non ancora in anagrafica
+        $nuovoSotto = trim((string)($data['sottocliente_nuovo'] ?? ''));
+        if (!$fields['sottocliente_id'] && $nuovoSotto !== '') {
+            $this->pdo->prepare("INSERT INTO {$p}sottoclienti (cliente_id, nome) VALUES (?, ?)")->execute([$fields['cliente_id'], $nuovoSotto]);
+            $fields['sottocliente_id'] = (int)$this->pdo->lastInsertId();
         }
 
         if ($id) {
-            // Update
-            $sets = [];
-            $vals = [];
-            foreach ($fields as $k => $v) {
-                $sets[] = "$k = ?";
-                $vals[] = $v;
+            $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($fields)));
+            $this->pdo->prepare("UPDATE {$p}incarichi SET $sets WHERE id = ?")->execute(array_merge(array_values($fields), [$id]));
+            // Piano con una sola rata ancora da fatturare: segue il nuovo importo
+            $stmt = $this->pdo->prepare("SELECT id, fattura_id FROM {$p}incarichi_rate WHERE incarico_id = ?");
+            $stmt->execute([$id]);
+            $rate = $stmt->fetchAll();
+            if (count($rate) === 1 && !$rate[0]['fattura_id']) {
+                $this->pdo->prepare("UPDATE {$p}incarichi_rate SET importo = ?, percentuale = 100, giorni_pagamento = ? WHERE id = ?")
+                    ->execute([$fields['importo_totale'], $fields['giorni_pagamento'], $rate[0]['id']]);
             }
-            $vals[] = $id;
-            $sql = "UPDATE {$this->prefix}incarichi SET " . implode(', ', $sets) . " WHERE id = ?";
-            $this->pdo->prepare($sql)->execute($vals);
-
-            // Ricalcola stato
+            $this->pdo->commit();
             $this->recalculate($id);
 
             Audit::log('UPDATE', 'incarichi', $id, null, null, [
@@ -111,12 +136,14 @@ class IncarchiController {
             ]);
             Response::json(true, 'Incarico aggiornato', ['id' => $id]);
         } else {
-            // Insert
             $cols = implode(', ', array_keys($fields));
             $placeholders = implode(', ', array_fill(0, count($fields), '?'));
-            $sql = "INSERT INTO {$this->prefix}incarichi ($cols) VALUES ($placeholders)";
-            $this->pdo->prepare($sql)->execute(array_values($fields));
-            $newId = $this->pdo->lastInsertId();
+            $this->pdo->prepare("INSERT INTO {$p}incarichi ($cols) VALUES ($placeholders)")->execute(array_values($fields));
+            $newId = (int)$this->pdo->lastInsertId();
+            $dataFatt = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($data['data_fatturazione'] ?? '')) ? $data['data_fatturazione'] : null;
+            $this->pdo->prepare("INSERT INTO {$p}incarichi_rate (incarico_id, ordine, descrizione, percentuale, importo, data_prevista, giorni_pagamento)
+                VALUES (?, 1, 'Saldo', 100, ?, ?, ?)")->execute([$newId, $fields['importo_totale'], $dataFatt, $fields['giorni_pagamento']]);
+            $this->pdo->commit();
             Audit::log('INSERT', 'incarichi', $newId, null, null, [
                 'tipo_commessa' => $fields['tipo_commessa'],
                 'importo_totale' => $fields['importo_totale']
@@ -126,13 +153,17 @@ class IncarchiController {
     }
 
     /**
-     * Elimina un incarico (slega le fatture collegate)
+     * Elimina un incarico (slega le fatture collegate; l'offerta d'origine torna "inviata")
      */
     public function delete($id) {
-        // Prima slega le fatture
-        $this->pdo->prepare("UPDATE {$this->prefix}fatture SET incarico_id = NULL WHERE incarico_id = ?")->execute([$id]);
-        // Poi elimina l'incarico
-        $this->pdo->prepare("DELETE FROM {$this->prefix}incarichi WHERE id = ?")->execute([$id]);
+        $p = $this->prefix;
+        $this->pdo->beginTransaction();
+        $this->pdo->prepare("UPDATE {$p}fatture SET incarico_id = NULL WHERE incarico_id = ?")->execute([$id]);
+        $this->pdo->prepare("UPDATE {$p}offerte SET stato = 'inviata', incarico_id = NULL, data_esito = NULL WHERE incarico_id = ?")->execute([$id]);
+        // I costi nati sull'offerta tornano all'offerta, gli altri spariscono con l'incarico (FK)
+        $this->pdo->prepare("UPDATE {$p}commessa_costi SET incarico_id = NULL WHERE incarico_id = ? AND offerta_id IS NOT NULL")->execute([$id]);
+        $this->pdo->prepare("DELETE FROM {$p}incarichi WHERE id = ?")->execute([$id]);
+        $this->pdo->commit();
         Audit::log('DELETE', 'incarichi', $id, null, null, null);
         Response::json(true, 'Incarico eliminato');
     }
@@ -208,402 +239,85 @@ class IncarchiController {
     }
 
     /**
-     * Import PDF incarico — Parsing testo e estrazione dati
-     * Usa pdf.js dal frontend per estrarre il testo, qui analizziamo
+     * Import della lettera d'incarico (es. Unindustria).
+     * Via principale: Claude legge il PDF (file). Riserva: parser a regole sul testo estratto da pdf.js (pages[]).
+     * Restituisce i dati per precompilare il form: il salvataggio resta manuale, dopo la verifica.
      */
     public function importPdf($data) {
-        $pages = $data['pages'] ?? [];
-        if (empty($pages) || !is_array($pages)) {
-            Response::json(false, 'Nessun dato di testo trovato');
-            return;
+        $p = $this->prefix;
+        $pages = is_array($data['pages'] ?? null) ? $data['pages'] : [];
+        $avvisi = [];
+        $ref = null;
+        try {
+            $ref = Documenti::salvaUpload('file');
+        } catch (RuntimeException $e) {
+            $avvisi[] = $e->getMessage();
         }
 
-        $fullText = implode(' ', $pages);
-        $fullText = preg_replace('/\s+/', ' ', $fullText);
-
-        // ─── Normalizzazione testo PDF ───
-        // pdf.js spesso spezza numeri e parole con spazi interni
-        // Es: "€ 5 . 000 , 00" → "€ 5.000,00", "ver ifiche" → "verifiche", "N r." → "Nr."
-
-        // 1. Rimuovi spazi attorno a . e , tra cifre: "5 . 000 , 00" → "5.000,00"
-        $fullText = preg_replace('/(\d)\s*\.\s*(\d)/', '$1.$2', $fullText);
-        $fullText = preg_replace('/(\d)\s*,\s*(\d)/', '$1,$2', $fullText);
-
-        // 2. Rimuovi spazi tra cifre adiacenti causati da splitting: "5 000" → "5000" (solo quando preceduto da € o "euro")
-        // Ma attenzione a non unire date o altri numeri — lo facciamo solo in contesto monetario
-        $fullText = preg_replace('/€\s*(\d+)\s+(\d{3})\b/', '€ $1$2', $fullText);
-
-        // 3. Ricomponi parole comuni spezzate da pdf.js
-        $brokenWords = [
-            '/\bver\s+ifich/i' => 'verifich',
-            '/\bgiorn\s+at/i' => 'giornat',
-            '/\bgiorn\s+o\b/i' => 'giorno',
-            '/\bgiorn\s+i\b/i' => 'giorni',
-            '/\bN\s+r\s*\./i' => 'Nr.',
-            '/\bN\s+r\s+(\d)/i' => 'Nr. $1',
-            '/\bsopral\s+luogh/i' => 'sopralluogh',
-            '/\bispez\s+ion/i' => 'ispezion',
-            '/\binter\s+vent/i' => 'intervent',
-            '/\bsess\s+ion/i' => 'session',
-            '/\bcompen\s+so\b/i' => 'compenso',
-            '/\bimport\s+o\b/i' => 'importo',
-            '/\bcorri\s+spettiv/i' => 'corrispettiv',
-            '/\bonor\s+ario/i' => 'onorario',
-            '/\bpre\s+vist/i' => 'previst',
-            '/\bformaz\s+ione/i' => 'formazione',
-            '/\bassist\s+enza/i' => 'assistenza',
-            '/\bcinque\s*mila\b/i' => 'cinquemila',
-        ];
-        foreach ($brokenWords as $pattern => $replacement) {
-            $fullText = preg_replace($pattern, $replacement, $fullText);
+        $extracted = null;
+        $metodo = 'regole';
+        $pdfPath = Documenti::percorso($ref);
+        if ($pdfPath && ClaudeClient::isConfigured()) {
+            try {
+                $ai = DocumentAi::estraiIncarico(['pdf_base64' => base64_encode((string)file_get_contents($pdfPath))]);
+                $metodo = 'ai';
+                $clienteId = AnagraficaMatcher::trovaCliente($this->pdo, $p, $ai['cliente']['partita_iva'] ?? null,
+                    $ai['cliente']['codice_fiscale'] ?? null, (string)($ai['cliente']['nome'] ?? ''));
+                $sottoNome = trim((string)($ai['sottocliente']['nome'] ?? ''));
+                $sottoId = ($clienteId && $sottoNome !== '') ? AnagraficaMatcher::trovaSottocliente($this->pdo, $p, $clienteId, $sottoNome) : null;
+                $extracted = [
+                    'cliente_id' => $clienteId,
+                    'sottocliente_id' => $sottoId,
+                    // Sottocliente letto ma non in anagrafica: il form propone di crearlo
+                    'sottocliente_nuovo' => ($clienteId && !$sottoId && $sottoNome !== '') ? $sottoNome : null,
+                    'data_incarico' => $ai['data_incarico'],
+                    'importo_totale' => $ai['importo_totale'] !== null ? round((float)$ai['importo_totale'], 2) : 0,
+                    'num_giornate' => $ai['num_giornate'] ?? 0,
+                    'tipo_commessa' => $ai['tipo_commessa'],
+                    'numero_protocollo' => $ai['numero_protocollo'],
+                    'descrizione' => $ai['descrizione'],
+                    'condizioni_pagamento' => $ai['condizioni_pagamento'],
+                    'giorni_pagamento' => $ai['giorni_pagamento'],
+                ];
+                if (!$clienteId) $avvisi[] = 'Cliente "' . ($ai['cliente']['nome'] ?? '?') . '" non trovato in anagrafica.';
+                if (!empty($ai['note_estrazione'])) $avvisi[] = $ai['note_estrazione'];
+            } catch (RuntimeException $e) {
+                error_log('[Incarichi::importPdf] AI: ' . $e->getMessage());
+                $avvisi[] = 'Lettura AI non riuscita (' . $e->getMessage() . '): dati letti con il metodo a regole, verificali.';
+            }
+        } elseif (!ClaudeClient::isConfigured()) {
+            $avvisi[] = 'Lettura AI non attiva (manca ANTHROPIC_API_KEY): dati letti con il metodo a regole, verificali.';
         }
 
-        $textLower = mb_strtolower($fullText, 'UTF-8');
-
-        $extracted = [
-            'data_incarico' => null,
-            'importo_totale' => 0,
-            'num_giornate' => 0,
-            'tipo_commessa' => 'assistenza',
-            'numero_protocollo' => null,
-            'cliente_id' => null,
-            'sottocliente_id' => null,
-            '_debug_text' => mb_substr(trim($fullText), 0, 2000, 'UTF-8'), // debug: per vedere il testo estratto
-            '_debug_importo_candidates' => [],
-            '_debug_giornate_candidates' => []
-        ];
-
-        // ─── Estrai data (DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY o YYYY-MM-DD) ───
-        if (preg_match('/(\d{2}[\/.\\-]\d{2}[\/.\\-]\d{4})/', $fullText, $m)) {
-            $parts = preg_split('/[\\/\\.\\-]/', trim($m[1]));
-            if (count($parts) === 3 && strlen($parts[2]) === 4) {
-                $extracted['data_incarico'] = $parts[2] . '-' . $parts[1] . '-' . $parts[0];
+        if ($extracted === null) {
+            if (!$pages) {
+                Documenti::elimina($ref);
+                Response::json(false, 'Nessun testo leggibile nel PDF');
             }
-        } elseif (preg_match('/(\d{4}[\-]\d{2}[\-]\d{2})/', $fullText, $m)) {
-            $extracted['data_incarico'] = $m[1];
+            $x = IncaricoPdfParser::parse($pages);
+            $clienteId = AnagraficaMatcher::trovaCliente($this->pdo, $p, null, null, $x['full_text'], true);
+            $extracted = [
+                'cliente_id' => $clienteId,
+                'sottocliente_id' => $clienteId ? AnagraficaMatcher::trovaSottocliente($this->pdo, $p, $clienteId, $x['full_text']) : null,
+                'data_incarico' => $x['data_incarico'],
+                'importo_totale' => $x['importo_totale'],
+                'num_giornate' => $x['num_giornate'],
+                'tipo_commessa' => $x['tipo_commessa'],
+                'numero_protocollo' => $x['numero_protocollo'],
+            ];
         }
-
-        // ─── Estrai importo — strategia multi-pattern migliorata ───
-        // Helper: converte stringa importo italiano in float
-        // "5.000,00" → 5000.00, "5.000" → 5000, "5000" → 5000, "5,50" → 5.50
-        $parseImporto = function($str) {
-            // Separatore migliaia a spazio (anche NBSP / spazio stretto): "5 000,00" → "5000,00"
-            $str = preg_replace('/[\s\x{00A0}\x{202F}]+/u', '', $str) ?? trim($str);
-            // Se contiene sia . che , → il punto è separatore migliaia, la virgola decimali
-            if (strpos($str, '.') !== false && strpos($str, ',') !== false) {
-                return (float)str_replace(['.', ','], ['', '.'], $str);
-            }
-            // Se contiene solo . → potrebbe essere migliaia (es. "5.000") o decimale (es. "5.50")
-            if (strpos($str, '.') !== false) {
-                // Se dopo il punto ci sono 3 cifre → separatore migliaia
-                if (preg_match('/\.(\d{3})(?:\D|$)/', $str)) {
-                    return (float)str_replace('.', '', $str);
-                }
-                return (float)$str;
-            }
-            // Se contiene solo , → decimale
-            if (strpos($str, ',') !== false) {
-                return (float)str_replace(',', '.', $str);
-            }
-            return (float)$str;
-        };
-
-        // Raccogli tutti gli importi candidati e prendi il maggiore
-        $importoCandidates = [];
-        $debugImporto = [];
-
-        // Pattern 1: Keyword + importo formattato ("compenso di € 5.000,00", "compenso di Euro 5.000")
-        if (preg_match_all('/(?:compenso|importo|corrispettivo|onorario|costo|pari\s+a)[:\s]*(?:di\s+)?(?:€|euro|eur\.?)?\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)(?:\s*(?:euro|€))?/i', $fullText, $matches)) {
-            foreach ($matches[1] as $m) {
-                $val = $parseImporto($m);
-                $debugImporto[] = ['pattern' => 'P1-keyword', 'raw' => $m, 'parsed' => $val, 'accepted' => $val >= 100];
-                if ($val >= 100) $importoCandidates[] = $val;
-            }
-        }
-
-        // Pattern 2: € o "Euro" seguito da importo ("€ 5.000,00", "Euro 5.000", "€5000")
-        if (preg_match_all('/(?:€|euro|eur\.?)\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
-            foreach ($matches[1] as $m) {
-                $val = $parseImporto($m);
-                $debugImporto[] = ['pattern' => 'P2-euro-prefix', 'raw' => $m, 'parsed' => $val, 'accepted' => $val >= 100];
-                if ($val >= 100) $importoCandidates[] = $val;
-            }
-        }
-
-        // Pattern 3: Importo seguito da € o euro ("5.000,00 €", "5.000 euro")
-        if (preg_match_all('/([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)\s*(?:€|euro)/i', $fullText, $matches)) {
-            foreach ($matches[1] as $m) {
-                $val = $parseImporto($m);
-                $debugImporto[] = ['pattern' => 'P3-euro-suffix', 'raw' => $m, 'parsed' => $val, 'accepted' => $val >= 100];
-                if ($val >= 100) $importoCandidates[] = $val;
-            }
-        }
-
-        // Pattern 4: "totale" seguito da importo ("totale 5.000,00", "totale Euro 5.000")
-        if (preg_match_all('/totale[:\s]*(?:€|euro|eur\.?)?\s*([0-9]{1,3}(?:[.\s]\d{3})*(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
-            foreach ($matches[1] as $m) {
-                $val = $parseImporto($m);
-                $debugImporto[] = ['pattern' => 'P4-totale', 'raw' => $m, 'parsed' => $val, 'accepted' => $val >= 100];
-                if ($val >= 100) $importoCandidates[] = $val;
-            }
-        }
-
-        // Pattern 5 (fallback): importo con formato italiano >= 100 vicino a contesto monetario
-        if (empty($importoCandidates)) {
-            if (preg_match_all('/([0-9]{1,3}(?:\.\d{3})+(?:[,]\d{1,2})?)/i', $fullText, $matches)) {
-                foreach ($matches[1] as $m) {
-                    $val = $parseImporto($m);
-                    $debugImporto[] = ['pattern' => 'P5-fallback', 'raw' => $m, 'parsed' => $val, 'accepted' => $val >= 100];
-                    if ($val >= 100) $importoCandidates[] = $val;
-                }
-            }
-        }
-
-        $extracted['_debug_importo_candidates'] = $debugImporto;
-
-        // Prendi l'importo massimo tra i candidati (il più probabile per un contratto)
-        // I prezzi reali degli incarichi sono sempre in centinaia o migliaia di euro
-        if (!empty($importoCandidates)) {
-            $extracted['importo_totale'] = max($importoCandidates);
-        }
-
-        // ─── Estrai numero giornate / verifiche / audit ───
-        // Raccogli tutti i candidati e prendi il maggiore
-        $giornCandidates = [];
-        $debugGiornate = [];
-
-        // Pattern prioritario: "sono previste N ..." (es. "sono previste nr. 8 verifiche", "sono previste n. 3 giornate")
-        if (preg_match_all('/sono\s+previst[eio]\s+(?:(?:nr|n|num|numero)\\.?\s*)?(?:complessiv(?:amente|e)\s+)?(\d+(?:[.,]\d+)?)/i', $fullText, $matches)) {
-            foreach ($matches[1] as $m) {
-                $val = (float)str_replace(',', '.', $m);
-                $debugGiornate[] = ['pattern' => 'sono-previste', 'raw' => $m, 'parsed' => $val];
-                $giornCandidates[] = $val;
-            }
-        }
-
-        // Pattern diretto: "8 verifiche", "12 giornate", "3 audit"
-        if (preg_match_all('/(\d+(?:[.,]\d+)?)\s*(?:giornat[ae]|gg|verifich[ae]|verifica|audit|sopralluogh?[io]|interventi|sessioni|ispezioni)/i', $fullText, $matches)) {
-            foreach ($matches[1] as $m) {
-                $val = (float)str_replace(',', '.', $m);
-                $debugGiornate[] = ['pattern' => 'N-keyword', 'raw' => $m, 'parsed' => $val];
-                $giornCandidates[] = $val;
-            }
-        }
-        // Pattern inverso: "n. 8 verifiche" o "numero 8 verifiche"
-        if (preg_match_all('/(?:n\.?|num\.?|numero|nr\.?)\s*(\d+)\s*(?:verifich[ae]|verifica|giornat[ae]|audit|sopralluogh?[io]|interventi|sessioni)/i', $fullText, $matches)) {
-            foreach ($matches[1] as $m) {
-                $val = (float)$m;
-                $debugGiornate[] = ['pattern' => 'n-N-keyword', 'raw' => $m, 'parsed' => $val];
-                $giornCandidates[] = $val;
-            }
-        }
-
-        $extracted['_debug_giornate_candidates'] = $debugGiornate;
-        if (!empty($giornCandidates)) {
-            $extracted['num_giornate'] = max($giornCandidates);
-        }
-
-        // ─── Rileva tipo commessa ───
-        // PRIORITÀ 1: "Assistenza annuale privacy" → tipo assistenza (NON dpo)
-        $isAssistenzaPrivacy = (mb_strpos($textLower, 'assistenza annuale privacy') !== false
-            || mb_strpos($textLower, 'assistenza privacy') !== false
-            || mb_strpos($textLower, 'assistenza annuale') !== false);
-
-        if ($isAssistenzaPrivacy) {
-            $extracted['tipo_commessa'] = 'assistenza';
-        } else {
-            // Solo keyword fortemente specifiche per DPO (non parole generiche come "verifiche" o "regolamento")
-            $dpoStrongKeywords = ['dpo', 'data protection', 'protezione dati', 'gdpr', 'reg. ue 2016/679', 'regolamento ue 2016'];
-            $isDpo = false;
-            foreach ($dpoStrongKeywords as $kw) {
-                if (mb_strpos($textLower, $kw) !== false) {
-                    $isDpo = true;
-                    break;
-                }
-            }
-            // "privacy" con contesto specifico DPO (non generico)
-            if (!$isDpo && mb_strpos($textLower, 'privacy') !== false) {
-                // Solo se accompagnato da altri indicatori DPO
-                if (mb_strpos($textLower, 'responsabile') !== false || mb_strpos($textLower, 'incaricato') !== false
-                    || mb_strpos($textLower, 'trattamento') !== false || mb_strpos($textLower, 'titolare') !== false) {
-                    $isDpo = true;
-                }
-            }
-
-            if ($isDpo) {
-                $extracted['tipo_commessa'] = 'dpo';
-            } elseif (strpos($textLower, 'formazione') !== false || strpos($textLower, 'corso') !== false || strpos($textLower, 'training') !== false) {
-                $extracted['tipo_commessa'] = 'formazione';
-            } else {
-                $extracted['tipo_commessa'] = 'assistenza';
-            }
-        }
-
-        // ─── Cerca cliente ───
-        // 1. Per P.IVA / CF
-        preg_match_all('/\b([A-Z0-9]{11,16})\b/i', $fullText, $vatMatches);
-        $stmtClienti = $this->pdo->query("SELECT id, partita_iva, codice_fiscale, ragione_sociale FROM {$this->prefix}clienti");
-        $allClienti = $stmtClienti->fetchAll();
-
-        if (!empty($vatMatches[1])) {
-            foreach ($vatMatches[1] as $candidate) {
-                $candidate = strtoupper(str_replace(' ', '', $candidate));
-                foreach ($allClienti as $c) {
-                    $dbPiva = strtoupper(str_replace([' ', 'IT'], '', $c['partita_iva'] ?? ''));
-                    $dbCf = strtoupper(str_replace([' ', 'IT'], '', $c['codice_fiscale'] ?? ''));
-                    if (($dbPiva && $dbPiva === $candidate) || ($dbCf && $dbCf === $candidate)) {
-                        $extracted['cliente_id'] = $c['id'];
-                        break 2;
-                    }
-                }
-            }
-        }
-
-        // 2. Per nome nel testo — matching intelligente per parole chiave
-        //    (gestisce abbreviazioni tipo S.c.ar.l. vs SOCIETA' CONSORTILE ecc.)
-        if (!$extracted['cliente_id']) {
-            // Parole da ignorare nel matching (forme giuridiche, preposizioni, ecc.)
-            $stopWords = ['srl', 'spa', 'sas', 'snc', 'scarl', 'soc', 'societa', 'società',
-                'consortile', 'responsabilita', 'responsabilità', 'limitata', 'illimitata',
-                'azioni', 'accomandita', 'semplice', 'cooperativa', 'coop',
-                'a', 'e', 'di', 'del', 'dei', 'della', 'delle', 'in', 'con', 'per', 'da',
-                'il', 'lo', 'la', 'i', 'gli', 'le', 'un', 'uno', 'una',
-                's.r.l.', 's.p.a.', 's.a.s.', 's.n.c.', 's.c.ar.l.', 's.c.a.r.l.'];
-
-            $bestScore = 0;
-            $bestClienteId = null;
-
-            foreach ($allClienti as $c) {
-                $nomeCliente = mb_strtolower(trim($c['ragione_sociale']), 'UTF-8');
-
-                // Tentativo 1: Match diretto (substring) — caso semplice
-                if (mb_strlen($nomeCliente, 'UTF-8') >= 3 && mb_strpos($textLower, $nomeCliente) !== false) {
-                    $extracted['cliente_id'] = $c['id'];
-                    $bestScore = 999; // match perfetto
-                    break;
-                }
-
-                // Tentativo 2: Match per parole chiave significative
-                // Pulisci il nome del cliente da punteggiatura e separatori
-                $cleaned = preg_replace('/[.\-\',;:\/\\\\()]+/', ' ', $nomeCliente);
-                $cleaned = preg_replace('/\s+/', ' ', trim($cleaned));
-                $words = explode(' ', $cleaned);
-
-                // Filtra: tieni solo parole significative (>= 4 char e non stop words)
-                $keywords = [];
-                foreach ($words as $w) {
-                    $w = trim($w);
-                    if (mb_strlen($w, 'UTF-8') >= 4 && !in_array($w, $stopWords)) {
-                        $keywords[] = $w;
-                    }
-                }
-
-                if (empty($keywords)) continue;
-
-                // Conta quante keywords del nome cliente compaiono nel testo PDF
-                $matched = 0;
-                foreach ($keywords as $kw) {
-                    if (mb_strpos($textLower, $kw) !== false) {
-                        $matched++;
-                    }
-                }
-
-                // Score = rapporto keywords trovate / totali
-                $score = $matched / count($keywords);
-
-                // Richiediamo almeno 2 keywords trovate OPPURE score >= 50%
-                if ($matched >= 2 && $score > $bestScore) {
-                    $bestScore = $score;
-                    $bestClienteId = $c['id'];
-                }
-                // Se il nome ha solo 1 keyword (es. "Unindustria") basta 1 match
-                if (count($keywords) === 1 && $matched === 1 && $bestScore < 1) {
-                    $bestScore = 0.5;
-                    $bestClienteId = $c['id'];
-                }
-            }
-
-            if ($bestClienteId && !$extracted['cliente_id']) {
-                $extracted['cliente_id'] = $bestClienteId;
-            }
-        }
-
-        // ─── Estrai numero protocollo ───
-        // PRIORITÀ 1: Codice alfanumerico con punti (es. SZ.DPS.F142.26)
-        // Pattern: almeno 2 segmenti separati da punto, con lettere e/o cifre,
-        // tipicamente nel formato XX.YYY.ZZZZ.NN
-        if (preg_match('/\b([A-Z]{1,5}\.[A-Z]{2,5}\.[A-Z0-9]{2,10}(?:\.[A-Z0-9]{1,6})*)\b/i', $fullText, $mAlpha)) {
-            $extracted['numero_protocollo'] = strtoupper(trim($mAlpha[1]));
-        }
-        // PRIORITÀ 2 (fallback): formato numerico "Prot. n. 1350/2026"
-        if (!$extracted['numero_protocollo'] && preg_match('/Prot\.?\s*n\.?\s*(\d+\s*\/\s*\d{4})/i', $fullText, $mProt)) {
-            $extracted['numero_protocollo'] = preg_replace('/\s+/', '', trim($mProt[1]));
-        }
-
-        // ─── Cerca sottocliente ───
-        if ($extracted['cliente_id']) {
-            $stmtSotto = $this->pdo->prepare("SELECT id, nome FROM {$this->prefix}sottoclienti WHERE cliente_id = ?");
-            $stmtSotto->execute([$extracted['cliente_id']]);
-            $subs = $stmtSotto->fetchAll();
-
-            // Helper: normalizza stringa rimuovendo punti, spazi, virgole, trattini
-            $normalize = function($s) {
-                $s = mb_strtolower(trim($s), 'UTF-8');
-                return preg_replace('/[\s.,;:\-\'"\(\)]+/', '', $s);
-            };
-
-            $bestSottoId = null;
-            $bestSottoScore = 0;
-
-            foreach ($subs as $sc) {
-                $nomeSotto = mb_strtolower(trim($sc['nome']), 'UTF-8');
-                if (mb_strlen($nomeSotto, 'UTF-8') < 2) continue;
-
-                // Match 1: diretto (substring esatto nel testo)
-                if (mb_strpos($textLower, $nomeSotto) !== false) {
-                    $bestSottoId = $sc['id'];
-                    $bestSottoScore = 999;
-                    break;
-                }
-
-                // Match 2: normalizzato (rimuovi punteggiatura e spazi)
-                $normSotto = $normalize($nomeSotto);
-                $normText  = $normalize($fullText);
-                if (mb_strlen($normSotto, 'UTF-8') >= 3 && mb_strpos($normText, $normSotto) !== false) {
-                    if ($bestSottoScore < 900) {
-                        $bestSottoId = $sc['id'];
-                        $bestSottoScore = 900;
-                    }
-                    continue;
-                }
-
-                // Match 3: per parole chiave — per nomi multi-parola
-                // (es. "ASL Roma 2" → cerchiamo "asl" + "roma" nel testo)
-                $words = preg_split('/[\s.,;:\-\'"\(\)]+/', $nomeSotto, -1, PREG_SPLIT_NO_EMPTY);
-                $significantWords = array_filter($words, function($w) {
-                    return mb_strlen($w, 'UTF-8') >= 3;
-                });
-                if (!empty($significantWords)) {
-                    $matched = 0;
-                    foreach ($significantWords as $w) {
-                        if (mb_strpos($textLower, $w) !== false) $matched++;
-                    }
-                    $score = $matched / count($significantWords);
-                    // Servono almeno 2 parole matchate O il 100% per nomi corti
-                    if (($matched >= 2 && $score > $bestSottoScore) ||
-                        (count($significantWords) === 1 && $matched === 1 && $bestSottoScore < 0.5)) {
-                        $bestSottoId = $sc['id'];
-                        $bestSottoScore = $score;
-                    }
-                }
-            }
-
-            if ($bestSottoId) {
-                $extracted['sottocliente_id'] = $bestSottoId;
-            }
-        }
-
+        $extracted['pdf_path'] = $pdfPath ? $ref : null;
+        $extracted['metodo'] = $metodo;
+        $extracted['avvisi'] = $avvisi;
         Response::json(true, 'Analisi PDF completata', $extracted);
+    }
+
+    public function documento($id) {
+        $stmt = $this->pdo->prepare("SELECT pdf_path, numero_protocollo FROM {$this->prefix}incarichi WHERE id = ?");
+        $stmt->execute([(int)$id]);
+        $i = $stmt->fetch();
+        if (!$i) Response::json(false, 'Incarico non trovato', null, 404);
+        Documenti::invia($i['pdf_path'], 'incarico-' . ($i['numero_protocollo'] ?: $id));
     }
 
     /**

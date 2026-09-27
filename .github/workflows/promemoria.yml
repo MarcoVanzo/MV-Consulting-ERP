@@ -1,0 +1,25 @@
+name: Promemoria giornaliero ERP
+
+# L'hosting non ha crontab: ogni mattina feriale GitHub chiama l'ERP, che invia
+# l'email con lo scadenzario (rate da fatturare, clienti da sollecitare, partner da pagare).
+# Serve il secret PROMEMORIA_CRON_TOKEN, uguale a quello nel .env del server.
+
+on:
+  schedule:
+    - cron: '30 5 * * 1-5'   # 07:30 ora legale italiana (06:30 d'inverno)
+  workflow_dispatch:
+
+jobs:
+  promemoria:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chiama l'ERP
+        env:
+          TOKEN: ${{ secrets.PROMEMORIA_CRON_TOKEN }}
+          URL: https://www.mv-consulting.it/ERP/api/router.php?module=cron&action=promemoria
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::notice::Secret PROMEMORIA_CRON_TOKEN non impostato: promemoria non attivo"
+            exit 0
+          fi
+          curl -fsS --max-time 120 -X POST -H "X-Cron-Token: $TOKEN" "$URL"

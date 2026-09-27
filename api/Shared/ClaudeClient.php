@@ -1,0 +1,123 @@
+<?php
+/**
+ * ClaudeClient — chiamata alla Messages API di Anthropic con risposta JSON vincolata a uno schema.
+ *
+ * HTTP diretto con cURL e non l'SDK PHP: l'ERP non usa composer e va online via FTP,
+ * quindi una dipendenza in vendor/ non arriverebbe sul server.
+ *
+ * Configurazione (.env): ANTHROPIC_API_KEY (obbligatoria), ANTHROPIC_MODEL (default claude-opus-5).
+ */
+declare(strict_types=1);
+
+class ClaudeClient
+{
+    private const API_URL = 'https://api.anthropic.com/v1/messages';
+    private const DEFAULT_MODEL = 'claude-opus-5';
+
+    public static function isConfigured(): bool
+    {
+        return (string)getenv('ANTHROPIC_API_KEY') !== '';
+    }
+
+    /**
+     * Invia un documento (PDF in base64 oppure testo) con un'istruzione e restituisce
+     * l'oggetto JSON prodotto dal modello, già validato dall'API contro $schema.
+     *
+     * @param array{pdf_base64?: string, text?: string} $document
+     * @throws RuntimeException se la chiamata fallisce o il modello non risponde col JSON atteso
+     */
+    public static function extractJson(string $system, string $instruction, array $document, array $schema): array
+    {
+        $apiKey = (string)getenv('ANTHROPIC_API_KEY');
+        if ($apiKey === '') {
+            throw new RuntimeException('ANTHROPIC_API_KEY non configurata');
+        }
+
+        $content = [];
+        if (!empty($document['pdf_base64'])) {
+            $content[] = [
+                'type' => 'document',
+                'source' => ['type' => 'base64', 'media_type' => 'application/pdf', 'data' => $document['pdf_base64']],
+            ];
+        } elseif (isset($document['text']) && trim($document['text']) !== '') {
+            $content[] = ['type' => 'text', 'text' => "<documento>\n" . $document['text'] . "\n</documento>"];
+        } else {
+            throw new RuntimeException('Documento vuoto');
+        }
+        $content[] = ['type' => 'text', 'text' => $instruction];
+
+        $body = [
+            'model' => getenv('ANTHROPIC_MODEL') ?: self::DEFAULT_MODEL,
+            'max_tokens' => 16000,
+            'system' => $system,
+            'messages' => [['role' => 'user', 'content' => $content]],
+            // Estrazione: poco ragionamento basta, e tiene la chiamata entro i tempi del PHP condiviso
+            'output_config' => [
+                'effort' => 'low',
+                'format' => ['type' => 'json_schema', 'schema' => $schema],
+            ],
+            // Se i filtri di sicurezza rifiutano la richiesta, l'API la ripete su un altro modello
+            'fallbacks' => 'default',
+        ];
+
+        // Testi in codifiche diverse da UTF-8 (es. .txt da Windows): caratteri sostituiti, non richiesta vuota
+        $payload = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($payload === false) {
+            throw new RuntimeException('Documento non leggibile (codifica del testo)');
+        }
+
+        @set_time_limit(180);
+        $ch = curl_init(self::API_URL);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => 150,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'x-api-key: ' . $apiKey,
+                'anthropic-version: 2023-06-01',
+                'anthropic-beta: server-side-fallback-2026-07-01',
+            ],
+            CURLOPT_POSTFIELDS => $payload,
+        ]);
+
+        // Un solo nuovo tentativo sugli errori temporanei (rete, 429, 5xx)
+        $raw = false;
+        $httpCode = 0;
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            $raw = curl_exec($ch);
+            $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $retryable = $raw === false || $httpCode === 429 || $httpCode >= 500;
+            if (!$retryable || $attempt === 2) break;
+            sleep(3);
+        }
+        $curlError = curl_error($ch);
+
+        if ($raw === false) {
+            throw new RuntimeException('Servizio AI non raggiungibile: ' . $curlError);
+        }
+        $response = json_decode((string)$raw, true);
+        if ($httpCode !== 200 || !is_array($response)) {
+            $msg = $response['error']['message'] ?? ('HTTP ' . $httpCode);
+            error_log('[ClaudeClient] ' . $httpCode . ' ' . substr((string)$raw, 0, 500));
+            throw new RuntimeException('Errore del servizio AI: ' . $msg);
+        }
+
+        $stopReason = $response['stop_reason'] ?? '';
+        if ($stopReason === 'refusal') {
+            throw new RuntimeException('Il servizio AI ha rifiutato di elaborare il documento');
+        }
+        if ($stopReason === 'max_tokens') {
+            throw new RuntimeException('Risposta AI troncata: documento troppo lungo');
+        }
+
+        foreach ($response['content'] ?? [] as $block) {
+            if (($block['type'] ?? '') === 'text') {
+                $data = json_decode($block['text'], true);
+                if (is_array($data)) return $data;
+            }
+        }
+        throw new RuntimeException('Risposta AI non interpretabile');
+    }
+}
