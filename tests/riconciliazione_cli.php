@@ -1,0 +1,313 @@
+<?php
+/**
+ * Prova da riga di comando della riconciliazione pagamenti (non va online: tests/ è escluso dal deploy).
+ *
+ *   php tests/riconciliazione_cli.php
+ *   CBI_FILE=/percorso/export.xml php tests/riconciliazione_cli.php   (conta i movimenti di un estratto vero, non stampa dati)
+ *
+ * Usa SQLite in memoria con lo schema minimo delle tabelle coinvolte e dati inventati.
+ */
+declare(strict_types=1);
+
+if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
+
+require_once __DIR__ . '/../api/Shared/EstrattoContoParser.php';
+require_once __DIR__ . '/../api/Shared/RiconciliazioneMatch.php';
+require_once __DIR__ . '/../api/Shared/RiconciliazioneDocumenti.php';
+require_once __DIR__ . '/../api/Shared/Riconciliatore.php';
+require_once __DIR__ . '/../api/Shared/CommessaService.php';
+
+$ok = 0;
+$ko = 0;
+function check(string $nome, bool $cond, $dettaglio = null): void
+{
+    global $ok, $ko;
+    if ($cond) { $ok++; echo "  ok   $nome\n"; return; }
+    $ko++;
+    echo "  FAIL $nome" . ($dettaglio !== null ? ' → ' . json_encode($dettaglio, JSON_UNESCAPED_UNICODE) : '') . "\n";
+}
+
+// ═══ 1. Funzioni pure ═══════════════════════════════════════
+echo "Riferimenti in causale\n";
+$casi = [
+    'Bonifico a vs favore *UNINDUSTRIA SERVIZI E FORMAZIONE TREVISO 2728-42 -FATT. 46/001 DEL 28/06/2026-FATT. 47/001 DEL 28/06/2026-FATT...'
+        => [[46, '001', 2026], [47, '001', 2026]],
+    'BONIFICO EUROINTERIM SERVIZI S.R.L. SALDO FATTURA NR. 67 DEL 12.12.2025' => [[67, null, 2025]],
+    'PALLAVOLO SCANDICCI SAVINO DEL BENE SOCI FATT. N. 62-2025 DEL 251125' => [[62, null, 2025]],
+    'ACME SRL FATT. N. 7-001 30012026' => [[7, '001', 2026]],
+    'ROSSI SPA FATT. 64/2025 DEL 30/11/2025' => [[64, null, 2025]],
+    'ZANUTTA S.P.A. 0009710825.FOR11469 19-050326' => [[19, null, 2026]],
+    'SALDO FATTURE 12, 13 E 14 DEL 01/02/2026' => [[12, null, 2026], [13, null, 2026], [14, null, 2026]],
+    'Wise 1944617001 Italy Girls Soccer 7/06' => [],
+    'Erogazione mutuo chirografario 2728-42' => [],
+];
+foreach ($casi as $testo => $attesi) {
+    $refs = array_map(fn($r) => [$r['numero'], $r['registro'], $r['anno']], RiconciliazioneMatch::estraiRiferimenti($testo));
+    check(substr($testo, 0, 60), $refs == $attesi, $refs);
+}
+
+echo "Numeri ERP e corrispondenze\n";
+check('46/001 → 46, sezionale 001', RiconciliazioneMatch::scomponiNumero('46/001') === [46, '001', null]);
+check('15AV escluso', RiconciliazioneMatch::escluso('15AV') && RiconciliazioneMatch::escluso('3/002') && !RiconciliazioneMatch::escluso('46/001'));
+$ref = ['numero' => 46, 'registro' => '001', 'anno' => 2026, 'data' => null];
+check('ref 46/001/2026 ↔ 46/001 del 2026', RiconciliazioneMatch::corrisponde($ref, '46/001', '2026-06-28'));
+check('ref 46/001/2026 ≠ 46/001 del 2025', !RiconciliazioneMatch::corrisponde($ref, '46/001', '2025-06-28'));
+check('date in causale', RiconciliazioneMatch::dataCausale('251125') === '2025-11-25' && RiconciliazioneMatch::dataCausale('30012026') === '2026-01-30'
+    && RiconciliazioneMatch::dataCausale('12.12.2025') === '2025-12-12' && RiconciliazioneMatch::dataCausale('31/02/2026') === null);
+
+echo "Subset-sum\n";
+$voci = [['id' => 'a', 'opzioni' => [10000]], ['id' => 'b', 'opzioni' => [25000]], ['id' => 'c', 'opzioni' => [5000]],
+    ['id' => 'd', 'opzioni' => [30000]], ['id' => 'e', 'opzioni' => [4950]]];
+$s = RiconciliazioneMatch::subsetSum($voci, 35000, 5);
+check('due combinazioni per 350,00 (a+b, c+d)', count($s['soluzioni']) === 2, $s['soluzioni']);
+$s = RiconciliazioneMatch::subsetSum($voci, 15000, 5);
+check('una sola per 150,00 (a+c)', count($s['soluzioni']) === 1 && isset($s['soluzioni'][0]['a'], $s['soluzioni'][0]['c']) && count($s['soluzioni'][0]) === 2, $s['soluzioni']);
+check('tolleranza 1 centesimo', count(RiconciliazioneMatch::subsetSum($voci, 10001)['soluzioni']) === 1);
+check('opzione ritenuta', count(RiconciliazioneMatch::subsetSum([['id' => 'x', 'opzioni' => [80000, 100000]]], 100000)['soluzioni']) === 1);
+$tante = [];
+for ($i = 1; $i <= 20; $i++) $tante[] = ['id' => $i, 'opzioni' => [$i * 1000 + 7]];
+$t0 = microtime(true);
+$s = RiconciliazioneMatch::subsetSum($tante, 99999999, 2, 50000);
+check('20 voci, bersaglio irraggiungibile: limite nodi rispettato (' . round((microtime(true) - $t0) * 1000) . ' ms)', !$s['soluzioni'] && (microtime(true) - $t0) < 2);
+$s = RiconciliazioneMatch::subsetSum($tante, 1007 + 2007 + 20007, 3);
+check('20 voci: trova 1+2+20', count($s['soluzioni']) >= 1);
+
+echo "Punteggio\n";
+$doc = ['residuo' => 500.0, 'ritenuta' => 0, 'anagrafica_id' => 3, 'data_scadenza' => '2026-03-10'];
+$p = RiconciliazioneMatch::punteggio($doc, 50000, true, 3, '2026-03-12');
+check('importo+cliente+numero+scadenza = 50+25+30+15', $p['punteggio'] === 120, $p);
+check('solo vicinanza scadenza = 0', RiconciliazioneMatch::punteggio($doc, 12345, false, null, '2026-03-10')['punteggio'] === 0);
+
+echo "Parser PDF a regole\n";
+$pdf = "ESTRATTO CONTO AL 31/03/2026\nDATA DATA VALUTA DESCRIZIONE DARE AVERE\n"
+    . "02/03/26 02/03/26 BONIFICO A VOSTRO FAVORE 1.220,00\nORD: ALFA SRL CAUSALE FATT. 12/001 DEL 10/02/2026\n"
+    . "05/03/2026 04/03/2026 COMMISSIONI BONIFICO 1,50\n"
+    . "06/03/26 06/03/26 PAGAMENTO 10,00-\nSALDO FINALE 1.208,50";
+$r = EstrattoContoParser::parseRegole($pdf);
+check('3 movimenti', count($r['movimenti']) === 3, $r);
+check('accredito +1220 con causale sulla riga dopo', ($r['movimenti'][0]['importo'] ?? null) === 1220.0 && strpos($r['movimenti'][0]['descrizione'], 'FATT. 12/001') !== false);
+check('controparte ALFA SRL', ($r['movimenti'][0]['controparte'] ?? '') === 'ALFA SRL', $r['movimenti'][0]['controparte'] ?? null);
+check('commissione −1,50 (segno certo)', ($r['movimenti'][1]['importo'] ?? null) === -1.5 && !$r['movimenti'][1]['segno_incerto']);
+check('segno esplicito −10', ($r['movimenti'][2]['importo'] ?? null) === -10.0);
+check('importo italiano', EstrattoContoParser::importoIt('1.234,56-') === -1234.56 && EstrattoContoParser::importoIt('abc') === null);
+
+// ═══ 2. Estratto CBI sintetico ══════════════════════════════
+function ntry(string $ref, float $amt, string $ind, string $data, string $causale, string $cd = '48', string $nome = ''): string
+{
+    $parte = $nome !== '' ? ($ind === 'CRDT' ? "<ns5:Dbtr><ns5:Nm>$nome</ns5:Nm></ns5:Dbtr>" : "<ns5:Cdtr><ns5:Nm>$nome</ns5:Nm></ns5:Cdtr>") : '';
+    return "<ns5:Ntry><ns5:NtryRef>$ref</ns5:NtryRef><ns5:Amt Ccy=\"EUR\">" . number_format($amt, 2, '.', '') . "</ns5:Amt>"
+        . "<ns5:CdtDbtInd>$ind</ns5:CdtDbtInd><ns5:Sts>BOOK</ns5:Sts><ns5:BookgDt><ns5:Dt>{$data}+01:00</ns5:Dt></ns5:BookgDt>"
+        . "<ns5:ValDt><ns5:Dt>{$data}+01:00</ns5:Dt></ns5:ValDt><ns5:AcctSvcrRef>S$ref</ns5:AcctSvcrRef>"
+        . "<ns5:BkTxCd><ns5:Prtry><ns5:Cd>$cd//00</ns5:Cd></ns5:Prtry></ns5:BkTxCd>"
+        . "<ns5:NtryDtls><ns5:TxDtls><ns5:RltdPties>$parte</ns5:RltdPties><ns5:AddtlTxInf>$causale</ns5:AddtlTxInf></ns5:TxDtls></ns5:NtryDtls></ns5:Ntry>";
+}
+function cbi(array $ntry, float $apertura, float $chiusura): string
+{
+    return '<?xml version="1.0" encoding="UTF-8"?><ns4:CBIBdyBkToCstmrStmtReq xmlns:ns4="urn:CBI:xsd:CBIBdyBkToCstmrStmtReq.00.01.02" xmlns:ns5="urn:CBI:xsd:CBIDlyStmtReqLogMsg.00.01.02">'
+        . '<ns4:CBIEnvelDlyStmtReqLogMsg><ns4:CBIDlyStmtReqLogMsg><ns5:Stmt><ns5:Id>1</ns5:Id>'
+        . '<ns5:Acct><ns5:Id><ns5:IBAN>IT00X0000000000000000000000</ns5:IBAN></ns5:Id></ns5:Acct>'
+        . '<ns5:Bal><ns5:Tp><ns5:CdOrPrtry><ns5:Cd>OPBD</ns5:Cd></ns5:CdOrPrtry></ns5:Tp><ns5:Amt Ccy="EUR">' . number_format($apertura, 2, '.', '') . '</ns5:Amt><ns5:CdtDbtInd>CRDT</ns5:CdtDbtInd></ns5:Bal>'
+        . '<ns5:Bal><ns5:Tp><ns5:CdOrPrtry><ns5:Cd>CLBD</ns5:Cd></ns5:CdOrPrtry></ns5:Tp><ns5:Amt Ccy="EUR">' . number_format($chiusura, 2, '.', '') . '</ns5:Amt><ns5:CdtDbtInd>CRDT</ns5:CdtDbtInd></ns5:Bal>'
+        . implode('', $ntry) . '</ns5:Stmt></ns4:CBIDlyStmtReqLogMsg></ns4:CBIEnvelDlyStmtReqLogMsg></ns4:CBIBdyBkToCstmrStmtReq>';
+}
+
+$ntry = [
+    // Causale troncata: cita 46 e 47, la 48 (stessa data, due righe/sottoclienti) si ricava dal subset-sum
+    ntry('R1', 1220.00 + 610.00 + 732.00 + 488.00, 'CRDT', '2026-07-20', 'Bonifico a vs favore *UNINDUSTRIA SERVIZI E FORMAZIONE TREVISO 2728-42 -FATT. 46/001 DEL 28/06/2026-FATT. 47/001 DEL 28/06/2026-FATT...'),
+    ntry('R2', 915.00, 'CRDT', '2026-01-15', 'Bonifico a vs favore EUROINTERIM SERVIZI S.R.L. SALDO FATTURA NR. 67 DEL 12.12.2025'),
+    ntry('R3', 300.00, 'CRDT', '2026-01-10', 'Bonifico a vs favore PALLAVOLO SCANDICCI SAVINO DEL BENE SOCI FATT. N. 62-2025 DEL 251125'),
+    ntry('R4', 2440.00, 'CRDT', '2026-04-02', 'ZANUTTA S.P.A. 0009710825.FOR11469 19-050326'),
+    ntry('R5', 1067.80, 'CRDT', '2026-06-10', 'Wise 1944617001 Italy Girls Soccer 7/06'),
+    ntry('R6', 1.50, 'DBIT', '2026-06-10', 'Commissioni bonifico', '26'),
+    ntry('R7', 50000.00, 'CRDT', '2026-02-01', 'Erogazione mutuo', '47'),
+    ntry('R8', 350.00, 'DBIT', '2026-05-05', 'Bonifico a favore di STUDIO PAGHE ALFA SAS stipendi e paghe maggio', '48', 'STUDIO PAGHE ALFA SAS'),
+    ntry('R9', 500.00, 'CRDT', '2026-05-20', 'Bonifico a vs favore FUSION TEAM VOLLEY A.S.D. quota', '48', 'FUSION TEAM VOLLEY A.S.D.'),
+];
+$movTot = 1220 + 610 + 732 + 488 + 915 + 300 + 2440 + 1067.80 - 1.50 + 50000 - 350 + 500;
+$xml = cbi($ntry, 1000.00, 1000.00 + $movTot);
+
+echo "Parser XML CBI\n";
+$letto = EstrattoContoParser::parseXmlCbi($xml);
+check('9 movimenti letti', count($letto['movimenti']) === 9, count($letto['movimenti']));
+check('IBAN del conto', $letto['iban'] === 'IT00X0000000000000000000000');
+check('saldi quadrati', !$letto['avvisi'], $letto['avvisi']);
+$m0 = $letto['movimenti'][0];
+check('data valuta senza fuso orario', $m0['data_valuta'] === '2026-07-20');
+check('addebito negativo con controparte da Cdtr', $letto['movimenti'][7]['importo'] === -350.0 && $letto['movimenti'][7]['controparte'] === 'STUDIO PAGHE ALFA SAS');
+check('codice operazione', $letto['movimenti'][6]['codice_operazione'] === '47//00');
+check('hash dal riferimento banca', EstrattoContoParser::conHash([$m0])[0]['hash_riga'] === hash('sha256', 'ref|IT00X0000000000000000000000|R1'));
+$sbagliato = EstrattoContoParser::parseXmlCbi(cbi([ntry('Z', 10, 'CRDT', '2026-01-01', 'x')], 0, 99));
+check('quadratura sbagliata segnalata', count($sbagliato['avvisi']) === 1);
+
+// ═══ 3. Motore su SQLite ════════════════════════════════════
+echo "Riconciliatore (SQLite in memoria)\n";
+$pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+$p = 'mv_';
+foreach ([
+    "CREATE TABLE {$p}clienti (id INTEGER PRIMARY KEY, ragione_sociale TEXT, partita_iva TEXT, codice_fiscale TEXT)",
+    "CREATE TABLE {$p}sottoclienti (id INTEGER PRIMARY KEY, cliente_id INT, nome TEXT)",
+    "CREATE TABLE {$p}fornitori (id INTEGER PRIMARY KEY, ragione_sociale TEXT, partita_iva TEXT, codice_fiscale TEXT, deleted_at TEXT)",
+    "CREATE TABLE {$p}incarichi (id INTEGER PRIMARY KEY, cliente_id INT, importo_totale REAL, importo_fatturato REAL DEFAULT 0, importo_pagato REAL DEFAULT 0, stato TEXT DEFAULT 'attivo')",
+    "CREATE TABLE {$p}incarichi_rate (id INTEGER PRIMARY KEY, incarico_id INT, ordine INT, descrizione TEXT, importo REAL, giorni_pagamento INT DEFAULT 30, fattura_id INT UNIQUE)",
+    "CREATE TABLE {$p}fatture (id INTEGER PRIMARY KEY, numero_fattura TEXT, data_emissione TEXT, cliente_id INT, sottocliente_id INT, incarico_id INT,
+        imponibile REAL, importo_totale REAL, stato TEXT DEFAULT 'emessa', data_scadenza TEXT, data_pagamento TEXT, metodo_pagamento TEXT)",
+    "CREATE TABLE {$p}fatture_passive (id INTEGER PRIMARY KEY, fornitore_id INT, incarico_id INT, numero TEXT, data_emissione TEXT,
+        imponibile REAL, ritenuta REAL DEFAULT 0, importo_totale REAL, stato TEXT DEFAULT 'da_pagare', data_scadenza TEXT, data_pagamento TEXT)",
+    "CREATE TABLE {$p}movimenti_banca (id INTEGER PRIMARY KEY, banca TEXT DEFAULT '', iban TEXT, riferimento_banca TEXT, codice_operazione TEXT,
+        data_operazione TEXT NOT NULL, data_valuta TEXT, importo REAL NOT NULL, descrizione TEXT, controparte TEXT, hash_riga TEXT NOT NULL UNIQUE,
+        stato TEXT NOT NULL DEFAULT 'da_riconciliare', origine TEXT NOT NULL DEFAULT 'estratto_conto', avviso_id INT, file_nome TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)",
+    "CREATE TABLE {$p}riconciliazioni (id INTEGER PRIMARY KEY, movimento_id INT NOT NULL REFERENCES {$p}movimenti_banca(id) ON DELETE CASCADE,
+        tipo TEXT NOT NULL, documento_id INT NOT NULL, importo REAL NOT NULL, metodo TEXT NOT NULL, created_by INT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)",
+] as $sql) $pdo->exec($sql);
+
+$ins = fn(string $sql, array $v) => $pdo->prepare($sql)->execute($v);
+$ins("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (?, ?)", [1, 'Unindustria Servizi & Formazione Treviso Pordenone S.c.a r.l.']);
+$ins("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (?, ?)", [2, 'Eurointerim S.p.A.']);
+$ins("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (?, ?)", [3, 'Pallavolo Scandicci Savino Del Bene']);
+$ins("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (?, ?)", [4, 'Zanutta S.p.A.']);
+$ins("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (?, ?)", [5, 'Fusion Team Volley A.S.D.']);
+$ins("INSERT INTO {$p}fornitori (id, ragione_sociale) VALUES (?, ?)", [1, 'Studio Paghe Alfa S.a.s.']);
+$ins("INSERT INTO {$p}sottoclienti (id, cliente_id, nome) VALUES (?, ?, ?)", [1, 1, 'Azienda Uno']);
+$ins("INSERT INTO {$p}sottoclienti (id, cliente_id, nome) VALUES (?, ?, ?)", [2, 1, 'Azienda Due']);
+// Incarichi con due rate ciascuno (acconto già pagato in precedenza, saldo = fattura 48)
+foreach ([[1, 1, 1100.0], [2, 1, 800.0]] as [$id, $cl, $imp]) {
+    $ins("INSERT INTO {$p}incarichi (id, cliente_id, importo_totale) VALUES (?, ?, ?)", [$id, $cl, $imp]);
+}
+$fatt = [
+    // id, numero, data, cliente, sottocliente, incarico, imponibile, totale, stato
+    [1, '46/001', '2026-06-28', 1, null, null, 1000, 1220, 'emessa'],
+    [2, '47/001', '2026-06-28', 1, null, null, 500, 610, 'emessa'],
+    [3, '48/001', '2026-06-28', 1, 1, 1, 600, 732, 'emessa'],   // fattura 48 spezzata su due sottoclienti/incarichi
+    [4, '48/001', '2026-06-28', 1, 2, 2, 400, 488, 'emessa'],
+    [5, '49/001', '2026-07-01', 1, null, null, 100, 122, 'emessa'],   // altra data: non entra nel completamento
+    [6, '67/001', '2025-12-12', 2, null, null, 750, 915, 'emessa'],
+    [7, '62/001', '2025-11-25', 3, null, null, 1000, 1220, 'scaduta'],
+    [8, '19/001', '2026-03-05', 4, null, null, 2000, 2440, 'emessa'],
+    [9, '15AV', '2026-06-01', 5, null, null, 1067.80, 1067.80, 'emessa'],   // registro agenzia viaggi: escluso
+    [10, '80/001', '2026-05-01', 5, null, null, 409.84, 500, 'emessa'],
+    [11, '81/001', '2026-05-02', 5, null, null, 409.84, 500, 'emessa'],   // due fatture uguali: ambiguo
+    [12, '10/001', '2026-01-10', 1, 1, 1, 500, 610, 'pagata'],    // acconto incarico 1 già pagato
+    [13, '11/001', '2026-01-10', 1, 2, 2, 400, 488, 'pagata'],    // acconto incarico 2 già pagato
+];
+foreach ($fatt as $f) {
+    $ins("INSERT INTO {$p}fatture (id, numero_fattura, data_emissione, cliente_id, sottocliente_id, incarico_id, imponibile, importo_totale, stato) VALUES (?,?,?,?,?,?,?,?,?)", $f);
+}
+foreach ([[1, 1, 1, 'Acconto', 500, 12], [2, 1, 2, 'Saldo', 600, 3], [3, 2, 1, 'Acconto', 400, 13], [4, 2, 2, 'Saldo', 400, 4]] as $r) {
+    $ins("INSERT INTO {$p}incarichi_rate (id, incarico_id, ordine, descrizione, importo, fattura_id) VALUES (?,?,?,?,?,?)", $r);
+}
+$ins("INSERT INTO {$p}fatture_passive (id, fornitore_id, numero, data_emissione, imponibile, importo_totale, data_scadenza) VALUES (?,?,?,?,?,?,?)",
+    [1, 1, 'P-12', '2026-04-30', 350, 350, '2026-05-31']);
+
+// Ricalcolo incarico come IncarchiController::recalculate (che nel test non si può istanziare: vuole MySQL)
+$dopo = function (int $fatturaId) use ($pdo, $p) {
+    $inc = (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = $fatturaId")->fetchColumn();
+    if (!$inc) return;
+    (new CommessaService($pdo, $p))->collegaFatturaARata($fatturaId);
+    $pag = (float)$pdo->query("SELECT COALESCE(SUM(imponibile),0) FROM {$p}fatture WHERE incarico_id = $inc AND stato = 'pagata'")->fetchColumn();
+    $tot = (float)$pdo->query("SELECT importo_totale FROM {$p}incarichi WHERE id = $inc")->fetchColumn();
+    $pdo->prepare("UPDATE {$p}incarichi SET importo_pagato = ?, stato = ? WHERE id = ?")->execute([$pag, $pag >= $tot - 0.01 ? 'pagato' : 'parziale', $inc]);
+};
+$ric = new Riconciliatore($pdo, $p, $dopo);
+$stato = fn(int $id) => $pdo->query("SELECT stato FROM {$p}fatture WHERE id = $id")->fetchColumn();
+
+check('documenti aperti: 48/001 è un documento con 2 righe, 15AV escluso', (function () use ($ric) {
+    $docs = $ric->documenti()->aperti('fattura');
+    $n48 = array_values(array_filter($docs, fn($d) => $d['numero'] === '48/001'));
+    return count($n48) === 1 && count($n48[0]['righe']) === 2 && abs($n48[0]['residuo'] - 1220) < 0.01
+        && !array_filter($docs, fn($d) => $d['numero'] === '15AV');
+})());
+
+$pdo->beginTransaction();
+$esito = $ric->importaMovimenti($letto['movimenti'], ['banca' => 'Banca di prova', 'iban' => $letto['iban'], 'file_nome' => 'prova.xml'], 7);
+$pdo->commit();
+$perRef = [];
+foreach ($esito['movimenti'] as $m) $perRef[$m['descrizione']] = $m;
+echo '  riepilogo: ' . json_encode(array_diff_key($esito, ['movimenti' => 1])) . "\n";
+check('non pertinenti scartati (Wise, commissioni, mutuo)', $esito['non_pertinenti'] === 3, $esito['non_pertinenti']);
+check('6 movimenti salvati', $esito['nuovi'] === 6);
+check('4 abbinati in automatico', $esito['abbinati'] === 4, array_map(fn($m) => [$m['descrizione'], $m['esito'], $m['dettaglio']], $esito['movimenti']));
+check('causale troncata: 46, 47 e tutte le righe della 48 pagate', $stato(1) === 'pagata' && $stato(2) === 'pagata' && $stato(3) === 'pagata' && $stato(4) === 'pagata' && $stato(5) !== 'pagata');
+check('data pagamento = data valuta', $pdo->query("SELECT data_pagamento FROM {$p}fatture WHERE id = 3")->fetchColumn() === '2026-07-20');
+$r1 = $ric->documenti()->rateIncarico(1);
+$r2 = $ric->documenti()->rateIncarico(2);
+check('incarichi: rate incassate 2 su 2', $r1['rate_incassate'] === 2 && $r1['rate_totali'] === 2 && $r2['rate_incassate'] === 2, [$r1, $r2]);
+check('incarico 1 pagato', $pdo->query("SELECT stato FROM {$p}incarichi WHERE id = 1")->fetchColumn() === 'pagato');
+check('NR. 67 del 2025 pagata', $stato(6) === 'pagata');
+check('Zanutta 19-050326 pagata', $stato(8) === 'pagata');
+check('fornitore generico (studio paghe) pagato', $pdo->query("SELECT stato FROM {$p}fatture_passive WHERE id = 1")->fetchColumn() === 'pagata');
+check('acconto Scandicci (300 su 1220): da verificare con proposta sulla 62', (function () use ($esito) {
+    foreach ($esito['movimenti'] as $m) {
+        if (strpos($m['descrizione'], '62-2025') !== false) {
+            return $m['esito'] === 'da_verificare' && ($m['proposte'][0]['documenti'][0]['numero'] ?? '') === '62/001'
+                && abs($m['proposte'][0]['documenti'][0]['importo'] - 300) < 0.01;
+        }
+    }
+    return false;
+})());
+check('Fusion: due fatture da 500, nessun abbinamento automatico', $stato(10) !== 'pagata' && $stato(11) !== 'pagata');
+
+$pdo->beginTransaction();
+$bis = $ric->importaMovimenti($letto['movimenti'], ['banca' => 'Banca di prova', 'iban' => $letto['iban'], 'file_nome' => 'prova.xml'], 7);
+$pdo->commit();
+check('reimport dello stesso estratto: nessun nuovo movimento', $bis['nuovi'] === 0 && $bis['gia_presenti'] === 6, $bis);
+
+echo "Conferma manuale, annulla, ignora\n";
+$idScandicci = (int)$pdo->query("SELECT id FROM {$p}movimenti_banca WHERE descrizione LIKE '%62-2025%'")->fetchColumn();
+$saldati = $ric->registra($idScandicci, [['tipo' => 'fattura', 'id' => 7, 'importo' => 300]], 'manuale', 7);
+check('acconto: fattura resta aperta, movimento riconciliato', !$saldati && $stato(7) === 'scaduta'
+    && $ric->movimento($idScandicci)['stato'] === 'riconciliato');
+check('residuo 62/001 = 920', abs($ric->documenti()->documento('fattura', 7)['residuo'] - 920) < 0.01);
+try { $ric->registra($idScandicci, [['tipo' => 'fattura', 'id' => 10, 'importo' => 500]], 'manuale', 7); $e = null; } catch (RuntimeException $e) {}
+check('oltre l\'importo del movimento: rifiutato', $e instanceof RuntimeException);
+$idFusion = (int)$pdo->query("SELECT id FROM {$p}movimenti_banca WHERE descrizione LIKE '%FUSION%'")->fetchColumn();
+$prop = $ric->proposte($idFusion);
+check('Fusion: proposte con le due fatture da 500', count(array_filter($prop, fn($x) => in_array($x['documenti'][0]['numero'] ?? '', ['80/001', '81/001'], true))) === 2, $prop);
+try { $ric->registra($idFusion, [['tipo' => 'fattura_passiva', 'id' => 1, 'importo' => 500]], 'manuale', 7); $e = null; } catch (RuntimeException $e) {}
+check('accredito su fattura passiva: rifiutato', $e instanceof RuntimeException);
+$ric->ignora($idFusion);
+check('ignora', $ric->movimento($idFusion)['stato'] === 'ignorato' && $ric->proposte($idFusion) === []);
+$ric->ignora($idFusion, true);
+check('ripristina', $ric->movimento($idFusion)['stato'] === 'da_riconciliare');
+
+$idUni = (int)$pdo->query("SELECT id FROM {$p}movimenti_banca WHERE descrizione LIKE '%UNINDUSTRIA%'")->fetchColumn();
+$riaperte = $ric->annulla($idUni);
+check('annulla: 4 righe riaperte (46, 47, 48×2)', count($riaperte) === 4 && $stato(3) === 'emessa' && $stato(1) === 'emessa', $riaperte);
+check('annulla: rata saldo non più incassata, incarico parziale', $ric->documenti()->rateIncarico(1)['rate_incassate'] === 1
+    && $pdo->query("SELECT stato FROM {$p}incarichi WHERE id = 1")->fetchColumn() === 'parziale');
+check('annulla: movimento da riconciliare', $ric->movimento($idUni)['stato'] === 'da_riconciliare');
+$lista = $ric->lista(['stato' => 'riconciliato']);
+check('lista filtrata per stato', count($lista) === 4 && isset($lista[0]['riconciliazioni']), count($lista));
+
+echo "Avviso di pagamento ↔ accredito\n";
+// Avviso registrato prima: poi l'accredito in banca (valuta +3 giorni) si collega senza doppio pagamento
+$idAvv = $ric->registraAvviso(['data' => '2026-07-20', 'importo' => 3050.0, 'descrizione' => 'Avviso di pagamento — fatture 46, 47, 48'],
+    [['tipo' => 'fattura', 'id' => 1, 'importo' => 1220], ['tipo' => 'fattura', 'id' => 2, 'importo' => 610], ['tipo' => 'fattura', 'id' => 3, 'importo' => null]], 7, 2.0);
+check('avviso: fatture pagate', $stato(1) === 'pagata' && $stato(4) === 'pagata');
+check('avviso: collegato all\'accredito già presente (stesso importo, ±5 gg)', (int)$ric->movimento($idUni)['avviso_id'] === $idAvv
+    && $ric->movimento($idUni)['stato'] === 'riconciliato');
+$pdo->beginTransaction();
+$nuovo = $ric->importaMovimenti([['data_operazione' => '2026-08-03', 'data_valuta' => '2026-08-03', 'importo' => 1220.0,
+    'descrizione' => 'Bonifico a vs favore EUROINTERIM saldo', 'controparte' => null, 'riferimento' => 'R99', 'iban' => 'X']], ['banca' => ''], 7);
+$pdo->commit();
+$idAvv2 = $ric->registraAvviso(['data' => '2026-08-20', 'importo' => 1220.0, 'descrizione' => 'Avviso 62'], [['tipo' => 'fattura', 'id' => 7, 'importo' => 920]], 7, 2.0);
+check('avviso lontano più di 5 giorni: non collega', (int)$pdo->query("SELECT COUNT(*) FROM {$p}movimenti_banca WHERE avviso_id = $idAvv2")->fetchColumn() === 0);
+$righeRic = (int)$pdo->query("SELECT COUNT(*) FROM {$p}riconciliazioni")->fetchColumn();
+$ric->annulla($idAvv);
+check('annulla avviso: fatture riaperte e accredito scollegato', $stato(1) === 'emessa' && $ric->movimento($idUni)['avviso_id'] === null
+    && (int)$pdo->query("SELECT COUNT(*) FROM {$p}riconciliazioni")->fetchColumn() < $righeRic);
+
+// ═══ 4. Estratto conto vero (facoltativo) ═══════════════════
+$file = getenv('CBI_FILE') ?: '';
+if ($file !== '' && is_readable($file)) {
+    echo "Estratto CBI reale ($file) — solo conteggi\n";
+    $t0 = microtime(true);
+    $vero = EstrattoContoParser::parseXmlCbi((string)file_get_contents($file));
+    $cr = count(array_filter($vero['movimenti'], fn($m) => $m['importo'] > 0));
+    $conRif = count(array_filter($vero['movimenti'], fn($m) => $m['importo'] > 0 && RiconciliazioneMatch::estraiRiferimenti($m['descrizione'])));
+    echo '  movimenti: ' . count($vero['movimenti']) . ", accrediti: $cr, accrediti con numero fattura: $conRif, avvisi: " . count($vero['avvisi'])
+        . ', ' . round((microtime(true) - $t0) * 1000) . " ms\n";
+}
+
+echo "\n$ok ok, $ko falliti\n";
+exit($ko ? 1 : 0);

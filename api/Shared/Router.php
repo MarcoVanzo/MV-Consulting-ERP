@@ -16,6 +16,7 @@ require_once __DIR__ . '/../Controllers/OfferteController.php';
 require_once __DIR__ . '/../Controllers/FornitoriController.php';
 require_once __DIR__ . '/../Controllers/FatturePassiveController.php';
 require_once __DIR__ . '/../Controllers/CommesseController.php';
+require_once __DIR__ . '/../Controllers/RiconciliazioneController.php';
 
 class ApiRouter {
     // Rate limit per IP condiviso da login e reset_password: max 10 tentativi in 15 minuti
@@ -42,6 +43,7 @@ class ApiRouter {
         'fornitori'    => ['list', 'costi_fornitore', 'documento_costo'],
         'passive'      => ['list'],
         'commesse'     => ['get', 'margini', 'scadenzario', 'fatture_libere'],
+        'riconciliazione' => ['movimenti', 'proposte', 'documenti_aperti'],
         'admin'        => ['listUsers', 'listBackups', 'downloadBackup', 'listLogs'],
     ];
 
@@ -100,6 +102,9 @@ class ApiRouter {
                 break;
             case 'commesse':
                 self::handleCommesse($action, $data);
+                break;
+            case 'riconciliazione':
+                self::handleRiconciliazione($action, $data);
                 break;
             case 'admin':
                 self::handleAdmin($action, $data, $isDeployKeyAuth);
@@ -360,6 +365,20 @@ class ApiRouter {
             case 'segna_incassata': $ctrl->segnaIncassata($data); break;
             case 'scadenzario':     $ctrl->scadenzario(); break;
             default:                Response::json(false, "Azione commesse non supportata: $action");
+        }
+    }
+
+    private static function handleRiconciliazione(string $action, array $data): void {
+        $ctrl = new RiconciliazioneController();
+        switch ($action) {
+            case 'import_estratto':  $ctrl->importEstratto($data); break;
+            case 'movimenti':        $ctrl->movimenti(); break;
+            case 'proposte':         $ctrl->proposte(); break;
+            case 'documenti_aperti': $ctrl->documentiAperti(); break;
+            case 'conferma':         $ctrl->conferma($data); break;
+            case 'annulla':          $ctrl->annulla($data); break;
+            case 'ignora':           $ctrl->ignora($data); break;
+            default:                 Response::json(false, "Azione riconciliazione non supportata: $action");
         }
     }
 

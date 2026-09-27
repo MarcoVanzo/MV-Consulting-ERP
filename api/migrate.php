@@ -469,6 +469,49 @@ $queries = [
         CONSTRAINT fk_passive_fornitore FOREIGN KEY (fornitore_id) REFERENCES {$prefix}fornitori(id) ON DELETE SET NULL,
         CONSTRAINT fk_passive_incarico FOREIGN KEY (incarico_id) REFERENCES {$prefix}incarichi(id) ON DELETE SET NULL,
         CONSTRAINT fk_passive_costo FOREIGN KEY (costo_id) REFERENCES {$prefix}commessa_costi(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    // ═══ Riconciliazione pagamenti (v057–v058) ═══
+    // Movimenti dell'estratto conto e avvisi di pagamento dei clienti (attesi, non ancora visti in banca).
+    // Si salvano solo i movimenti pertinenti (agganciabili a una fattura, un cliente o un fornitore).
+    // avviso_id: sul movimento bancario, l'avviso già registrato che quell'accredito salda (niente doppio pagamento)
+    "CREATE TABLE IF NOT EXISTS {$prefix}movimenti_banca (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        banca VARCHAR(100) NOT NULL DEFAULT '',
+        iban VARCHAR(34) DEFAULT NULL,
+        riferimento_banca VARCHAR(100) DEFAULT NULL COMMENT 'NtryRef / AcctSvcrRef del CBI',
+        codice_operazione VARCHAR(20) DEFAULT NULL COMMENT 'BkTxCd CBI (es. 48 bonifico)',
+        data_operazione DATE NOT NULL,
+        data_valuta DATE DEFAULT NULL,
+        importo DECIMAL(15,2) NOT NULL COMMENT '+ accredito, - addebito',
+        descrizione TEXT DEFAULT NULL,
+        controparte VARCHAR(255) DEFAULT NULL,
+        hash_riga CHAR(64) NOT NULL,
+        stato ENUM('da_riconciliare','riconciliato','ignorato') NOT NULL DEFAULT 'da_riconciliare',
+        origine ENUM('estratto_conto','avviso_pagamento') NOT NULL DEFAULT 'estratto_conto',
+        avviso_id INT DEFAULT NULL,
+        file_nome VARCHAR(255) DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_movimenti_hash (hash_riga),
+        KEY idx_movimenti_stato (stato, data_valuta),
+        KEY idx_movimenti_avviso (avviso_id),
+        CONSTRAINT fk_movimenti_avviso FOREIGN KEY (avviso_id) REFERENCES {$prefix}movimenti_banca(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    // Un movimento può saldare più fatture (bonifico cumulativo), una fattura può essere pagata in più movimenti (acconti)
+    "CREATE TABLE IF NOT EXISTS {$prefix}riconciliazioni (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        movimento_id INT NOT NULL,
+        tipo ENUM('fattura','fattura_passiva') NOT NULL,
+        documento_id INT NOT NULL,
+        importo DECIMAL(15,2) NOT NULL,
+        metodo ENUM('auto','manuale') NOT NULL DEFAULT 'manuale',
+        created_by INT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_ric_movimento (movimento_id),
+        KEY idx_ric_documento (tipo, documento_id),
+        CONSTRAINT fk_ric_movimento FOREIGN KEY (movimento_id) REFERENCES {$prefix}movimenti_banca(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];

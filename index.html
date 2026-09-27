@@ -15,8 +15,8 @@
     <link rel="stylesheet" href="assets/vendor/phosphor/style.css">
     <script src="assets/vendor/pdfjs/pdf.min.js"></script>
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/vendor/pdfjs/pdf.worker.min.js';</script>
-    <link rel="stylesheet" href="css/style.css?v=1790531011">
-    <link rel="stylesheet" href="css/commerciale.css?v=1790531011">
+    <link rel="stylesheet" href="css/style.css?v=1790534731">
+    <link rel="stylesheet" href="css/commerciale.css?v=1790534731">
 
     <style>
         /* ── Auth Screen (inline for instant render) ── */
@@ -364,6 +364,9 @@
                     <div class="tab" data-target="tab-verifica" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">
                         <i class="ph ph-check-square"></i> Verifica Pagamenti
                     </div>
+                    <div class="tab" data-target="tab-riconciliazione" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">
+                        <i class="ph ph-bank"></i> Riconciliazione
+                    </div>
                 </div>
 
                 <!-- ══ TAB: INCARICHI ══ -->
@@ -489,6 +492,48 @@
                         </table>
                     </div>
                 </div>
+
+                <!-- ══ TAB: RICONCILIAZIONE ══ -->
+                <div id="tab-riconciliazione" class="tab-content" style="display: none;">
+                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn btn-primary" id="btn-import-estratto-xml">
+                            <i class="ph ph-file-code"></i> Importa estratto conto (XML CBI)
+                        </button>
+                        <input type="file" id="input-estratto-xml" accept=".xml,text/xml,application/xml" style="display: none;">
+                        <button class="btn btn-secondary" id="btn-import-estratto-pdf">
+                            <i class="ph ph-file-pdf"></i> Estratto conto PDF
+                        </button>
+                        <input type="file" id="input-estratto-pdf" accept="application/pdf" style="display: none;">
+                        <button class="btn btn-secondary" id="btn-ric-avviso" style="background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); color: #10b981;">
+                            <i class="ph ph-money"></i> Importa avviso di pagamento
+                        </button>
+                    </div>
+                    <div class="table-container">
+                        <div class="table-toolbar">
+                            <div class="filters-row" style="margin-bottom:0">
+                                <span class="filter-chip active" data-ric-stato="da_riconciliare">Da riconciliare</span>
+                                <span class="filter-chip" data-ric-stato="riconciliato">Riconciliati</span>
+                                <span class="filter-chip" data-ric-stato="ignorato">Ignorati</span>
+                                <span class="filter-chip" data-ric-stato="">Tutti</span>
+                            </div>
+                        </div>
+                        <table class="data-table" id="table-riconciliazione">
+                            <thead>
+                                <tr>
+                                    <th>Valuta</th>
+                                    <th>Movimento</th>
+                                    <th class="text-right">Importo</th>
+                                    <th>Stato</th>
+                                    <th>Abbinato a</th>
+                                    <th style="width:150px"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-riconciliazione">
+                                <tr><td colspan="6"><div class="empty-state"><i class="ph ph-bank"></i><h3>Nessun movimento</h3></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </section>
 
             <!-- ═══ VIEW: UTENTI ═══ -->
@@ -528,20 +573,21 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- Core Scripts -->
-    <script src="js/core/store.js?v=1790531011" defer></script>
-    <script src="js/core/auth.js?v=1790531011" defer></script>
-    <script src="js/core/ui.js?v=1790531011" defer></script>
-    <script src="js/modules/clienti.js?v=1790531011" defer></script>
-    <script src="js/modules/trasferte.js?v=1790531011" defer></script>
-    <script src="js/modules/mezzi.js?v=1790531011" defer></script>
-    <script src="js/modules/incarichi.js?v=1790531011" defer></script>
-    <script src="js/modules/contabilita.js?v=1790531011" defer></script>
-    <script src="js/modules/admin.js?v=1790531011" defer></script>
-    <script src="js/modules/commerciale.js?v=1790531011" defer></script>
-    <script src="js/modules/offerte.js?v=1790531011" defer></script>
-    <script src="js/modules/partner.js?v=1790531011" defer></script>
-    <script src="js/modules/commessa.js?v=1790531011" defer></script>
-    <script src="js/app.js?v=1790531011" defer></script>
+    <script src="js/core/store.js?v=1790534731" defer></script>
+    <script src="js/core/auth.js?v=1790534731" defer></script>
+    <script src="js/core/ui.js?v=1790534731" defer></script>
+    <script src="js/modules/clienti.js?v=1790534731" defer></script>
+    <script src="js/modules/trasferte.js?v=1790534731" defer></script>
+    <script src="js/modules/mezzi.js?v=1790534731" defer></script>
+    <script src="js/modules/incarichi.js?v=1790534731" defer></script>
+    <script src="js/modules/contabilita.js?v=1790534731" defer></script>
+    <script src="js/modules/riconciliazione.js?v=1790534731" defer></script>
+    <script src="js/modules/admin.js?v=1790534731" defer></script>
+    <script src="js/modules/commerciale.js?v=1790534731" defer></script>
+    <script src="js/modules/offerte.js?v=1790534731" defer></script>
+    <script src="js/modules/partner.js?v=1790534731" defer></script>
+    <script src="js/modules/commessa.js?v=1790534731" defer></script>
+    <script src="js/app.js?v=1790534731" defer></script>
 
 </body>
 </html>

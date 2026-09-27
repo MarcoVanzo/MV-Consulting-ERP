@@ -54,4 +54,6 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
 - Promemoria email: `.github/workflows/promemoria.yml` → router `module=cron&action=promemoria` con
   `X-Cron-Token` (`PROMEMORIA_CRON_TOKEN` nel `.env` del server e nei secret del repo).
 - Tabelle: migrazioni v047–v056 in `api/migrate.php`.
+- Riconciliazione pagamenti (tab Contabilità → Riconciliazione): `api/Shared/Riconciliatore.php` + `EstrattoContoParser.php`
+  (XML CBI, PDF di riserva), tabelle `movimenti_banca`/`riconciliazioni` (v057–v058). Prova: `php tests/riconciliazione_cli.php`.
 

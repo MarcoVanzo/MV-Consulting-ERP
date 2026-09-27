@@ -154,6 +154,47 @@ TXT;
         ]);
     }
 
+    /** Movimenti di un estratto conto bancario (testo estratto dal PDF). */
+    public static function estraiMovimentiBancari(string $testo): array
+    {
+        $instruction = <<<TXT
+Il documento è (una parte di) un estratto conto bancario italiano di MV Consulting S.r.l.
+Elenca TUTTI i movimenti, nell'ordine in cui compaiono. Non includere saldi iniziali/finali, riporti né totali.
+
+Campi di ogni movimento:
+- data_operazione: data contabile/operazione (AAAA-MM-GG).
+- data_valuta: data valuta, se presente; altrimenti null.
+- importo: numero con segno, positivo se entra sul conto (accredito, colonna Avere/Entrate),
+  negativo se esce (addebito, colonna Dare/Uscite). 1.234,56 → 1234.56.
+- descrizione: il testo completo del movimento, comprese le righe successive (causale, ordinante, CRO...).
+- controparte: chi paga (per gli accrediti) o chi riceve (per gli addebiti), se si capisce; altrimenti null.
+banca: il nome della banca che emette l'estratto, se indicato.
+TXT;
+        return ClaudeClient::extractJson(self::SYSTEM, $instruction, ['text' => $testo], [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['banca', 'movimenti'],
+            'properties' => [
+                'banca' => self::nullable('string'),
+                'movimenti' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['data_operazione', 'data_valuta', 'importo', 'descrizione', 'controparte'],
+                        'properties' => [
+                            'data_operazione' => ['type' => 'string', 'format' => 'date'],
+                            'data_valuta' => ['anyOf' => [['type' => 'string', 'format' => 'date'], ['type' => 'null']]],
+                            'importo' => ['type' => 'number'],
+                            'descrizione' => ['type' => 'string'],
+                            'controparte' => self::nullable('string'),
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+    }
+
     /**
      * Testo leggibile da un .docx (Word, anche esportato da Cowork), senza librerie esterne.
      * @throws RuntimeException se il file non è un docx valido

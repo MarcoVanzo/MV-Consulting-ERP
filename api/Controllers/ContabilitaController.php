@@ -736,6 +736,15 @@ class ContabilitaController {
         // 5. Per ogni riga del PDF, cerca TUTTE le righe in DB con quel numero fattura
         //    (la stessa fattura può avere più righe, una per sottocliente)
         //    Confronta la SOMMA degli importi con l'importo del PDF
+        // Con la riconciliazione attiva (migrazione lanciata) l'avviso confluisce nei movimenti bancari
+        require_once __DIR__ . '/RiconciliazioneController.php';
+        $ric = Riconciliatore::tabellePresenti($this->pdo, $this->prefix)
+            ? new Riconciliatore($this->pdo, $this->prefix, fn($id) => $this->recalculateLinkedIncarico($id))
+            : null;
+        $docsAvviso = [];
+        $numeriAvviso = [];
+        $movimentoId = null;
+
         // Tutti gli aggiornamenti del PDF in un'unica transazione
         $this->pdo->beginTransaction();
         try {
@@ -746,7 +755,7 @@ class ContabilitaController {
                 // Cerca TUTTE le righe con questo numero fattura (match esatto, padding, suffisso, prefisso/001)
                 // limitate all'anno della fattura, se noto (la numerazione riparte ogni anno)
                 $numPadded = str_pad($numFattura, 3, '0', STR_PAD_LEFT);
-                $sqlCerca = "SELECT id, numero_fattura, importo_totale, stato, sottocliente_id
+                $sqlCerca = "SELECT id, numero_fattura, importo_totale, stato, sottocliente_id, cliente_id
                     FROM {$this->prefix}fatture 
                     WHERE (numero_fattura = ? 
                        OR numero_fattura = ? 
@@ -792,7 +801,27 @@ class ContabilitaController {
                     continue;
                 }
 
-                // Match trovato! Aggiorna TUTTE le righe di questa fattura come pagate
+                // Match trovato! Tutte le righe di questa fattura diventano pagate
+                if ($ric) {
+                    // Riconciliazione attiva: l'avviso diventa un movimento atteso con le sue riconciliazioni
+                    // (una voce per documento: le righe con lo stesso numero_fattura/anno/cliente)
+                    $visti = [];
+                    $numRighe = 0;
+                    foreach ($righeDb as $r) {
+                        if ($r['stato'] === 'pagata') continue;
+                        $numRighe++;
+                        $visti[$r['numero_fattura'] . '|' . $r['cliente_id']] ??= (int)$r['id'];
+                    }
+                    // Un solo documento: si registra l'importo dell'avviso (entro la tolleranza di 2 €), altrimenti i residui
+                    $unico = count($visti) === 1;
+                    foreach ($visti as $primoId) {
+                        $docsAvviso[] = ['tipo' => 'fattura', 'id' => $primoId, 'importo' => $unico ? $importo : null];
+                    }
+                    $matched += $numRighe;
+                    $numeriAvviso[] = $numFattura;
+                    $details[] = "✅ Fattura n. {$numFattura} — €" . number_format($importo, 2, ',', '.') . " → {$numRighe} righe aggiornate come Pagate ({$dataPagamento})";
+                    continue;
+                }
                 $idsAggiornati = [];
                 foreach ($righeDb as $r) {
                     if ($r['stato'] !== 'pagata') {
@@ -822,6 +851,23 @@ class ContabilitaController {
                     }
                 }
             }
+
+            // Avviso → movimento atteso + riconciliazioni; se l'accredito è già sull'estratto conto viene collegato
+            if ($ric && $docsAvviso) {
+                $totaleAvviso = $totalePagamento > 0 ? $totalePagamento : array_sum(array_column($righe, 'importo'));
+                $movimentoId = $ric->registraAvviso([
+                    'data' => $dataPagamento,
+                    'importo' => $totaleAvviso,
+                    'descrizione' => 'Avviso di pagamento — fatture ' . implode(', ', $numeriAvviso),
+                    'file_nome' => trim((string)($data['file_nome'] ?? '')),
+                ], $docsAvviso, isset($GLOBALS['userContext']['id']) ? (int)$GLOBALS['userContext']['id'] : null, 2.0);
+                foreach ($ric->documenti()->delMovimento($movimentoId) as $d) {
+                    Audit::log('UPDATE', 'fatture', $d['id'], null, null, [
+                        'azione' => 'pagamento_da_pdf', 'stato' => 'pagata', 'data_pagamento' => $dataPagamento,
+                        'movimento_id' => $movimentoId, 'importo' => $d['importo'],
+                    ]);
+                }
+            }
             $this->pdo->commit();
         } catch (\Throwable $e) {
             if ($this->pdo->inTransaction()) {
@@ -841,6 +887,7 @@ class ContabilitaController {
             'totale_pagamento' => $totalePagamento,
             'data_pagamento' => $dataPagamento,
             'num_righe_trovate' => count($righe),
+            'movimento_id' => $movimentoId,
             'messages' => $messages
         ]);
     }
