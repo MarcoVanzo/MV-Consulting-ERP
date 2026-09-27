@@ -191,13 +191,13 @@ const ModRiconciliazione = (() => {
     const ignora = id => invia('ignora', { movimento_id: id });
     const ripristina = id => invia('ignora', { movimento_id: id, ripristina: '1' });
 
-    // ── Import estratto conto (o della carta di credito: carta = true) ──
-    async function importa(file, carta = false) {
+    // ── Import estratto conto ──
+    async function importa(file) {
         if (!file) return;
-        const isXml = !carta && (/\.xml$/i.test(file.name) || /xml/.test(file.type));
+        const isXml = /\.xml$/i.test(file.name) || /xml/.test(file.type);
         const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
-        if (!isXml && !isPdf) { UI.toast(carta ? 'Carica l\'estratto della carta in PDF' : 'Carica l\'estratto conto XML (CBI) o PDF', 'error'); return; }
-        const btn = document.getElementById(carta ? 'btn-import-estratto-carta' : isXml ? 'btn-import-estratto-xml' : 'btn-import-estratto-pdf');
+        if (!isXml && !isPdf) { UI.toast('Carica l\'estratto conto XML (CBI) o PDF', 'error'); return; }
+        const btn = document.getElementById(isXml ? 'btn-import-estratto-xml' : 'btn-import-estratto-pdf');
         const prev = btn.innerHTML; btn.disabled = true;
         btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Lettura...';
         try {
@@ -207,15 +207,41 @@ const ModRiconciliazione = (() => {
                 fd.append('xml', await file.text());
             } else {
                 fd = Store.formDataFromArray('pages', await pagineConRighe(file));
-                if (carta) fd.append('tipo', 'carta');
             }
             fd.append('file_nome', file.name);
             btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Abbinamento...';
             const r = await Store.upload('import_estratto', 'riconciliazione', fd) || {};
-            mostraRiepilogo(r, carta);
+            mostraRiepilogo(r);
             load();
-        } catch (e) { UI.toast((carta ? 'Import estratto carta: ' : 'Import estratto conto: ') + e.message, 'error'); }
+        } catch (e) { UI.toast('Import estratto conto: ' + e.message, 'error'); }
         finally { btn.innerHTML = prev; btn.disabled = false; }
+    }
+
+    /** Più estratti della carta in una volta: uno alla volta sul server, un solo riepilogo alla fine. */
+    async function importaCarte(files) {
+        const pdf = files.filter(f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+        if (!pdf.length) { UI.toast('Carica gli estratti della carta in PDF', 'error'); return; }
+        const btn = document.getElementById('btn-import-estratto-carta');
+        const prev = btn.innerHTML; btn.disabled = true;
+        const tot = { letti: 0, nuovi: 0, abbinati: 0, da_verificare: 0, gia_presenti: 0, senza_aggancio: 0, movimenti: [], avvisi: [], metodo: 'carta' };
+        const banche = new Set();
+        try {
+            for (let i = 0; i < pdf.length; i++) {
+                btn.innerHTML = `<i class="ph ph-spinner ph-spin"></i> PDF ${i + 1}/${pdf.length}...`;
+                try {
+                    const fd = Store.formDataFromArray('pages', await pagineConRighe(pdf[i]));
+                    fd.append('tipo', 'carta'); fd.append('file_nome', pdf[i].name);
+                    const r = await Store.upload('import_estratto', 'riconciliazione', fd) || {};
+                    ['letti', 'nuovi', 'abbinati', 'da_verificare', 'gia_presenti', 'senza_aggancio'].forEach(k => { tot[k] += r[k] || 0; });
+                    tot.movimenti.push(...(r.movimenti || []));
+                    tot.avvisi.push(...(r.avvisi || []).map(a => `${pdf[i].name}: ${a}`));
+                    if (r.banca) banche.add(r.banca);
+                } catch (e) { tot.avvisi.push(`${pdf[i].name}: ${e.message}`); }
+            }
+            tot.banca = [...banche].join(', ') + (pdf.length > 1 ? ` · ${pdf.length} file` : '');
+            mostraRiepilogo(tot, true);
+            load();
+        } finally { btn.innerHTML = prev; btn.disabled = false; }
     }
 
     /** Testo del PDF con gli a capo ricostruiti dalla posizione verticale (serve al parser a regole). */
@@ -258,15 +284,19 @@ const ModRiconciliazione = (() => {
     }
 
     function init() {
-        const bind = (btnId, inputId, carta = false) => {
+        const bind = (btnId, inputId) => {
             const btn = document.getElementById(btnId), input = document.getElementById(inputId);
             if (!btn || !input) return;
             btn.addEventListener('click', () => input.click());
-            input.addEventListener('change', e => { if (e.target.files.length) importa(e.target.files[0], carta); e.target.value = ''; });
+            input.addEventListener('change', e => { if (e.target.files.length) importa(e.target.files[0]); e.target.value = ''; });
         };
         bind('btn-import-estratto-xml', 'input-estratto-xml');
         bind('btn-import-estratto-pdf', 'input-estratto-pdf');
-        bind('btn-import-estratto-carta', 'input-estratto-carta', true);
+        const btnCarta = document.getElementById('btn-import-estratto-carta'), inCarta = document.getElementById('input-estratto-carta');
+        if (btnCarta && inCarta) {
+            btnCarta.addEventListener('click', () => inCarta.click());
+            inCarta.addEventListener('change', e => { if (e.target.files.length) importaCarte([...e.target.files]); e.target.value = ''; });
+        }
         // Avviso di pagamento del cliente: stesso import della scheda Fatture
         document.getElementById('btn-ric-avviso')?.addEventListener('click', () => document.getElementById('input-payment-pdf')?.click());
         document.querySelectorAll('#tab-riconciliazione .filter-chip').forEach(chip => {
