@@ -3,42 +3,52 @@
  * Trasferte Controller — CRUD + rendiconto viaggi
  */
 
+require_once __DIR__ . '/../Shared/TrasferteRegole.php';
+require_once __DIR__ . '/../Shared/Percorsi.php';
+
 class TrasferteController {
+    private const CHIAVE_COSTO_KM = 'trasferte_costo_km';
+
     private $pdo;
     private $prefix;
-    private static $geocodeCache = [];
+    private Percorsi $percorsi;
+    private static ?bool $haColonnaManuale = null;
 
-    public function __construct() {
+    /** $percorsi si passa solo nei test, per non chiamare Nominatim e OSRM */
+    public function __construct(?Percorsi $percorsi = null) {
         $this->pdo = Database::getConnection();
         $this->prefix = getenv('DB_PREFIX') ?: 'mv_';
+        $this->percorsi = $percorsi ?? new Percorsi($this->pdo, $this->prefix);
+    }
+
+    /** Intervallo [primo giorno, ultimo giorno] di un anno o di un mese: si filtra per range, non con YEAR() */
+    private function periodo($year, $month): array {
+        $y = (int)$year ?: (int)date('Y');
+        $m = (int)$month;
+        if ($m >= 1 && $m <= 12) {
+            $da = sprintf('%04d-%02d-01', $y, $m);
+            return [$da, date('Y-m-t', strtotime($da))];
+        }
+        return ["$y-01-01", "$y-12-31"];
     }
 
     public function list() {
-        $year = $_POST['year'] ?? $_GET['year'] ?? date('Y');
-        $month = $_POST['month'] ?? $_GET['month'] ?? null;
+        [$da, $a] = $this->periodo($_POST['year'] ?? $_GET['year'] ?? date('Y'), $_POST['month'] ?? $_GET['month'] ?? null);
 
-        $sql = "SELECT t.*, 
-                c.ragione_sociale as cliente_nome,
-                sc.nome as sottocliente_nome,
+        $sql = "SELECT t.*,
+                c.ragione_sociale as cliente_nome, c.citta as cliente_citta,
+                sc.nome as sottocliente_nome, sc.citta as sottocliente_citta,
                 m.nome as mezzo_nome, m.targa as mezzo_targa
             FROM {$this->prefix}trasferte t
             LEFT JOIN {$this->prefix}clienti c ON c.id = t.cliente_id
             LEFT JOIN {$this->prefix}sottoclienti sc ON sc.id = t.sottocliente_id
             LEFT JOIN {$this->prefix}mezzi m ON m.id = t.mezzo_id
-            WHERE YEAR(t.data_trasferta) = ?";
-        $params = [$year];
-
-        if ($month) {
-            $sql .= " AND MONTH(t.data_trasferta) = ?";
-            $params[] = $month;
-        }
-
-        $sql .= " ORDER BY t.data_trasferta DESC";
+            WHERE t.data_trasferta BETWEEN ? AND ?
+            ORDER BY t.data_trasferta DESC, t.id ASC";
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($params);
+        $stmt->execute([$da, $a]);
         $trasferte = $stmt->fetchAll();
 
-        // Calculate totals
         $totKm = 0;
         $totVitto = 0;
         $totAlloggio = 0;
@@ -47,27 +57,36 @@ class TrasferteController {
             $totVitto += floatval($t['vitto'] ?? 0);
             $totAlloggio += floatval($t['alloggio'] ?? 0);
         }
+        $giornate = TrasferteRegole::giornate($trasferte);
 
         Response::json(true, '', [
             'trasferte' => $trasferte,
+            'giornate' => $giornate,
+            'costo_km' => $this->costoKm(),
             'totali' => [
                 'num_trasferte' => count($trasferte),
                 'km_totali' => round($totKm, 1),
                 'vitto' => round($totVitto, 2),
                 'alloggio' => round($totAlloggio, 2),
-                'totale_spese' => round($totVitto + $totAlloggio, 2)
+                'totale_spese' => round($totVitto + $totAlloggio, 2),
+                'indennita' => round(array_sum(array_column($giornate, 'indennita')), 2)
             ]
         ]);
     }
 
     public function save($data) {
         $id = $data['id'] ?? null;
+        $isUpdate = (bool)$id;
+        if ($errore = TrasferteRegole::errore($data, $isUpdate)) {
+            Response::json(false, $errore, null, 422);
+        }
+
         $fields = [
             'cliente_id'       => !empty($data['cliente_id']) ? (int)$data['cliente_id'] : null,
             'sottocliente_id'  => !empty($data['sottocliente_id']) ? (int)$data['sottocliente_id'] : null,
             'data_trasferta'   => $data['data_trasferta'] ?? date('Y-m-d'),
             'descrizione'      => trim($data['descrizione'] ?? ''),
-            'luogo_partenza'   => trim($data['luogo_partenza'] ?? 'Padova'),
+            'luogo_partenza'   => trim($data['luogo_partenza'] ?? Percorsi::indirizzoBase()),
             'luogo_arrivo'     => trim($data['luogo_arrivo'] ?? ''),
             'fascia_oraria'    => $data['fascia_oraria'] ?? 'intera',
             'google_event_id'  => $data['google_event_id'] ?? null,
@@ -83,7 +102,6 @@ class TrasferteController {
             'mezzo_id'         => (int)($data['mezzo_id'] ?? 0) > 0 ? (int)$data['mezzo_id'] : null
         ];
 
-        $isUpdate = (bool)$id;
         $oldDate = null;
 
         if ($isUpdate) {
@@ -102,6 +120,8 @@ class TrasferteController {
                 $sets[] = "$k = ?";
                 $vals[] = $v;
             }
+            // Una trasferta ritoccata a mano non si fa più riscrivere dalla sincronizzazione Google
+            if ($sets && $this->haColonnaManuale()) $sets[] = 'modifica_manuale = 1';
             if ($sets) {
                 $vals[] = $id;
                 $sql = "UPDATE {$this->prefix}trasferte SET " . implode(', ', $sets) . " WHERE id = ?";
@@ -120,15 +140,12 @@ class TrasferteController {
             Audit::log('INSERT', 'trasferte', $id, null, null, ['data_trasferta' => $fields['data_trasferta'], 'cliente_id' => $fields['cliente_id']]);
         }
 
-        // Auto-calcula rotta
-        // Auto-calcula rotta solo se la trasferta non è bloccata
-        // Ma per ricalcolare tutta la giornata potremmo volerlo comunque,
-        // la logica dentro calcolaKmPerData salterà quelle bloccate.
-        $kmResult = $this->calcolaKmPerData($fields['data_trasferta']);
-        // Se la data è cambiata, la vecchia giornata ha perso una tappa: ricalcola anche quella
-        if ($oldDate && $oldDate !== $fields['data_trasferta']) {
-            $this->calcolaKmPerData($oldDate);
-        }
+        // Ricalcolo km della giornata e delle vicine (la notte fuori sposta la partenza del giorno dopo).
+        // Se la data è cambiata, anche la vecchia giornata ha perso una tappa.
+        $date = [$fields['data_trasferta']];
+        if ($oldDate && $oldDate !== $fields['data_trasferta']) $date[] = $oldDate;
+        $esiti = $this->ricalcolaIntorno($date);
+        $kmResult = $esiti[$fields['data_trasferta']] ?? [];
 
         $msg = $isUpdate ? 'Trasferta aggiornata' : 'Trasferta creata';
         if (!empty($kmResult['message'])) {
@@ -141,38 +158,94 @@ class TrasferteController {
         $stmt = $this->pdo->prepare("SELECT data_trasferta FROM {$this->prefix}trasferte WHERE id = ?");
         $stmt->execute([$id]);
         $date = $stmt->fetchColumn();
+        if ($date === false) {
+            Response::json(false, 'Trasferta non trovata', null, 404);
+        }
 
         $this->pdo->prepare("DELETE FROM {$this->prefix}trasferte WHERE id = ?")->execute([$id]);
         Audit::log('DELETE', 'trasferte', $id, null, null, null);
 
-        // Ricalcola i km delle trasferte rimaste nella stessa giornata
-        if ($date) {
+        // Ricalcola i km delle trasferte rimaste nella giornata e in quelle vicine
+        $this->ricalcolaIntorno([$date]);
+        Response::json(true, 'Trasferta eliminata');
+    }
+
+    /**
+     * Assegna un mezzo a tutte le trasferte del periodo. Il mezzo non cambia il percorso:
+     * nessun ricalcolo km (prima si risalvava ogni trasferta, con un ricalcolo per ciascuna).
+     */
+    public function setMezzo($data) {
+        [$da, $a] = $this->periodo($data['year'] ?? date('Y'), $data['month'] ?? null);
+        $mezzoId = (int)($data['mezzo_id'] ?? 0) > 0 ? (int)$data['mezzo_id'] : null;
+        if ($mezzoId !== null) {
+            $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM {$this->prefix}mezzi WHERE id = ?");
+            $stmt->execute([$mezzoId]);
+            if (!(int)$stmt->fetchColumn()) Response::json(false, 'Mezzo non trovato', null, 404);
+        }
+        $stmt = $this->pdo->prepare("UPDATE {$this->prefix}trasferte SET mezzo_id = ? WHERE data_trasferta BETWEEN ? AND ?");
+        $stmt->execute([$mezzoId, $da, $a]);
+        $n = $stmt->rowCount();
+        Audit::log('UPDATE', 'trasferte', null, null, null, ['mezzo_id' => $mezzoId, 'da' => $da, 'a' => $a, 'righe' => $n]);
+        Response::json(true, $mezzoId ? "Mezzo assegnato a $n trasferte" : "Mezzo rimosso da $n trasferte", ['aggiornate' => $n]);
+    }
+
+    /** Costo al km condiviso da tutti i browser (prima stava nel localStorage di ciascuno) */
+    public function impostazioni() {
+        Response::json(true, '', ['costo_km' => $this->costoKm()]);
+    }
+
+    public function salvaCostoKm($data) {
+        $v = $data['costo_km'] ?? '';
+        if (!is_numeric($v) || (float)$v < 0 || (float)$v > 5) {
+            Response::json(false, 'Costo al km non valido (tra 0 e 5 €)', null, 422);
+        }
+        $valore = number_format((float)$v, 4, '.', '');
+        $this->pdo->prepare("REPLACE INTO {$this->prefix}settings (setting_key, setting_value) VALUES (?, ?)")
+            ->execute([self::CHIAVE_COSTO_KM, $valore]);
+        Audit::log('UPDATE', 'settings', self::CHIAVE_COSTO_KM, null, null, ['costo_km' => $valore]);
+        Response::json(true, 'Costo al km salvato', ['costo_km' => (float)$valore]);
+    }
+
+    private function costoKm(): ?float {
+        try {
+            $stmt = $this->pdo->prepare("SELECT setting_value FROM {$this->prefix}settings WHERE setting_key = ?");
+            $stmt->execute([self::CHIAVE_COSTO_KM]);
+            $v = $stmt->fetchColumn();
+            return $v === false || $v === null ? null : (float)$v;
+        } catch (PDOException $e) {
+            return null;
+        }
+    }
+
+    /** La colonna modifica_manuale arriva con la migrazione v067: finché manca, il codice non la usa */
+    public function haColonnaManuale(): bool {
+        if (self::$haColonnaManuale === null) {
             try {
-                $this->calcolaKmPerData($date);
-            } catch (\Exception $e) {
-                error_log("[Trasferte::delete] Ricalcolo km fallito per $date: " . $e->getMessage());
+                $this->pdo->query("SELECT modifica_manuale FROM {$this->prefix}trasferte LIMIT 1");
+                self::$haColonnaManuale = true;
+            } catch (PDOException $e) {
+                self::$haColonnaManuale = false;
             }
         }
-        Response::json(true, 'Trasferta eliminata');
+        return self::$haColonnaManuale;
     }
 
     /**
      * Rendiconto mensile raggruppato per cliente
      */
     public function rendiconto() {
-        $year = $_POST['year'] ?? $_GET['year'] ?? date('Y');
-        $month = $_POST['month'] ?? $_GET['month'] ?? date('m');
+        [$da, $a] = $this->periodo($_POST['year'] ?? $_GET['year'] ?? date('Y'), $_POST['month'] ?? $_GET['month'] ?? date('m'));
 
-        $sql = "SELECT t.*, 
+        $sql = "SELECT t.*,
                 c.ragione_sociale as cliente_nome,
                 sc.nome as sottocliente_nome
             FROM {$this->prefix}trasferte t
             LEFT JOIN {$this->prefix}clienti c ON c.id = t.cliente_id
             LEFT JOIN {$this->prefix}sottoclienti sc ON sc.id = t.sottocliente_id
-            WHERE YEAR(t.data_trasferta) = ? AND MONTH(t.data_trasferta) = ?
+            WHERE t.data_trasferta BETWEEN ? AND ?
             ORDER BY c.ragione_sociale ASC, t.data_trasferta ASC";
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([$year, $month]);
+        $stmt->execute([$da, $a]);
         $rows = $stmt->fetchAll();
 
         // Group by client
@@ -194,7 +267,7 @@ class TrasferteController {
             $grouped[$key]['totale_spese'] += $spese;
         }
 
-        Response::json(true, '', ['rendiconto' => array_values($grouped), 'anno' => $year, 'mese' => $month]);
+        Response::json(true, '', ['rendiconto' => array_values($grouped), 'anno' => substr($da, 0, 4), 'mese' => substr($da, 5, 2)]);
     }
 
     /**
@@ -203,22 +276,17 @@ class TrasferteController {
     public function togglePernottamento() {
         $date = $_POST['data'] ?? ($_GET['data'] ?? null);
         $state = (isset($_POST['state']) && $_POST['state'] == '1') ? 1 : 0;
-        
-        if (!$date) {
-            Response::json(false, "Data mancante");
-            return;
+
+        if (!$date || TrasferteRegole::errore(['data_trasferta' => $date], false)) {
+            Response::json(false, "Data mancante o non valida");
         }
 
         $sql = "UPDATE {$this->prefix}trasferte SET pernottamento = ? WHERE data_trasferta = ?";
         $this->pdo->prepare($sql)->execute([$state, $date]);
-        
-        // Recalculate km for the date
-        $this->calcolaKmPerData($date);
-        
-        // Recalculate km for the next day as well, because this day's overnight stay affects next day's base
-        $nextDate = date('Y-m-d', strtotime($date . ' + 1 day'));
-        $this->calcolaKmPerData($nextDate);
-        
+
+        // La notte fuori cambia il rientro di oggi e la partenza di domani
+        $this->ricalcolaIntorno([$date]);
+
         Response::json(true, 'Stato pernottamento aggiornato.');
     }
 
@@ -242,37 +310,61 @@ class TrasferteController {
      * Endpoint API API (invocato dal frontend per ricalcolare tutte le trasferte)
      */
     public function calcolaTuttiKm() {
-        // Geocoding con rate limit 1 req/s: su un anno intero può durare minuti
+        // Geocoding con rate limit 1 req/s: la prima volta su un anno intero può durare minuti
         set_time_limit(0);
         ignore_user_abort(true);
-        $year = $_POST['year'] ?? ($_GET['year'] ?? date('Y'));
-        $month = $_POST['month'] ?? ($_GET['month'] ?? null);
+        [$da, $a] = $this->periodo($_POST['year'] ?? ($_GET['year'] ?? date('Y')), $_POST['month'] ?? ($_GET['month'] ?? null));
 
-        $sql = "SELECT DISTINCT data_trasferta FROM {$this->prefix}trasferte WHERE YEAR(data_trasferta) = ?";
-        $params = [$year];
-        if ($month) {
-            $sql .= " AND MONTH(data_trasferta) = ?";
-            $params[] = $month;
-        }
-
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($params);
+        $stmt = $this->pdo->prepare("SELECT DISTINCT data_trasferta FROM {$this->prefix}trasferte WHERE data_trasferta BETWEEN ? AND ? ORDER BY data_trasferta");
+        $stmt->execute([$da, $a]);
         $dates = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
         $countAffected = 0;
+        $falliti = 0;
         foreach ($dates as $date) {
             try {
                 $res = $this->calcolaKmPerData($date);
                 if ($res['success']) $countAffected += $res['data']['aggiornate'] ?? 0;
+                else $falliti++;
             } catch (\Exception $e) {
+                $falliti++;
                 error_log("[Trasferte::calcolaTuttiKm] Errore per data $date: " . $e->getMessage());
             }
         }
-        Response::json(true, "Calcolo eseguito per tutte le trasferte del periodo selezionato ($countAffected aggiornate).");
+        $msg = "Calcolo eseguito per le trasferte del periodo selezionato ($countAffected aggiornate).";
+        if ($falliti) $msg .= " $falliti giornate non calcolate: controlla indirizzi dei clienti.";
+        Response::json(true, $msg);
     }
 
     /**
-     * Calcola i KM automatici per una specifica giornata considerando Base -> Mattino -> Pomeriggio -> Base
+     * Ricalcola le giornate indicate e quelle subito prima e dopo: il percorso di un giorno
+     * dipende dal giorno prima (si parte da dove si è dormiti) e da quello dopo (si rientra
+     * solo se domani non si riparte da fuori). Restituisce l'esito per data.
+     */
+    public function ricalcolaIntorno(array $date): array {
+        $tutte = [];
+        foreach ($date as $d) {
+            foreach (['-1 day', '+0 day', '+1 day'] as $delta) {
+                $tutte[date('Y-m-d', strtotime("$d $delta"))] = true;
+            }
+        }
+        $tutte = array_keys($tutte);
+        sort($tutte);
+        $esiti = [];
+        foreach ($tutte as $d) {
+            try {
+                $esiti[$d] = $this->calcolaKmPerData($d);
+            } catch (\Exception $e) {
+                error_log("[Trasferte] Ricalcolo km fallito per $d: " . $e->getMessage());
+            }
+        }
+        return $esiti;
+    }
+
+    /**
+     * Calcola i KM automatici di una giornata: partenza (base o luogo del pernottamento della
+     * notte prima) → tutte le tappe in ordine (mattino, giornata intera, pomeriggio) → base,
+     * salvo che si dorma fuori e domani ci sia un'altra trasferta.
      */
     public function calcolaKmPerData($date) {
         if (!$date) return ['success' => false, 'message' => "Data mancante"];
@@ -282,33 +374,38 @@ class TrasferteController {
             return ['success' => false, 'message' => "Nessuna trasferta trovata per questa data."];
         }
 
-        $baseAddr = getenv('BASE_ADDRESS') ?: "Via Manzoni 5, Zero Branco, TV";
-        $baseCoord = $this->geocode($baseAddr);
+        $baseCoord = $this->percorsi->geocode(Percorsi::indirizzoBase());
         if (!$baseCoord) {
             return ['success' => false, 'message' => "Errore nella geocodifica dell'indirizzo base."];
         }
 
-        $prevPernottamento = $this->fetchPreviousOvernightStay($date);
-        $startCoord = $this->resolveStartCoord($baseCoord, $prevPernottamento);
-        $tappe = $this->getTrasferteTappe($trasferte, $date);
-        $oggiPernotta = $this->hasPernottamento($trasferte);
-        $wpResult = $this->buildWaypoints($startCoord, $baseCoord, $tappe, $oggiPernotta);
+        $ieri = date('Y-m-d', strtotime("$date -1 day"));
+        $domani = date('Y-m-d', strtotime("$date +1 day"));
+        $trasferteIeri = $this->fetchTrasferteConIndirizzi($ieri);
+        $partenzaDaFuori = $this->hasPernottamento($trasferteIeri);
+        $startCoord = $partenzaDaFuori ? ($this->ultimaTappa($trasferteIeri) ?? $baseCoord) : $baseCoord;
+        $rientro = !($this->hasPernottamento($trasferte) && $this->ciSonoTrasferte($domani));
 
-        if (!$wpResult['hasClient']) {
+        $tappe = [];
+        foreach (TrasferteRegole::ordinaTappe($trasferte) as $t) {
+            $addr = $this->extractAddress($t);
+            $coord = $addr !== '' ? $this->percorsi->geocode($addr) : null;
+            if ($coord) $tappe[] = ['id' => $t['id'], 'coord' => $coord, 'bloccata' => !empty($t['km_bloccati'])];
+        }
+
+        if (!$tappe) {
             $this->zeroKmForDate($date);
             return ['success' => true, 'message' => "Clienti privi di indirizzo. KM azzerati.", 'data' => ['totale_km' => 0, 'aggiornate' => count($trasferte)]];
         }
 
-        $routeResult = $this->fetchOsrmRoute($wpResult['waypoints'], $date);
-        if (!$routeResult['success']) return $routeResult;
-
-        $affectedIds = $this->collectAffectedIds($tappe, $trasferte);
-        if (empty($affectedIds) && $this->allKmBloccati($trasferte)) {
+        $daAggiornare = array_values(array_map(fn($t) => $t['id'], array_filter($tappe, fn($t) => !$t['bloccata'])));
+        if (!$daAggiornare) {
             return ['success' => true, 'message' => "KM bloccati su tutte le trasferte della giornata: nessun ricalcolo.", 'data' => ['totale_km' => 0, 'aggiornate' => 0]];
         }
-        if (empty($affectedIds)) {
-            return ['success' => false, 'message' => "Nessun cliente valido geocodificato per il calcolo."];
-        }
+
+        $punti = array_merge([$startCoord], array_column($tappe, 'coord'), $rientro ? [$baseCoord] : []);
+        $routeResult = $this->percorsi->km($punti);
+        if (!$routeResult['success']) return $routeResult;
 
         $totKm = $routeResult['totKm'];
         // I km delle trasferte bloccate sono già fissati: si distribuisce solo il resto del percorso
@@ -317,8 +414,13 @@ class TrasferteController {
             if (!empty($t['km_bloccati'])) $kmBloccati += (float)$t['km_andata'] + (float)$t['km_ritorno'];
         }
         $daDistribuire = max(0.0, round($totKm - $kmBloccati, 1));
-        $this->distributeKm($date, $affectedIds, $daDistribuire, $oggiPernotta, $prevPernottamento);
-        $count = count($affectedIds);
+        [$andata, $ritorno] = TrasferteRegole::ripartisciKm($daDistribuire, count($daAggiornare), $partenzaDaFuori, $rientro);
+
+        $this->zeroKmForDate($date);
+        $stmt = $this->pdo->prepare("UPDATE {$this->prefix}trasferte SET km_andata = ?, km_ritorno = ? WHERE id = ? AND km_bloccati = 0");
+        foreach ($daAggiornare as $tid) $stmt->execute([$andata, $ritorno, $tid]);
+
+        $count = count($daAggiornare);
         $msg = "KM calcolati automaticamente: $totKm km totali ($count trasferte aggiornate)";
         if ($kmBloccati > 0) $msg .= ", di cui $kmBloccati km già fissati sulle trasferte bloccate";
         return ['success' => true, 'message' => $msg . '.', 'data' => ['totale_km' => $totKm, 'km_bloccati' => $kmBloccati, 'distribuiti' => $daDistribuire, 'aggiornate' => $count]];
@@ -327,7 +429,7 @@ class TrasferteController {
     // ── Private helpers ──────────────────────────────────
 
     private function fetchTrasferteConIndirizzi(string $date): array {
-        $sql = "SELECT t.*, c.indirizzo, c.citta, sc.indirizzo as sc_indirizzo, sc.citta as sc_citta 
+        $sql = "SELECT t.*, c.indirizzo, c.citta, sc.indirizzo as sc_indirizzo, sc.citta as sc_citta
                 FROM {$this->prefix}trasferte t
                 LEFT JOIN {$this->prefix}clienti c ON c.id = t.cliente_id
                 LEFT JOIN {$this->prefix}sottoclienti sc ON sc.id = t.sottocliente_id
@@ -337,75 +439,25 @@ class TrasferteController {
         return $stmt->fetchAll();
     }
 
-    private function geocode(string $address): ?array {
-        $cacheKey = md5(strtolower(trim($address)));
-        if (isset(self::$geocodeCache[$cacheKey])) return self::$geocodeCache[$cacheKey];
-
-        usleep(1100000); // Rate limit Nominatim (1 req/sec)
-
-        $url = "https://nominatim.openstreetmap.org/search?q=" . urlencode($address) . "&format=json&limit=1&countrycodes=it";
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_USERAGENT, "MV-Consulting-ERP/1.0 (marco@mv-consulting.it)");
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-        $res = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlErr = curl_error($ch);
-        curl_close($ch);
-
-        if ($curlErr) { error_log("[Trasferte] Geocode CURL error: $curlErr"); return self::$geocodeCache[$cacheKey] = null; }
-        if ($httpCode !== 200) { error_log("[Trasferte] Geocode HTTP $httpCode for '$address'"); return self::$geocodeCache[$cacheKey] = null; }
-
-        $data = json_decode($res, true);
-        if (!empty($data) && isset($data[0]['lat'], $data[0]['lon'])) {
-            return self::$geocodeCache[$cacheKey] = ['lat' => floatval($data[0]['lat']), 'lon' => floatval($data[0]['lon'])];
-        }
-        error_log("[Trasferte] Geocode: nessun risultato per '$address'");
-        return self::$geocodeCache[$cacheKey] = null;
-    }
-
-    private function fetchPreviousOvernightStay(string $date) {
-        $sql = "SELECT t.*, c.indirizzo, c.citta, sc.indirizzo as sc_indirizzo, sc.citta as sc_citta 
-                FROM {$this->prefix}trasferte t
-                LEFT JOIN {$this->prefix}clienti c ON c.id = t.cliente_id
-                LEFT JOIN {$this->prefix}sottoclienti sc ON sc.id = t.sottocliente_id
-                WHERE data_trasferta < ? ORDER BY data_trasferta DESC, t.fascia_oraria DESC LIMIT 1";
-        $stmt = $this->pdo->prepare($sql);
+    private function ciSonoTrasferte(string $date): bool {
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM {$this->prefix}trasferte WHERE data_trasferta = ?");
         $stmt->execute([$date]);
-        $last = $stmt->fetch();
-        if ($last && ($last['pernottamento'] == 1 || floatval($last['alloggio'] ?? 0) > 0)) {
-            if (round((strtotime($date) - strtotime($last['data_trasferta'])) / 86400) <= 4) return $last;
-        }
-        return false;
+        return (int)$stmt->fetchColumn() > 0;
     }
 
-    private function resolveStartCoord(array $baseCoord, $prevPernottamento): array {
-        if (!$prevPernottamento) return $baseCoord;
-        $addr = $this->extractAddress($prevPernottamento);
-        if ($addr) { $c = $this->geocode($addr); if ($c) return $c; }
-        return $baseCoord;
+    /** Coordinate dell'ultima tappa della giornata: è lì che si è dormito */
+    private function ultimaTappa(array $trasferte): ?array {
+        foreach (array_reverse(TrasferteRegole::ordinaTappe($trasferte)) as $t) {
+            $addr = $this->extractAddress($t);
+            if ($addr !== '' && ($c = $this->percorsi->geocode($addr))) return $c;
+        }
+        return null;
     }
 
     private function extractAddress(array $row): string {
         $ind = !empty($row['sc_indirizzo']) ? $row['sc_indirizzo'] : ($row['indirizzo'] ?? '');
         $cit = !empty($row['sc_citta']) ? $row['sc_citta'] : ($row['citta'] ?? '');
         return trim("$ind $cit");
-    }
-
-    private function getTrasferteTappe(array $trasferte, string $date): array {
-        $mattino = null; $pomeriggio = null; $fallback = [];
-        foreach ($trasferte as $t) {
-            $addr = $this->extractAddress($t);
-            if (empty($addr)) continue;
-            $coord = $this->geocode($addr);
-            if (!$coord) continue;
-            $item = ['id' => $t['id'], 'coord' => $coord];
-            if ($t['fascia_oraria'] === 'mattino') $mattino = $item;
-            elseif ($t['fascia_oraria'] === 'pomeriggio') $pomeriggio = $item;
-            else $fallback[] = $item;
-        }
-        return compact('mattino', 'pomeriggio', 'fallback');
     }
 
     private function hasPernottamento(array $trasferte): bool {
@@ -415,66 +467,7 @@ class TrasferteController {
         return false;
     }
 
-    private function buildWaypoints(array $startCoord, array $baseCoord, array $tappe, bool $oggiPernotta): array {
-        $waypoints = [$startCoord];
-        $hasClient = false;
-        $fb = $tappe['fallback'];
-
-        if ($tappe['mattino']) { $waypoints[] = $tappe['mattino']['coord']; $hasClient = true; }
-        elseif (!empty($fb)) { $waypoints[] = array_shift($fb)['coord']; $hasClient = true; }
-
-        if ($tappe['pomeriggio']) { $waypoints[] = $tappe['pomeriggio']['coord']; $hasClient = true; }
-        elseif (!empty($fb)) { $waypoints[] = array_shift($fb)['coord']; $hasClient = true; }
-
-        if (!$oggiPernotta) $waypoints[] = $baseCoord;
-        return ['waypoints' => $waypoints, 'hasClient' => $hasClient];
-    }
-
     private function zeroKmForDate(string $date): void {
         $this->pdo->prepare("UPDATE {$this->prefix}trasferte SET km_andata = 0, km_ritorno = 0 WHERE data_trasferta = ? AND km_bloccati = 0")->execute([$date]);
-    }
-
-    private function fetchOsrmRoute(array $waypoints, string $date): array {
-        $points = array_map(fn($wp) => $wp['lon'] . "," . $wp['lat'], $waypoints);
-        $url = "https://router.project-osrm.org/route/v1/driving/" . implode(";", $points) . "?overview=false";
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-        $res = curl_exec($ch);
-        $err = curl_error($ch);
-        curl_close($ch);
-        if ($err) { error_log("[Trasferte] OSRM CURL error: $err"); return ['success' => false, 'message' => "Errore routing: $err"]; }
-        $data = json_decode($res, true);
-        if (!isset($data['routes'][0])) { error_log("[Trasferte] OSRM nessun percorso per $date"); return ['success' => false, 'message' => "Impossibile calcolare il percorso."]; }
-        return ['success' => true, 'totKm' => round($data['routes'][0]['distance'] / 1000, 1)];
-    }
-
-    private function collectAffectedIds(array $tappe, array $trasferte): array {
-        $ids = array_filter([$tappe['mattino']['id'] ?? null, $tappe['pomeriggio']['id'] ?? null]);
-        if (empty($ids)) {
-            foreach ($trasferte as $t) { if ($this->extractAddress($t) !== '') $ids[] = $t['id']; }
-        }
-        // Le trasferte con km bloccati non vengono aggiornate: non devono entrare nel divisore
-        $bloccati = [];
-        foreach ($trasferte as $t) { if (!empty($t['km_bloccati'])) $bloccati[$t['id']] = true; }
-        return array_values(array_filter($ids, fn($tid) => !isset($bloccati[$tid])));
-    }
-
-    private function allKmBloccati(array $trasferte): bool {
-        foreach ($trasferte as $t) { if (empty($t['km_bloccati'])) return false; }
-        return true;
-    }
-
-    private function distributeKm(string $date, array $ids, float $totKm, bool $oggiPernotta, $prevPernottamento): void {
-        $n = count($ids);
-        if ($oggiPernotta && !$prevPernottamento)      { $a = round($totKm / $n, 1); $r = 0; }
-        elseif (!$oggiPernotta && $prevPernottamento)   { $a = 0; $r = round($totKm / $n, 1); }
-        elseif ($oggiPernotta && $prevPernottamento)    { $a = round($totKm / $n, 1); $r = 0; }
-        else                                            { $a = round(($totKm / 2) / $n, 1); $r = $a; }
-
-        $this->zeroKmForDate($date);
-        $stmt = $this->pdo->prepare("UPDATE {$this->prefix}trasferte SET km_andata = ?, km_ritorno = ? WHERE id = ? AND km_bloccati = 0");
-        foreach ($ids as $tid) $stmt->execute([$a, $r, $tid]);
     }
 }
