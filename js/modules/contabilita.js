@@ -229,6 +229,25 @@ const ModContabilita = (() => {
         finally{btn.innerHTML=prev;btn.disabled=false;}
     }
 
+    /** Lista fatture esportata da Sistemi (.xlsx): crea quelle che mancano, il file lo legge il server. */
+    async function importLista(file) {
+        if(!file||!/\.xlsx$/i.test(file.name)){UI.toast('Serve il file Excel .xlsx (il vecchio .xls va risalvato come .xlsx)','error');return;}
+        const btn=document.getElementById('btn-import-lista-fatture'); const prev=btn.innerHTML;
+        btn.innerHTML='<i class="ph ph-spinner ph-spin"></i> Lettura...'; btn.disabled=true;
+        try {
+            const fd=new FormData(); fd.append('file',file);
+            const r=await Store.upload('import_lista','contabilita',fd)||{};
+            const box=(n,label,color)=>`<div style="flex:1;min-width:110px;padding:12px;border:1px solid var(--border-subtle);border-radius:8px;text-align:center"><div style="font-size:1.6rem;font-weight:700;color:${color}">${UI.esc(n??0)}</div><div style="font-size:0.75rem;color:var(--text-muted)">${UI.esc(label)}</div></div>`;
+            const html=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+                    ${box(r.num_imported,'Nuove','#10b981')}${box(r.num_existing,'Già presenti','#6366f1')}
+                    ${box(r.num_different,'Totale diverso','#f59e0b')}${box(r.num_without_client,'Senza cliente','#ef4444')}
+                </div>${(r.errors||[]).length?`<div style="max-height:300px;overflow-y:auto;font-size:0.82rem;line-height:1.7">${r.errors.map(e=>`<div>${UI.esc(e)}</div>`).join('')}</div>`:''}`;
+            UI.openModal('Import lista fatture',html,null,{readOnly:true});
+            load();
+        }catch(e){UI.toast('Import lista fatture: '+e.message,'error');}
+        finally{btn.innerHTML=prev;btn.disabled=false;}
+    }
+
     async function importPaymentPdf(files) {
         if(!Array.isArray(files))files=[files];
         const valid=files.filter(f=>f.type==='application/pdf'||f.name.endsWith('.pdf'));
@@ -267,6 +286,6 @@ const ModContabilita = (() => {
         finally{btn.innerHTML=prev;btn.disabled=false;}
     }
 
-    return { load, openNew, edit, remove, initFilters, importPdf, importXml, importPaymentPdf };
+    return { load, openNew, edit, remove, initFilters, importPdf, importXml, importLista, importPaymentPdf };
 })();
 window.ModContabilita = ModContabilita;

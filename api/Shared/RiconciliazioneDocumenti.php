@@ -207,12 +207,13 @@ class RiconciliazioneDocumenti
      * 'altro_formato': stesso estratto importato prima in XML e poi in PDF (o viceversa) —
      * stessa data, stesso importo con segno e causale simile, ma l'uno con riferimento banca e l'altro no.
      */
-    public function giaPresente(array $m): ?string
+    public function giaPresente(array $m, string $origine = 'estratto_conto'): ?string
     {
         $hash = array_values(array_filter([$m['hash_riga'], EstrattoContoParser::hashRigaV1($m)]));
         $stmt = $this->pdo->prepare("SELECT id FROM {$this->p}movimenti_banca WHERE hash_riga IN (" . implode(',', array_fill(0, count($hash), '?')) . ")");
         $stmt->execute($hash);
         if ($stmt->fetchColumn()) return 'hash';
+        if ($origine !== 'estratto_conto') return null; // la carta ha un solo formato: basta l'hash
         $stmt = $this->pdo->prepare("SELECT descrizione, controparte FROM {$this->p}movimenti_banca
             WHERE origine = 'estratto_conto' AND data_operazione = ? AND importo BETWEEN ? AND ?
               AND riferimento_banca IS " . (empty($m['riferimento']) ? 'NOT NULL' : 'NULL'));

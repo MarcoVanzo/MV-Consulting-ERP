@@ -87,28 +87,30 @@ class Riconciliatore
     /**
      * Salva i movimenti nuovi e prova l'abbinamento automatico. Deduplica: hash attuale, hash della
      * prima versione e, tra XML e PDF dello stesso estratto, data + importo + causale simile.
-     * $conto: {banca, iban, file_nome}. Va chiamato dentro una transazione del chiamante.
+     * $conto: {banca, iban, file_nome}. $origine: estratto_conto oppure estratto_carta (le spese della carta:
+     * restano fuori da categorie e grafici, che contano già l'addebito mensile sul conto).
+     * Va chiamato dentro una transazione del chiamante.
      */
-    public function importaMovimenti(array $movimenti, array $conto, ?int $userId): array
+    public function importaMovimenti(array $movimenti, array $conto, ?int $userId, string $origine = 'estratto_conto'): array
     {
         $out = ['letti' => count($movimenti), 'nuovi' => 0, 'gia_presenti' => 0, 'altro_formato' => 0, 'senza_aggancio' => 0,
             'abbinati' => 0, 'da_verificare' => 0, 'ids' => [], 'movimenti' => [], 'avvisi' => []];
         $conCategorie = Classificatore::tabellePresenti($this->pdo, $this->p);
         $movimenti = EstrattoContoParser::conHash($movimenti);
-        $out['avvisi'] = $this->docs->sovrapposizioni($movimenti, $conto);
+        $out['avvisi'] = $origine === 'estratto_conto' ? $this->docs->sovrapposizioni($movimenti, $conto) : [];
 
         // 1. Tutti i movimenti del file in archivio, poi l'analisi: così l'unicità degli agganci
         //    (avviso ↔ accredito) considera anche gli altri movimenti dello stesso file
         $daAnalizzare = [];
         foreach ($movimenti as $m) {
             $m['iban'] = $m['iban'] ?? ($conto['iban'] ?? '');
-            $gia = $this->docs->giaPresente($m);
+            $gia = $this->docs->giaPresente($m, $origine);
             if ($gia) { $out[$gia === 'altro_formato' ? 'altro_formato' : 'gia_presenti']++; continue; }
-            $mov = $m + ['id' => 0, 'origine' => 'estratto_conto', 'controparte' => null];
+            $mov = $m + ['id' => 0, 'origine' => $origine, 'controparte' => null];
             $ctx = $this->contesto($mov);
             $abbinabile = $ctx['refs'] || $ctx['anagrafica_id'] || $ctx['avvisi'];
             if (!$abbinabile && !$conCategorie) { $out['senza_aggancio']++; continue; } // schema vecchio: come prima
-            $id = $this->inserisciMovimento($m, $conto, 'estratto_conto', $abbinabile);
+            $id = $this->inserisciMovimento($m, $conto, $origine, $abbinabile);
             $out['nuovi']++;
             $out['ids'][] = $id;
             if ($abbinabile) $daAnalizzare[] = [$id, !empty($m['segno_incerto']), $ctx];
