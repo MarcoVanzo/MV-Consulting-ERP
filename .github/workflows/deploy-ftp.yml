@@ -53,6 +53,7 @@ jobs:
             **/*.md
             .agents/**
             scripts/**
+            tests/**
             cron/*.log
             deploy.config
             deploy_manifest.json

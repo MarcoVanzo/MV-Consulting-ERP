@@ -9,6 +9,7 @@ const ModContabilita = (() => {
     async function load() {
         if (_activeTab === 'tab-incarichi') { ModIncarichi.load(); return; }
         if (_activeTab === 'tab-verifica') { loadVerifica(); return; }
+        if (_activeTab === 'tab-riconciliazione') { ModRiconciliazione.load(); return; }
         const year = document.getElementById('contabilita-year').value;
         try {
             const ov = await Store.api('overview','contabilita',{year});
@@ -182,6 +183,7 @@ const ModContabilita = (() => {
         });
         initTabs();
         ModIncarichi.initFilters();
+        if (window.ModRiconciliazione) ModRiconciliazione.init();
     }
 
     async function importPdf(file) {
@@ -236,7 +238,8 @@ const ModContabilita = (() => {
                 btn.innerHTML=`<i class="ph ph-spinner ph-spin"></i> Analisi (${i+1}/${valid.length})...`;
                 // msgs: {html} per le intestazioni già escapate, stringhe semplici per il resto
                 try {
-                    const req=await Store.upload('import_payment_pdf','contabilita',Store.formDataFromArray('pages',pages))||{};
+                    const fd=Store.formDataFromArray('pages',pages); fd.append('file_nome',file.name);
+                    const req=await Store.upload('import_payment_pdf','contabilita',fd)||{};
                     totalM+=req.num_matched||0;totalAP+=req.num_already_paid||0;totalNF+=req.num_not_found||0;
                     if(req.messages?.length){msgs.push({html:`<strong>${UI.esc(file.name)}</strong>`});msgs.push(...req.messages);msgs.push('');}
                 } catch(err) {

@@ -1,0 +1,269 @@
+'use strict';
+/**
+ * Modulo Riconciliazione — estratto conto (XML CBI o PDF) ↔ fatture emesse e fatture dei fornitori.
+ * Tab "Riconciliazione" della Contabilità. La logica di abbinamento è lato server (api/Shared/Riconciliatore.php).
+ */
+const ModRiconciliazione = (() => {
+    let _movimenti = [], _stato = 'da_riconciliare', _proposte = {}, _aperti = [], _manuale = null;
+
+    const STATI = {
+        da_riconciliare: { cls: 'badge-yellow', label: 'Da riconciliare' },
+        riconciliato:    { cls: 'badge-green',  label: 'Riconciliato' },
+        ignorato:        { cls: 'badge-purple', label: 'Ignorato' },
+    };
+
+    function periodo() {
+        const y = document.getElementById('contabilita-year')?.value || new Date().getFullYear();
+        return { dal: `${y}-01-01`, al: `${y}-12-31` };
+    }
+
+    async function load() {
+        const params = { ...periodo() };
+        if (_stato) params.stato = _stato;
+        try {
+            _movimenti = await Store.api('movimenti', 'riconciliazione', params) || [];
+        } catch (e) {
+            _movimenti = [];
+            document.getElementById('tbody-riconciliazione').innerHTML = `<tr><td colspan="6"><div class="empty-state"><i class="ph ph-warning-circle"></i><h3>${UI.esc(e.message)}</h3></div></td></tr>`;
+            return;
+        }
+        _proposte = {};
+        render();
+    }
+
+    function importo(v) {
+        const n = parseFloat(v) || 0;
+        return `<span style="color:${n >= 0 ? 'var(--accent-green)' : '#ef4444'};font-weight:600">${n >= 0 ? '+' : ''}${UI.esc(UI.formatCurrency(n))}</span>`;
+    }
+
+    function docLabel(d) {
+        const rate = (d.incarichi || []).map(i => `Incarico #${UI.esc(i.id)}: rate ${UI.esc(i.rate_incassate)}/${UI.esc(i.rate_totali)} incassate`).join(' · ');
+        return `<div><span class="td-mono">${UI.esc(d.numero)}</span> ${UI.esc(d.anagrafica_nome || '')} — ${UI.esc(UI.formatCurrency(d.importo))}`
+            + `${d.righe > 1 ? ` <span style="color:var(--text-muted)">(${UI.esc(d.righe)} righe)</span>` : ''}`
+            + `${d.metodo === 'auto' ? ' <span class="badge badge-blue">auto</span>' : ''}`
+            + `${rate ? `<div style="font-size:0.75rem;color:var(--text-muted)">${rate}</div>` : ''}</div>`;
+    }
+
+    function render() {
+        const tbody = document.getElementById('tbody-riconciliazione');
+        if (!_movimenti.length) {
+            tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><i class="ph ph-bank"></i><h3>Nessun movimento</h3><p>Importa l\'estratto conto per iniziare</p></div></td></tr>';
+            return;
+        }
+        tbody.innerHTML = _movimenti.map(m => {
+            const s = STATI[m.stato] || { cls: 'badge-blue', label: m.stato };
+            const avviso = m.origine === 'avviso_pagamento' ? ' <span class="badge badge-blue">avviso</span>' : '';
+            let abbinato = (m.riconciliazioni || []).map(docLabel).join('');
+            if (m.avviso_id) abbinato = '<span style="color:var(--text-muted)">Coperto dall\'avviso di pagamento</span>';
+            let azioni = '';
+            if (m.stato === 'da_riconciliare') {
+                azioni = `<button class="btn btn-sm btn-secondary" onclick="ModRiconciliazione.mostraProposte(${m.id})"><i class="ph ph-lightbulb"></i> Proposte</button>
+                    <button class="btn btn-sm btn-ghost" onclick="ModRiconciliazione.sceltaManuale(${m.id})" title="Scegli le fatture"><i class="ph ph-list-checks"></i></button>`;
+                if (!(m.riconciliazioni || []).length) azioni += `<button class="btn btn-sm btn-ghost" onclick="ModRiconciliazione.ignora(${m.id})" title="Ignora"><i class="ph ph-eye-slash"></i></button>`;
+                else azioni += `<button class="btn btn-sm btn-ghost" onclick="ModRiconciliazione.annulla(${m.id})" title="Annulla"><i class="ph ph-arrow-counter-clockwise"></i></button>`;
+            } else if (m.stato === 'riconciliato') {
+                azioni = `<button class="btn btn-sm btn-ghost" onclick="ModRiconciliazione.annulla(${m.id})" title="Annulla la riconciliazione"><i class="ph ph-arrow-counter-clockwise"></i> Annulla</button>`;
+            } else {
+                azioni = `<button class="btn btn-sm btn-ghost" onclick="ModRiconciliazione.ripristina(${m.id})"><i class="ph ph-arrow-u-up-left"></i> Ripristina</button>`;
+            }
+            return `<tr data-id="${UI.esc(m.id)}">
+                <td>${UI.formatDate(m.data_valuta || m.data_operazione)}</td>
+                <td><div class="td-primary">${UI.esc(m.controparte || '')}${avviso}</div><div style="font-size:0.78rem;color:var(--text-muted);max-width:520px;white-space:normal">${UI.esc(m.descrizione || '')}</div></td>
+                <td class="text-right">${importo(m.importo)}</td>
+                <td><span class="badge ${s.cls}">${UI.esc(s.label)}</span></td>
+                <td style="font-size:0.82rem">${abbinato || '—'}</td>
+                <td><div class="flex gap-2">${azioni}</div></td>
+            </tr><tr id="ric-prop-${m.id}" style="display:none"><td colspan="6"></td></tr>`;
+        }).join('');
+    }
+
+    // ── Proposte ──
+    async function mostraProposte(id) {
+        const row = document.getElementById(`ric-prop-${id}`);
+        if (!row) return;
+        if (row.style.display !== 'none') { row.style.display = 'none'; return; }
+        row.style.display = '';
+        const cell = row.firstElementChild;
+        cell.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Ricerca proposte...';
+        try {
+            const prop = await Store.api('proposte', 'riconciliazione', { id }) || [];
+            _proposte[id] = prop;
+            if (!prop.length) { cell.innerHTML = '<span style="color:var(--text-muted)">Nessuna proposta: usa la scelta manuale.</span>'; return; }
+            cell.innerHTML = prop.map((p, i) => {
+                const docs = p.tipo === 'avviso'
+                    ? `Avviso di pagamento: ${(p.documenti || []).map(d => UI.esc(d.numero)).join(', ')}`
+                    : (p.documenti || []).map(d => `<span class="td-mono">${UI.esc(d.numero)}</span> ${UI.esc(d.anagrafica_nome || '')} ${UI.esc(UI.formatCurrency(d.importo))}`).join(' + ');
+                return `<div style="display:flex;gap:12px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-subtle)">
+                    <span class="badge badge-blue">${UI.esc(p.punteggio)}</span>
+                    <div style="flex:1">${docs}<div style="font-size:0.75rem;color:var(--text-muted)">${(p.motivi || []).map(UI.esc).join(' · ')}</div></div>
+                    <strong>${UI.esc(UI.formatCurrency(p.totale))}</strong>
+                    <button class="btn btn-sm btn-primary" onclick="ModRiconciliazione.confermaProposta(${id},${i})"><i class="ph ph-check"></i> Conferma</button>
+                </div>`;
+            }).join('');
+        } catch (e) { cell.innerHTML = `<span style="color:#ef4444">${UI.esc(e.message)}</span>`; }
+    }
+
+    async function confermaProposta(id, i) {
+        const p = (_proposte[id] || [])[i];
+        if (!p) return;
+        const payload = { movimento_id: id };
+        if (p.tipo === 'avviso') payload.avviso_id = p.avviso_id;
+        else payload.documenti = JSON.stringify(p.documenti.map(d => ({ tipo: d.tipo, id: d.id, importo: d.importo })));
+        await invia('conferma', payload);
+    }
+
+    // ── Scelta manuale (più fatture, importi modificabili) ──
+    async function sceltaManuale(id) {
+        const m = _movimenti.find(x => x.id == id);
+        if (!m) return;
+        const tipo = parseFloat(m.importo) > 0 ? 'fattura' : 'fattura_passiva';
+        try { _aperti = await Store.api('documenti_aperti', 'riconciliazione', { tipo }) || []; }
+        catch (e) { UI.toast(e.message, 'error'); return; }
+        const gia = (m.riconciliazioni || []).reduce((s, r) => s + (parseFloat(r.importo) || 0), 0);
+        _manuale = { id, disponibile: Math.abs(parseFloat(m.importo)) - gia };
+        const righe = _aperti.map((d, i) => `<tr>
+            <td><input type="checkbox" class="ric-chk" data-i="${i}"></td>
+            <td class="td-mono">${UI.esc(d.numero)}</td>
+            <td>${UI.formatDate(d.data_emissione)}</td>
+            <td>${UI.esc(d.anagrafica_nome || '—')}${d.sottoclienti?.length ? `<div style="font-size:0.72rem;color:var(--text-muted)">${UI.esc(d.sottoclienti.join(', '))}</div>` : ''}</td>
+            <td class="text-right">${UI.esc(UI.formatCurrency(d.residuo))}</td>
+            <td><input type="number" step="0.01" min="0" class="form-control ric-imp" data-i="${i}" value="${UI.esc(d.residuo)}" style="width:110px"></td>
+        </tr>`).join('');
+        const html = `<div style="margin-bottom:12px">${UI.esc(m.descrizione || '')}</div>
+            <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
+                <div>Movimento: ${importo(m.importo)}</div>
+                <div>Selezionato: <strong id="ric-sel">${UI.esc(UI.formatCurrency(0))}</strong></div>
+                <div>Da coprire: <strong id="ric-diff">${UI.esc(UI.formatCurrency(_manuale.disponibile))}</strong></div>
+            </div>
+            <input type="text" class="form-control" id="ric-cerca" placeholder="Cerca numero o intestatario" style="margin-bottom:8px">
+            <div style="max-height:380px;overflow-y:auto"><table class="data-table"><thead><tr><th></th><th>Numero</th><th>Data</th><th>Intestatario</th><th class="text-right">Residuo</th><th>Importo</th></tr></thead>
+            <tbody id="ric-man-body">${righe || '<tr><td colspan="6">Nessuna fattura aperta</td></tr>'}</tbody></table></div>`;
+        UI.openModal('Abbina fatture', html, salvaManuale, { wide: true });
+        const body = document.getElementById('ric-man-body');
+        body.addEventListener('input', aggiornaSomma);
+        body.addEventListener('change', aggiornaSomma);
+        document.getElementById('ric-cerca').addEventListener('input', e => {
+            const q = e.target.value.toLowerCase();
+            body.querySelectorAll('tr').forEach(tr => { tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none'; });
+        });
+    }
+
+    function selezionati() {
+        return Array.from(document.querySelectorAll('#ric-man-body .ric-chk:checked')).map(chk => {
+            const i = parseInt(chk.dataset.i, 10);
+            const inp = document.querySelector(`#ric-man-body .ric-imp[data-i="${i}"]`);
+            return { tipo: _aperti[i].tipo, id: _aperti[i].id, importo: Math.round((parseFloat(inp?.value) || 0) * 100) / 100 };
+        });
+    }
+
+    function aggiornaSomma() {
+        const tot = selezionati().reduce((s, d) => s + d.importo, 0);
+        document.getElementById('ric-sel').textContent = UI.formatCurrency(tot);
+        document.getElementById('ric-diff').textContent = UI.formatCurrency(_manuale.disponibile - tot);
+    }
+
+    async function salvaManuale() {
+        const docs = selezionati();
+        if (!docs.length) { UI.toast('Seleziona almeno una fattura', 'error'); return; }
+        await invia('conferma', { movimento_id: _manuale.id, documenti: JSON.stringify(docs) });
+        UI.closeModal();
+    }
+
+    // ── Azioni ──
+    async function invia(action, payload, conferma) {
+        if (conferma && !confirm(conferma)) return;
+        try {
+            await Store.api(action, 'riconciliazione', payload);
+            UI.toast(action === 'conferma' ? 'Pagamento registrato' : 'Fatto');
+            load();
+        } catch (e) { UI.toast(e.message, 'error'); }
+    }
+    const annulla = id => invia('annulla', { movimento_id: id }, 'Annullare la riconciliazione? Le fatture non più coperte tornano da pagare.');
+    const ignora = id => invia('ignora', { movimento_id: id });
+    const ripristina = id => invia('ignora', { movimento_id: id, ripristina: '1' });
+
+    // ── Import estratto conto ──
+    async function importa(file) {
+        if (!file) return;
+        const isXml = /\.xml$/i.test(file.name) || /xml/.test(file.type);
+        const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+        if (!isXml && !isPdf) { UI.toast('Carica l\'estratto conto XML (CBI) o PDF', 'error'); return; }
+        const btn = document.getElementById(isXml ? 'btn-import-estratto-xml' : 'btn-import-estratto-pdf');
+        const prev = btn.innerHTML; btn.disabled = true;
+        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Lettura...';
+        try {
+            let fd;
+            if (isXml) {
+                fd = new FormData();
+                fd.append('xml', await file.text());
+            } else {
+                fd = Store.formDataFromArray('pages', await pagineConRighe(file));
+            }
+            fd.append('file_nome', file.name);
+            btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Abbinamento...';
+            const r = await Store.upload('import_estratto', 'riconciliazione', fd) || {};
+            mostraRiepilogo(r);
+            load();
+        } catch (e) { UI.toast('Import estratto conto: ' + e.message, 'error'); }
+        finally { btn.innerHTML = prev; btn.disabled = false; }
+    }
+
+    /** Testo del PDF con gli a capo ricostruiti dalla posizione verticale (serve al parser a regole). */
+    async function pagineConRighe(file) {
+        const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+        const pages = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const tc = await (await pdf.getPage(i)).getTextContent();
+            let out = '', lastY = null;
+            tc.items.forEach(it => {
+                const y = Math.round(it.transform[5]);
+                if (lastY !== null && Math.abs(y - lastY) > 2) out += '\n';
+                else if (out && !out.endsWith(' ')) out += ' ';
+                out += it.str;
+                lastY = y;
+            });
+            pages.push(out);
+        }
+        return pages;
+    }
+
+    function mostraRiepilogo(r) {
+        const box = (n, label, color) => `<div style="flex:1;min-width:110px;padding:12px;border:1px solid var(--border-subtle);border-radius:8px;text-align:center">
+            <div style="font-size:1.6rem;font-weight:700;color:${color}">${UI.esc(n ?? 0)}</div><div style="font-size:0.75rem;color:var(--text-muted)">${UI.esc(label)}</div></div>`;
+        const avvisi = (r.avvisi || []).map(a => `<div style="color:#f59e0b">${UI.esc(a)}</div>`).join('');
+        const verifica = (r.movimenti || []).filter(m => m.esito !== 'abbinato').slice(0, 20)
+            .map(m => `<div>${UI.formatDate(m.data)} ${importo(m.importo)} ${UI.esc((m.descrizione || '').slice(0, 90))}</div>`).join('');
+        const html = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+                ${box(r.letti, 'Movimenti letti', 'var(--text-primary)')}
+                ${box(r.non_pertinenti, 'Non pertinenti scartati', 'var(--text-muted)')}
+                ${box(r.nuovi, 'Nuovi', '#6366f1')}
+                ${box(r.abbinati, 'Abbinati in automatico', '#10b981')}
+                ${box(r.da_verificare, 'Da verificare', '#f59e0b')}
+            </div>
+            <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:8px">${UI.esc(r.banca || '')} · lettura: ${UI.esc(r.metodo || '')}${r.gia_presenti ? ` · ${UI.esc(r.gia_presenti)} già importati` : ''}</div>
+            ${avvisi}${verifica ? `<div style="margin-top:10px;font-size:0.82rem;line-height:1.7"><strong>Da verificare</strong>${verifica}</div>` : ''}`;
+        UI.openModal('Import estratto conto', html, null, { readOnly: true });
+    }
+
+    function init() {
+        const bind = (btnId, inputId) => {
+            const btn = document.getElementById(btnId), input = document.getElementById(inputId);
+            if (!btn || !input) return;
+            btn.addEventListener('click', () => input.click());
+            input.addEventListener('change', e => { if (e.target.files.length) importa(e.target.files[0]); e.target.value = ''; });
+        };
+        bind('btn-import-estratto-xml', 'input-estratto-xml');
+        bind('btn-import-estratto-pdf', 'input-estratto-pdf');
+        // Avviso di pagamento del cliente: stesso import della scheda Fatture
+        document.getElementById('btn-ric-avviso')?.addEventListener('click', () => document.getElementById('input-payment-pdf')?.click());
+        document.querySelectorAll('#tab-riconciliazione .filter-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                document.querySelectorAll('#tab-riconciliazione .filter-chip').forEach(c => c.classList.remove('active'));
+                chip.classList.add('active'); _stato = chip.dataset.ricStato || ''; load();
+            });
+        });
+    }
+
+    return { load, init, mostraProposte, confermaProposta, sceltaManuale, annulla, ignora, ripristina };
+})();
+window.ModRiconciliazione = ModRiconciliazione;
