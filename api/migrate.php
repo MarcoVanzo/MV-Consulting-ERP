@@ -302,7 +302,10 @@ $queries = [
     "ALTER TABLE {$prefix}audit_logs CHANGE timestamp created_at DATETIME DEFAULT CURRENT_TIMESTAMP",
 
     // ── FK differita: trasferte → mezzi (ora mezzi esiste) ──
-    "ALTER TABLE {$prefix}trasferte ADD FOREIGN KEY fk_trasferte_mezzo (mezzo_id) REFERENCES {$prefix}mezzi(id) ON DELETE SET NULL"
+    "ALTER TABLE {$prefix}trasferte ADD FOREIGN KEY fk_trasferte_mezzo (mezzo_id) REFERENCES {$prefix}mezzi(id) ON DELETE SET NULL",
+
+    // ── Allineamento password_history (tabella preesistente senza pwd_hash) ──
+    "ALTER TABLE {$prefix}password_history ADD COLUMN pwd_hash VARCHAR(255) DEFAULT NULL AFTER user_id"
 ];
 
 $results = [];
