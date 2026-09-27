@@ -58,6 +58,7 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   (XML CBI, PDF di riserva), tabelle `movimenti_banca`/`riconciliazioni` (v057–v058). Prova: `php tests/riconciliazione_cli.php`.
 - Estratto carta di credito (Riconciliazione → «Estratto carta PDF», CartaBCC/Numia): `EstrattoContoParser::parseEstrattoCarta`,
   movimenti con `origine = 'estratto_carta'` (v070). Restano fuori da categorie e grafici: sul conto c'è già l'addebito mensile.
+  Un estratto carta caricato come estratto conto viene riconosciuto (`eEstrattoCarta`) e importato comunque come carta; v076 sposta quelli già importati male.
 - Lista fatture di Sistemi (Fatture → «Lista fatture (Excel)», .xlsx): `api/Shared/ListaFattureParser.php` + `ContabilitaController::importListaFatture`;
   crea solo le fatture mancanti, il «Residuo» di Sistemi si ignora (è sempre uguale al totale). Prova: `php tests/lista_fatture_cli.php`.
 - Categorie dei movimenti (tab Da classificare / Andamento): `api/Shared/Classificatore.php` (fatture → regole apprese →
