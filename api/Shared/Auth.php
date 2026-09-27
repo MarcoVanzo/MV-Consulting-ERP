@@ -165,21 +165,30 @@ class Auth {
             throw new Exception("La password deve essere di almeno 12 caratteri e contenere maiuscole, minuscole, numeri e caratteri speciali.");
         }
 
-        // History check
-        $stmtHist = $this->db->prepare("SELECT pwd_hash FROM {$prefix}password_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 5");
-        $stmtHist->execute([$userId]);
-        $history = $stmtHist->fetchAll(PDO::FETCH_COLUMN);
+        // History check: uno schema disallineato di password_history non deve impedire il cambio password
+        try {
+            $stmtHist = $this->db->prepare("SELECT pwd_hash FROM {$prefix}password_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 5");
+            $stmtHist->execute([$userId]);
+            $history = $stmtHist->fetchAll(PDO::FETCH_COLUMN);
+        } catch (PDOException $e) {
+            error_log('password_history non leggibile: ' . $e->getMessage());
+            $history = [];
+        }
         foreach ($history as $oldHash) {
-            if (password_verify($newPwd, $oldHash)) {
+            if ($oldHash && password_verify($newPwd, $oldHash)) {
                 throw new Exception("Non puoi riutilizzare una delle ultime 5 password.");
             }
         }
 
         $hash = password_hash($newPwd, PASSWORD_DEFAULT);
         $this->db->prepare("UPDATE {$prefix}users SET password = ?, last_password_change = NOW(), must_change_password = 0 WHERE id = ?")->execute([$hash, $userId]);
-        
-        $this->db->prepare("INSERT INTO {$prefix}password_history (user_id, pwd_hash) VALUES (?, ?)")->execute([$userId, $hash]);
-        $this->db->prepare("DELETE FROM {$prefix}password_history WHERE user_id = ? AND id NOT IN (SELECT id FROM (SELECT id FROM {$prefix}password_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 5) AS recent)")->execute([$userId, $userId]);
+
+        try {
+            $this->db->prepare("INSERT INTO {$prefix}password_history (user_id, pwd_hash) VALUES (?, ?)")->execute([$userId, $hash]);
+            $this->db->prepare("DELETE FROM {$prefix}password_history WHERE user_id = ? AND id NOT IN (SELECT id FROM (SELECT id FROM {$prefix}password_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 5) AS recent)")->execute([$userId, $userId]);
+        } catch (PDOException $e) {
+            error_log('password_history non aggiornabile: ' . $e->getMessage());
+        }
 
         return true;
     }
