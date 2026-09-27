@@ -137,35 +137,52 @@ class RiconciliazioneMatch
     /**
      * Sottoinsiemi che sommano esattamente a $target (centesimi, tolleranza 1 cent).
      * $voci: [['id' => mixed, 'opzioni' => [int centesimi, ...]]] — più opzioni per la stessa voce
-     * (es. con/senza ritenuta): se ne usa al massimo una.
-     * Ricerca limitata: al massimo $maxSoluzioni e $maxNodi nodi (troncato = true se si è fermata prima).
+     * (es. con/senza ritenuta): se ne usa al massimo una. Voci negative = note di credito: entrano solo
+     * insieme ad almeno una voce positiva (al massimo 4 note di credito considerate).
+     * Ricerca limitata: $maxSoluzioni, $maxNodi, $maxElementi voci per soluzione. troncato = true se la
+     * ricerca si è fermata prima di aver visto tutto (anche perché ha raggiunto $maxSoluzioni):
+     * in quel caso l'unicità non è dimostrata e non si abbina in automatico.
      * @return array{soluzioni: array<int, array<mixed,int>>, troncato: bool}
      */
-    public static function subsetSum(array $voci, int $target, int $maxSoluzioni = 2, int $maxNodi = 200000): array
+    public static function subsetSum(array $voci, int $target, int $maxSoluzioni = 2, int $maxNodi = 200000, int $maxElementi = 0): array
     {
-        $voci = array_values(array_filter(array_map(function ($v) {
-            $v['opzioni'] = array_values(array_filter(array_map('intval', $v['opzioni']), fn($c) => $c > 0));
-            return $v;
-        }, $voci), fn($v) => $v['opzioni']));
-        usort($voci, fn($a, $b) => max($b['opzioni']) <=> max($a['opzioni']));
-        $n = count($voci);
+        $pos = [];
+        $neg = [];
+        foreach ($voci as $v) {
+            $opz = array_values(array_filter(array_map('intval', $v['opzioni']), fn($c) => $c !== 0));
+            if (!$opz) continue;
+            if ($opz[0] > 0) $pos[] = ['id' => $v['id'], 'opzioni' => array_values(array_filter($opz, fn($c) => $c > 0))];
+            else $neg[] = ['id' => $v['id'], 'c' => $opz[0]];
+        }
+        $troncato = count($neg) > 4;
+        $neg = array_slice($neg, 0, 4);
+        usort($pos, fn($a, $b) => max($b['opzioni']) <=> max($a['opzioni']));
+        $n = count($pos);
         $suffisso = array_fill(0, $n + 1, 0);
-        for ($i = $n - 1; $i >= 0; $i--) $suffisso[$i] = $suffisso[$i + 1] + max($voci[$i]['opzioni']);
+        for ($i = $n - 1; $i >= 0; $i--) $suffisso[$i] = $suffisso[$i + 1] + max($pos[$i]['opzioni']);
 
         $soluzioni = [];
         $nodi = 0;
-        $troncato = false;
-        $dfs = function (int $i, int $resto, array $scelte) use (&$dfs, &$soluzioni, &$nodi, &$troncato, $voci, $n, $suffisso, $maxSoluzioni, $maxNodi) {
-            if (count($soluzioni) >= $maxSoluzioni) return;
-            if (++$nodi > $maxNodi) { $troncato = true; return; }
-            if (abs($resto) <= 1 && $scelte) { $soluzioni[] = $scelte; return; }
-            if ($i >= $n || $resto < 0 || $suffisso[$i] < $resto - 1) return;
-            foreach ($voci[$i]['opzioni'] as $c) {
-                if ($c <= $resto + 1) $dfs($i + 1, $resto - $c, $scelte + [$voci[$i]['id'] => $c]);
+        // Ogni combinazione di note di credito sposta il bersaglio delle fatture
+        for ($mask = 0; $mask < (1 << count($neg)); $mask++) {
+            $base = [];
+            $bersaglio = $target;
+            foreach ($neg as $k => $nc) {
+                if ($mask & (1 << $k)) { $base[$nc['id']] = $nc['c']; $bersaglio -= $nc['c']; }
             }
-            $dfs($i + 1, $resto, $scelte);
-        };
-        $dfs(0, $target, []);
+            $dfs = function (int $i, int $resto, array $scelte, int $quante) use (&$dfs, &$soluzioni, &$nodi, &$troncato, $pos, $n, $suffisso, $maxSoluzioni, $maxNodi, $maxElementi, $base) {
+                if (count($soluzioni) >= $maxSoluzioni) { $troncato = true; return; }
+                if (++$nodi > $maxNodi) { $troncato = true; return; }
+                if (abs($resto) <= 1 && $scelte) { $soluzioni[] = $base + $scelte; return; }
+                if ($i >= $n || $resto < 0 || $suffisso[$i] < $resto - 1) return;
+                if ($maxElementi && $quante + count($base) >= $maxElementi) return;
+                foreach ($pos[$i]['opzioni'] as $c) {
+                    if ($c <= $resto + 1) $dfs($i + 1, $resto - $c, $scelte + [$pos[$i]['id'] => $c], $quante + 1);
+                }
+                $dfs($i + 1, $resto, $scelte, $quante);
+            };
+            $dfs(0, $bersaglio, [], 0);
+        }
         return ['soluzioni' => $soluzioni, 'troncato' => $troncato];
     }
 
@@ -194,6 +211,22 @@ class RiconciliazioneMatch
         // Senza importo, intestatario o numero la vicinanza alla scadenza da sola non basta
         if ($opzione === null && !$numeroInCausale && !($anagId && (int)$doc['anagrafica_id'] === $anagId)) $p = 0;
         return ['punteggio' => $p, 'motivi' => $motivi, 'opzione' => $opzione];
+    }
+
+    /**
+     * Due causali descrivono lo stesso movimento? Parole significative (senza numeri) in comune:
+     * almeno il 60% di quelle della causale più corta (il PDF spesso ne tronca una parte).
+     */
+    public static function causaliSimili(string $a, string $b): bool
+    {
+        $parole = function (string $t): array {
+            $t = preg_replace('/[^A-Z]+/', ' ', strtoupper(iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $t) ?: $t)) ?? '';
+            return array_values(array_unique(array_filter(explode(' ', $t), fn($w) => strlen($w) >= 3)));
+        };
+        $pa = $parole($a);
+        $pb = $parole($b);
+        if (!$pa || !$pb) return !$pa && !$pb;
+        return count(array_intersect($pa, $pb)) / min(count($pa), count($pb)) >= 0.6;
     }
 
     /** Distanza in giorni tra due date AAAA-MM-GG. */

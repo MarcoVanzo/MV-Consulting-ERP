@@ -130,11 +130,11 @@ const ModRiconciliazione = (() => {
         _manuale = { id, disponibile: Math.abs(parseFloat(m.importo)) - gia };
         const righe = _aperti.map((d, i) => `<tr>
             <td><input type="checkbox" class="ric-chk" data-i="${i}"></td>
-            <td class="td-mono">${UI.esc(d.numero)}</td>
+            <td class="td-mono">${UI.esc(d.numero)}${d.nota_credito ? ' <span class="badge badge-purple">NC</span>' : ''}</td>
             <td>${UI.formatDate(d.data_emissione)}</td>
             <td>${UI.esc(d.anagrafica_nome || '—')}${d.sottoclienti?.length ? `<div style="font-size:0.72rem;color:var(--text-muted)">${UI.esc(d.sottoclienti.join(', '))}</div>` : ''}</td>
             <td class="text-right">${UI.esc(UI.formatCurrency(d.residuo))}</td>
-            <td><input type="number" step="0.01" min="0" class="form-control ric-imp" data-i="${i}" value="${UI.esc(d.residuo)}" style="width:110px"></td>
+            <td><input type="number" step="0.01" class="form-control ric-imp" data-i="${i}" value="${UI.esc(d.residuo)}" style="width:110px" title="${d.nota_credito ? 'Nota di credito: importo negativo, va insieme a una fattura' : ''}"></td>
         </tr>`).join('');
         const html = `<div style="margin-bottom:12px">${UI.esc(m.descrizione || '')}</div>
             <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
@@ -172,18 +172,19 @@ const ModRiconciliazione = (() => {
     async function salvaManuale() {
         const docs = selezionati();
         if (!docs.length) { UI.toast('Seleziona almeno una fattura', 'error'); return; }
-        await invia('conferma', { movimento_id: _manuale.id, documenti: JSON.stringify(docs) });
-        UI.closeModal();
+        // Il modal resta aperto se il server rifiuta (es. importo oltre il residuo): si corregge e si riprova
+        if (await invia('conferma', { movimento_id: _manuale.id, documenti: JSON.stringify(docs) })) UI.closeModal();
     }
 
     // ── Azioni ──
     async function invia(action, payload, conferma) {
-        if (conferma && !confirm(conferma)) return;
+        if (conferma && !confirm(conferma)) return false;
         try {
             await Store.api(action, 'riconciliazione', payload);
             UI.toast(action === 'conferma' ? 'Pagamento registrato' : 'Fatto');
             load();
-        } catch (e) { UI.toast(e.message, 'error'); }
+            return true;
+        } catch (e) { UI.toast(e.message, 'error'); return false; }
     }
     const annulla = id => invia('annulla', { movimento_id: id }, 'Annullare la riconciliazione? Le fatture non più coperte tornano da pagare.');
     const ignora = id => invia('ignora', { movimento_id: id });

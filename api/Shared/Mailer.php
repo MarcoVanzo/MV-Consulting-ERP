@@ -13,6 +13,11 @@ class Mailer
 {
     public static function send(string $to, ?string $name, string $subject, string $message, bool $html = false): bool
     {
+        // Niente CR/LF (header injection) e solo indirizzi validi
+        if (preg_match('/[\r\n]/', $to . (string)$name . $subject) || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            error_log('Mailer: destinatario o oggetto non validi, invio annullato');
+            return false;
+        }
         $root = dirname(__DIR__, 3);
         $libreria = $root . '/invio-smtp.php';
         $config = $root . '/config-smtp.php';

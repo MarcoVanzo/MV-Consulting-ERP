@@ -55,7 +55,10 @@ const ModPartner = (() => {
         const inp = document.getElementById('pa-import-file');
         document.getElementById('pa-import').addEventListener('click', () => inp.click());
         inp.addEventListener('change', e => { if (e.target.files.length) importXml(Array.from(e.target.files)); e.target.value = ''; });
-        box.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => azione(b.dataset.act, parseInt(b.dataset.id, 10))));
+        box.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', e => {
+            e.preventDefault(); // i link hanno href="#": senza, cambierebbe l'hash e la pagina salterebbe in cima
+            azione(b.dataset.act, parseInt(b.dataset.id, 10));
+        }));
     }
 
     function rowsPassive() {

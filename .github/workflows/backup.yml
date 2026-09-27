@@ -1,0 +1,33 @@
+name: Backup notturno ERP
+
+# L'hosting non ha crontab: ogni notte GitHub chiama l'ERP, che fa il dump coerente del
+# database in storage/backups, lo carica su Google Drive (se configurato) e tiene solo
+# gli ultimi BACKUP_KEEP backup (default 14).
+# Serve il secret BACKUP_CRON_TOKEN, uguale a quello nel .env del server
+# (diverso da PROMEMORIA_CRON_TOKEN).
+
+on:
+  schedule:
+    - cron: '15 2 * * *'   # 04:15 ora legale italiana (03:15 d'inverno)
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chiama l'ERP
+        env:
+          TOKEN: ${{ secrets.BACKUP_CRON_TOKEN }}
+          URL: https://www.mv-consulting.it/ERP/api/router.php?module=cron&action=backup
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::notice::Secret BACKUP_CRON_TOKEN non impostato: backup notturno non attivo"
+            exit 0
+          fi
+          # Repository pubblico: la risposta non va nei log, solo il codice HTTP
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 300 -X POST -H "X-Cron-Token: $TOKEN" "$URL" || true)
+          echo "Risposta ERP: HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "::error::Backup non riuscito (HTTP $code): controlla il pannello Admin → Backup"
+            exit 1
+          fi

@@ -578,7 +578,16 @@ $queries = [
 
     "ALTER TABLE {$prefix}fornitori
         ADD COLUMN categoria_default_id INT DEFAULT NULL,
-        ADD CONSTRAINT fk_fornitori_categoria FOREIGN KEY (categoria_default_id) REFERENCES {$prefix}categorie_movimento(id) ON DELETE SET NULL"
+        ADD CONSTRAINT fk_fornitori_categoria FOREIGN KEY (categoria_default_id) REFERENCES {$prefix}categorie_movimento(id) ON DELETE SET NULL",
+
+    // v064: stato della fattura prima del pagamento, per ripristinarlo se la riconciliazione viene annullata
+    "ALTER TABLE {$prefix}riconciliazioni ADD COLUMN stato_precedente VARCHAR(20) DEFAULT NULL",
+
+    // v065: tipo documento SDI (TD01 fattura, TD04/TD08 nota di credito...): distingue documenti con lo stesso numero
+    "ALTER TABLE {$prefix}fatture ADD COLUMN tipo_documento VARCHAR(4) DEFAULT NULL",
+
+    // v066: una fattura può chiudere più rate (es. acconto + saldo fatturati insieme): l'indice su fattura_id non è più unico
+    "ALTER TABLE {$prefix}incarichi_rate DROP INDEX uq_rate_fattura, ADD KEY idx_rate_fattura (fattura_id)"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
 

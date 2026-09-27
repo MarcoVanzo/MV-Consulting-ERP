@@ -57,7 +57,7 @@ class Scadenzario
         return $stmt->fetchAll();
     }
 
-    /** Rate da fatturare, con i dati da ricopiare in Sistemi. */
+    /** Rate da fatturare, con i dati da ricopiare in Sistemi. Quelle senza data compaiono in coda ("senza data"). */
     private function rateDaFatturare(string $limite): array
     {
         $stmt = $this->pdo->prepare("SELECT r.id, r.incarico_id, r.descrizione, r.importo, r.data_prevista, r.giorni_pagamento,
@@ -70,8 +70,8 @@ class Scadenzario
             LEFT JOIN {$this->p}clienti c ON c.id = i.cliente_id
             LEFT JOIN {$this->p}sottoclienti sc ON sc.id = i.sottocliente_id
             LEFT JOIN {$this->p}offerte o ON o.id = i.offerta_id
-            WHERE r.fattura_id IS NULL AND r.data_prevista IS NOT NULL AND r.data_prevista <= ?
-            ORDER BY r.data_prevista, r.id");
+            WHERE r.fattura_id IS NULL AND (r.data_prevista IS NULL OR r.data_prevista <= ?)
+            ORDER BY r.data_prevista IS NULL, r.data_prevista, r.id");
         $stmt->execute([$limite]);
         $rows = $stmt->fetchAll();
         $svc = new CommessaService($this->pdo, $this->p);
@@ -82,6 +82,7 @@ class Scadenzario
                 'numero_protocollo' => $r['numero_protocollo'], 'sottocliente_nome' => $r['sottocliente_nome'],
             ], $r);
             if ($r['iva_percentuale'] === null) $r['iva_percentuale'] = 22;
+            $r['senza_data'] = $r['data_prevista'] === null;
         }
         unset($r);
         return $rows;

@@ -333,6 +333,16 @@ body {
   font-weight: 500;
 }
 
+/* Alias usato dal pannello admin */
+.kpi-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-1);
+  font-weight: 500;
+}
+
 .kpi-value {
   font-family: var(--font-display);
   font-size: 1.75rem;
@@ -522,6 +532,7 @@ body {
 .badge-red    { background: rgba(239, 68, 68, 0.15); color: #FCA5A5; }
 .badge-blue   { background: rgba(31, 136, 201, 0.15); color: #7DD3FC; }
 .badge-purple { background: rgba(139, 92, 246, 0.15); color: #C4B5FD; }
+.badge-gray   { background: rgba(148, 163, 184, 0.15); color: #CBD5E1; }
 
 /* ═══════════════════════════════════════════════════
    MODAL
@@ -871,10 +882,32 @@ textarea.form-control {
   to   { transform: translateX(0); opacity: 1; }
 }
 
+/* Barre di tab (Trasferte, Contabilità): scorrono in orizzontale su schermi stretti */
+.tabs-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.tabs-container::-webkit-scrollbar { display: none; }
+.tabs-container > .tab {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Icona di caricamento: ruota solo se l'utente non chiede movimento ridotto */
+@media (prefers-reduced-motion: no-preference) {
+  .ph-spin { display: inline-block; animation: phSpin 1s linear infinite; }
+  @keyframes phSpin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+}
+
 /* ═══════════════════════════════════════════════════
    RESPONSIVE
    ═══════════════════════════════════════════════════ */
 @media (max-width: 768px) {
+  .tabs-container { margin-left: 16px !important; margin-right: 16px !important; }
   .sidebar {
     width: var(--sidebar-collapsed);
   }

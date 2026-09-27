@@ -84,9 +84,67 @@ class Security
         if (file_exists($file)) @unlink($file);
     }
 
+    // ─── IP DEL CLIENT E HTTPS DIETRO PROXY ───────────────────────────────────
+
+    /** Reti fidate di default (TRUSTED_PROXIES vuoto): loopback e reti private */
+    private const DEFAULT_TRUSTED_PROXIES = '127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7';
+
+    /**
+     * IP del client. X-Forwarded-For conta solo se la richiesta arriva da un proxy fidato
+     * (TRUSTED_PROXIES nel .env: IP o CIDR separati da virgola); si prende l'indirizzo più a
+     * destra che non sia un proxy fidato: quelli a sinistra li scrive il client e sono falsificabili.
+     */
     public static function clientIp(): string
     {
-        return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $remote = (string)($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
+        $xff = (string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? '');
+        if ($xff === '' || !self::isTrustedProxy($remote)) return $remote;
+
+        $hops = array_reverse(array_values(array_filter(array_map('trim', explode(',', $xff)), 'strlen')));
+        $ip = $remote;
+        foreach ($hops as $hop) {
+            if (!filter_var($hop, FILTER_VALIDATE_IP)) break; // voce malformata: ci si ferma all'ultimo IP valido
+            $ip = $hop;
+            if (!self::isTrustedProxy($hop)) break;
+        }
+        return $ip;
+    }
+
+    /** true se la richiesta è in HTTPS, anche quando il TLS termina sul proxy */
+    public static function isHttps(): bool
+    {
+        if (!empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off') return true;
+        if (getenv('APP_ENV') === 'production') return true;
+        $proto = strtolower(trim(explode(',', (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
+        return $proto === 'https' && self::isTrustedProxy((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+    }
+
+    public static function isTrustedProxy(string $ip): bool
+    {
+        if (!filter_var($ip, FILTER_VALIDATE_IP)) return false;
+        $lista = trim((string)getenv('TRUSTED_PROXIES')) ?: self::DEFAULT_TRUSTED_PROXIES;
+        foreach (explode(',', $lista) as $cidr) {
+            $cidr = trim($cidr);
+            if ($cidr !== '' && self::ipInCidr($ip, $cidr)) return true;
+        }
+        return false;
+    }
+
+    private static function ipInCidr(string $ip, string $cidr): bool
+    {
+        [$rete, $bits] = array_pad(explode('/', $cidr, 2), 2, null);
+        $ipBin = @inet_pton($ip);
+        $reteBin = @inet_pton((string)$rete);
+        if ($ipBin === false || $reteBin === false || strlen($ipBin) !== strlen($reteBin)) return false;
+        $max = strlen($ipBin) * 8;
+        $bits = ($bits === null || $bits === '') ? $max : (int)$bits;
+        if ($bits < 0 || $bits > $max) return false;
+        $byte = intdiv($bits, 8);
+        if (strncmp($ipBin, $reteBin, $byte) !== 0) return false;
+        $resto = $bits % 8;
+        if ($resto === 0) return true;
+        $mask = (0xFF << (8 - $resto)) & 0xFF;
+        return (ord($ipBin[$byte]) & $mask) === (ord($reteBin[$byte]) & $mask);
     }
 
     // ─── BLOCCO TEMPORANEO ACCOUNT ────────────────────────────────────────────

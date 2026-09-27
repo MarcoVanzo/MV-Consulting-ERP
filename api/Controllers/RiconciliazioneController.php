@@ -41,9 +41,9 @@ class RiconciliazioneController {
     }
 
     /** Aggiorna le categorie dopo un import o un cambio di riconciliazione (se la migrazione c'è). */
-    public static function classifica(PDO $pdo, string $prefix, ?array $ids = null): ?array {
+    public static function classifica(PDO $pdo, string $prefix, ?array $ids = null, bool $ancheAutomatiche = false): ?array {
         if (!Classificatore::tabellePresenti($pdo, $prefix)) return null;
-        return (new Classificatore($pdo, $prefix))->classifica($ids);
+        return (new Classificatore($pdo, $prefix))->classifica($ids, $ancheAutomatiche);
     }
 
     private function userId(): ?int {
@@ -97,7 +97,7 @@ class RiconciliazioneController {
         unset($esito['ids']);
         $esito['metodo'] = $letto['metodo'];
         $esito['banca'] = $letto['banca'];
-        $esito['avvisi'] = $letto['avvisi'];
+        $esito['avvisi'] = array_merge($letto['avvisi'], $esito['avvisi'] ?? []);
         Response::json(true, 'Estratto conto importato', $esito);
     }
 
@@ -137,14 +137,14 @@ class RiconciliazioneController {
         try {
             if (!empty($data['avviso_id'])) {
                 $ric->collegaAvviso($movId, (int)$data['avviso_id']);
-                self::classifica($this->pdo, $this->prefix, [$movId]);
+                self::classifica($this->pdo, $this->prefix, [$movId], true);
                 Audit::log('UPDATE', 'movimenti_banca', (string)$movId, null, null, ['avviso_id' => (int)$data['avviso_id']]);
                 Response::json(true, 'Accredito collegato all\'avviso di pagamento');
             }
             $docs = json_decode((string)($data['documenti'] ?? '[]'), true);
             if (!is_array($docs) || !$docs) Response::json(false, 'Seleziona almeno una fattura');
             $saldati = $ric->registra($movId, $docs, 'manuale', $this->userId());
-            self::classifica($this->pdo, $this->prefix, [$movId]);
+            self::classifica($this->pdo, $this->prefix, [$movId], true);
         } catch (RuntimeException $e) {
             Response::json(false, $e->getMessage());
         }
@@ -158,7 +158,7 @@ class RiconciliazioneController {
             $mov = $this->riconciliatore()->movimento($movId);
             $riaperte = $this->riconciliatore()->annulla($movId);
             // Annullando un avviso si scollega anche il suo accredito: le categorie di entrambi si ricalcolano
-            self::classifica($this->pdo, $this->prefix, $mov['origine'] === 'avviso_pagamento' ? null : [$movId]);
+            self::classifica($this->pdo, $this->prefix, $mov['origine'] === 'avviso_pagamento' ? null : [$movId], true);
         } catch (RuntimeException $e) {
             Response::json(false, $e->getMessage());
         }

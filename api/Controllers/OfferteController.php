@@ -213,9 +213,22 @@ class OfferteController {
 
         $dataAcc = $this->data($data['data_accettazione'] ?? null) ?? date('Y-m-d');
         $protocollo = trim((string)($data['numero_protocollo'] ?? '')) ?: null;
-        $piano = json_decode((string)$o['piano_rate'], true) ?: [];
+        $piano = $this->parsePiano($o['piano_rate'] ?? '[]');
+        // Piano salvato prima del controllo in save(): le rate devono comunque coprire il 100%
+        $sommaPerc = array_sum(array_column($piano, 'percentuale'));
+        if ($piano && abs($sommaPerc - 100) > 0.01) {
+            Response::json(false, 'Il piano rate somma al ' . round($sommaPerc, 2) . '%: correggilo (100%) prima di accettare');
+        }
 
         $this->pdo->beginTransaction();
+        // Transizione atomica: due accettazioni concorrenti non creano due incarichi
+        $stmt = $this->pdo->prepare("UPDATE {$p}offerte SET stato = 'accettata', data_esito = ?
+            WHERE id = ? AND stato IN ('bozza', 'inviata') AND deleted_at IS NULL");
+        $stmt->execute([$dataAcc, $id]);
+        if ($stmt->rowCount() !== 1) {
+            $this->pdo->rollBack();
+            Response::json(false, 'Offerta già accettata o modificata nel frattempo: ricarica la pagina', null, 409);
+        }
         $this->pdo->prepare("INSERT INTO {$p}incarichi
                 (cliente_id, sottocliente_id, offerta_id, data_incarico, tipo_commessa, numero_protocollo, descrizione,
                  num_giornate, importo_totale, giorni_pagamento, condizioni_pagamento, note)
@@ -227,7 +240,7 @@ class OfferteController {
 
         (new CommessaService($this->pdo, $p))->creaRateDaPiano($incaricoId, (float)$o['imponibile'], $piano, $dataAcc, (int)$o['giorni_pagamento']);
         $this->pdo->prepare("UPDATE {$p}commessa_costi SET incarico_id = ? WHERE offerta_id = ? AND incarico_id IS NULL")->execute([$incaricoId, $id]);
-        $this->pdo->prepare("UPDATE {$p}offerte SET stato = 'accettata', data_esito = ?, incarico_id = ? WHERE id = ?")->execute([$dataAcc, $incaricoId, $id]);
+        $this->pdo->prepare("UPDATE {$p}offerte SET incarico_id = ? WHERE id = ?")->execute([$incaricoId, $id]);
         $this->pdo->commit();
 
         Audit::log('UPDATE', 'offerte', (string)$id, ['stato' => $o['stato']], ['stato' => 'accettata', 'incarico_id' => $incaricoId]);

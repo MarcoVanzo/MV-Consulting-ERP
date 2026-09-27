@@ -68,36 +68,50 @@ class FatturePassiveController {
             $fields['data_scadenza'] = date('Y-m-d', strtotime($fields['data_emissione'] . ' +' . $this->giorniPagamento($fields['fornitore_id'], $costoId) . ' days'));
         }
 
-        if ($id) {
-            $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($fields)));
-            $this->pdo->prepare("UPDATE {$p}fatture_passive SET $sets WHERE id = ?")->execute(array_merge(array_values($fields), [$id]));
-        } else {
-            $cols = implode(', ', array_keys($fields));
-            $ph = implode(', ', array_fill(0, count($fields), '?'));
-            try {
+        // Chiave unica fornitore + numero + data: il duplicato è un errore dell'utente, non del server
+        $msgDup = 'La fattura n. ' . $fields['numero'] . ' del ' . date('d/m/Y', strtotime($fields['data_emissione']))
+            . ' è già registrata per questo fornitore';
+        try {
+            if ($id) {
+                $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($fields)));
+                $this->pdo->prepare("UPDATE {$p}fatture_passive SET $sets WHERE id = ?")->execute(array_merge(array_values($fields), [$id]));
+            } else {
+                $cols = implode(', ', array_keys($fields));
+                $ph = implode(', ', array_fill(0, count($fields), '?'));
                 $this->pdo->prepare("INSERT INTO {$p}fatture_passive ($cols) VALUES ($ph)")->execute(array_values($fields));
-            } catch (PDOException $e) {
-                if ((int)($e->errorInfo[1] ?? 0) === 1062) Response::json(false, 'Fattura già registrata per questo fornitore');
-                throw $e;
+                $id = (int)$this->pdo->lastInsertId();
             }
-            $id = (int)$this->pdo->lastInsertId();
+        } catch (PDOException $e) {
+            if ((int)($e->errorInfo[1] ?? 0) === 1062) Response::json(false, $msgDup, null, 409);
+            throw $e;
         }
         Audit::log(!empty($data['id']) ? 'UPDATE' : 'INSERT', 'fatture_passive', (string)$id, null, ['numero' => $fields['numero'], 'totale' => $fields['importo_totale']]);
         Response::json(true, 'Fattura fornitore salvata', ['id' => $id]);
     }
 
     public function delete($id) {
+        $this->bloccaSeRiconciliata((int)$id);
         $this->pdo->prepare("DELETE FROM {$this->prefix}fatture_passive WHERE id = ?")->execute([(int)$id]);
         Audit::log('DELETE', 'fatture_passive', (string)$id, null, null);
         Response::json(true, 'Fattura fornitore eliminata');
+    }
+
+    /** Una fattura abbinata a un movimento bancario non si cancella né si riapre a mano */
+    private function bloccaSeRiconciliata(int $id): void {
+        require_once __DIR__ . '/../Shared/Riconciliatore.php';
+        if (Riconciliatore::riconciliazioniDi($this->pdo, $this->prefix, 'fattura_passiva', $id)) {
+            Response::json(false, 'La fattura è abbinata a un movimento bancario: annulla prima la riconciliazione (Contabilità › Riconciliazione).');
+        }
     }
 
     /** Segna pagata (o annulla il pagamento con data vuota). */
     public function setPagata($data) {
         $id = (int)($data['id'] ?? 0);
         $dataPag = $this->data($data['data_pagamento'] ?? null);
-        if (($data['annulla'] ?? '') === '1') $dataPag = null;
-        elseif (!$dataPag) $dataPag = date('Y-m-d');
+        if (($data['annulla'] ?? '') === '1') {
+            $this->bloccaSeRiconciliata($id);
+            $dataPag = null;
+        } elseif (!$dataPag) $dataPag = date('Y-m-d');
         $this->pdo->prepare("UPDATE {$this->prefix}fatture_passive SET data_pagamento = ?, stato = ? WHERE id = ?")
             ->execute([$dataPag, $dataPag ? 'pagata' : 'da_pagare', $id]);
         Audit::log('UPDATE', 'fatture_passive', (string)$id, null, ['data_pagamento' => $dataPag]);
@@ -171,10 +185,17 @@ class FatturePassiveController {
             $imp = round($segno * $imponibile, 2);
             $iv = round($segno * $iva, 2);
             $rit = round($segno * $ritenuta, 2);
-            $this->pdo->prepare("INSERT INTO {$p}fatture_passive
-                    (fornitore_id, incarico_id, costo_id, numero, data_emissione, descrizione, imponibile, importo_iva, ritenuta, importo_totale, data_scadenza)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                ->execute([$fornitoreId, $incaricoId, $costoId, $numero, $dataEm, $descrizione, $imp, $iv, $rit, round($imp + $iv - $rit, 2), $scadenza]);
+            try {
+                $this->pdo->prepare("INSERT INTO {$p}fatture_passive
+                        (fornitore_id, incarico_id, costo_id, numero, data_emissione, descrizione, imponibile, importo_iva, ritenuta, importo_totale, data_scadenza)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                    ->execute([$fornitoreId, $incaricoId, $costoId, $numero, $dataEm, $descrizione, $imp, $iv, $rit, round($imp + $iv - $rit, 2), $scadenza]);
+            } catch (PDOException $e) {
+                // Stesso numero due volte nello stesso file: si segnala e si prosegue
+                if ((int)($e->errorInfo[1] ?? 0) !== 1062) throw $e;
+                $messaggi[] = "Fattura $numero di $nome già presente.";
+                continue;
+            }
             $importate++;
             $messaggi[] = "Fattura $numero di $nome importata" . ($costoId ? ' e collegata alla commessa.' : ': da collegare a una commessa.');
         }

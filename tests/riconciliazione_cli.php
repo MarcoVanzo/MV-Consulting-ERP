@@ -137,13 +137,24 @@ $m0 = $letto['movimenti'][0];
 check('data valuta senza fuso orario', $m0['data_valuta'] === '2026-07-20');
 check('addebito negativo con controparte da Cdtr', $letto['movimenti'][7]['importo'] === -350.0 && $letto['movimenti'][7]['controparte'] === 'STUDIO PAGHE ALFA SAS');
 check('codice operazione', $letto['movimenti'][6]['codice_operazione'] === '47//00');
-check('hash dal riferimento banca', EstrattoContoParser::conHash([$m0])[0]['hash_riga'] === hash('sha256', 'ref|IT00X0000000000000000000000|R1'));
+check('hash dal riferimento banca con data e importo', EstrattoContoParser::conHash([$m0])[0]['hash_riga'] === hash('sha256', 'ref|IT00X0000000000000000000000|R1|2026-07-20|3050.00'));
 $sbagliato = EstrattoContoParser::parseXmlCbi(cbi([ntry('Z', 10, 'CRDT', '2026-01-01', 'x')], 0, 99));
 check('quadratura sbagliata segnalata', count($sbagliato['avvisi']) === 1);
 
 // ═══ 3. Motore su SQLite ════════════════════════════════════
 echo "Riconciliatore (SQLite in memoria)\n";
-$pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+/** PDO che conta le query (per verificare che le liste non facciano una query per riga) */
+class ContaPdo extends PDO
+{
+    public int $n = 0;
+    public function prepare(string $query, array $options = []): PDOStatement|false { $this->n++; return parent::prepare($query, $options); }
+    public function query(string $query, ?int $fetchMode = null, mixed ...$args): PDOStatement|false
+    {
+        $this->n++;
+        return $fetchMode === null ? parent::query($query) : parent::query($query, $fetchMode, ...$args);
+    }
+}
+$pdo = new ContaPdo('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
 $p = 'mv_';
 foreach ([
     "CREATE TABLE {$p}clienti (id INTEGER PRIMARY KEY, ragione_sociale TEXT, partita_iva TEXT, codice_fiscale TEXT)",
@@ -166,7 +177,8 @@ foreach ([
         categoria_proposta_id INT, proposta_motivo TEXT, abbinabile INT NOT NULL DEFAULT 1,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)",
     "CREATE TABLE {$p}riconciliazioni (id INTEGER PRIMARY KEY, movimento_id INT NOT NULL REFERENCES {$p}movimenti_banca(id) ON DELETE CASCADE,
-        tipo TEXT NOT NULL, documento_id INT NOT NULL, importo REAL NOT NULL, metodo TEXT NOT NULL, created_by INT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)",
+        tipo TEXT NOT NULL, documento_id INT NOT NULL, importo REAL NOT NULL, metodo TEXT NOT NULL, created_by INT, stato_precedente TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP)",
 ] as $sql) $pdo->exec($sql);
 // Categorie iniziali: la stessa INSERT della migrazione v060 (INSERT IGNORE → sintassi SQLite)
 $src = (string)file_get_contents(__DIR__ . '/../api/migrate.php');
@@ -322,8 +334,9 @@ $regWise = ['id' => 1, 'chiave' => 'WISE', 'codice_operazione' => '', 'segno' =>
 check('regola: parola intera, segno giusto', Classificatore::regolaCorrisponde($regWise, ['importo' => 10, 'descrizione' => 'Wise 123 Italy', 'controparte' => null])
     && !Classificatore::regolaCorrisponde($regWise, ['importo' => -10, 'descrizione' => 'Wise 123', 'controparte' => null])
     && !Classificatore::regolaCorrisponde($regWise, ['importo' => 10, 'descrizione' => 'WISEMAN SRL', 'controparte' => null]));
-$regCod = ['id' => 2, 'chiave' => '', 'codice_operazione' => '47//20', 'segno' => -1, 'categoria_id' => 9];
-check('regola per codice operazione', Classificatore::regolaCorrisponde($regCod, ['importo' => -500, 'descrizione' => 'x', 'codice_operazione' => '47//20']));
+$regCod = ['id' => 2, 'chiave' => 'MUTUO', 'codice_operazione' => '47//20', 'segno' => -1, 'categoria_id' => 9];
+check('regola con codice operazione come restrizione', Classificatore::regolaCorrisponde($regCod, ['importo' => -500, 'descrizione' => 'rata mutuo', 'codice_operazione' => '47//20'])
+    && !Classificatore::regolaCorrisponde($regCod, ['importo' => -500, 'descrizione' => 'rata mutuo', 'codice_operazione' => '48//00']));
 $m = ['importo' => 10, 'descrizione' => 'Wise Italy Girls', 'controparte' => null];
 check('vince la regola più specifica', Classificatore::sceltaRegola([$regWise, ['id' => 3, 'chiave' => 'WISE ITALY', 'codice_operazione' => '', 'segno' => 1, 'categoria_id' => 7]], $m)['id'] === 3);
 check('due regole ugualmente specifiche e discordi: nessuna', Classificatore::sceltaRegola([$regWise, ['id' => 4, 'chiave' => 'ROMA', 'codice_operazione' => '', 'segno' => 1, 'categoria_id' => 7]],
@@ -419,6 +432,172 @@ $atteso = (float)$pdo->query("SELECT SUM(importo) FROM {$p}movimenti_banca WHERE
 check('statistiche dal DB: netto = somma dei movimenti bancari (avvisi esclusi)', abs($stat['totali']['netto'] - $atteso) < 0.01 && count($stat['mesi']) === 12, [$stat['totali'], $atteso]);
 $nc = array_values(array_filter($stat['entrate']['categorie'], fn($c) => $c['id'] === null));
 check('quota "Non classificato" nelle entrate', $nc && $nc[0]['numero'] >= 1);
+
+// ═══ 3c. Correzioni della revisione (un caso per punto) ═══════
+echo "Correzioni della revisione\n";
+$mv = fn(string $ref, float $imp, string $data, string $descr, ?string $cp = null, string $iban = 'IBX', string $cod = '48//00') =>
+    ['data_operazione' => $data, 'data_valuta' => $data, 'importo' => $imp, 'descrizione' => $descr, 'controparte' => $cp,
+     'riferimento' => $ref, 'iban' => $iban, 'codice_operazione' => $cod];
+$importa = function (array $movs, array $conto = ['iban' => 'IBX']) use ($pdo, &$ric, $cls) {
+    $pdo->beginTransaction();
+    $e = $ric->importaMovimenti($movs, $conto, 7);
+    $cls->classifica($e['ids']);
+    $pdo->commit();
+    return $e;
+};
+$idPer = fn(string $rif) => (int)$pdo->query("SELECT id FROM {$p}movimenti_banca WHERE riferimento_banca = '$rif'")->fetchColumn();
+$fatt = function (int $id, string $num, string $data, int $cli, float $tot, string $stato = 'emessa', ?string $scad = null) use ($ins, $p) {
+    $ins("INSERT INTO {$p}fatture (id, numero_fattura, data_emissione, cliente_id, imponibile, importo_totale, stato, data_scadenza) VALUES (?,?,?,?,?,?,?,?)",
+        [$id, $num, $data, $cli, round($tot / 1.22, 2), $tot, $stato, $scad]);
+};
+foreach ([[20, 'Gamma Impianti Srl'], [21, 'Delta Costruzioni Spa'], [22, 'Omega Logistica Srl'], [23, 'Sigma Studio Associato'], [24, 'Zeta Consulenze Srl']] as $c) {
+    $ins("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (?, ?)", $c);
+}
+// Istanza nuova: il Riconciliatore tiene in memoria le anagrafiche per tutta la richiesta
+$ric = new Riconciliatore($pdo, $p, $dopo);
+
+// #3 hash con data e importo; hash della prima versione riconosciuto
+$h = fn($d) => EstrattoContoParser::conHash([$mv('FISSO', 10.0, $d, 'x')])[0]['hash_riga'];
+check('#3 NtryRef fisso: date diverse, hash diversi', $h('2026-01-05') !== $h('2026-01-06'));
+$ins("INSERT INTO {$p}movimenti_banca (data_operazione, data_valuta, importo, descrizione, hash_riga, abbinabile) VALUES (?,?,?,?,?,0)",
+    ['2025-01-01', '2025-01-01', -1.0, 'vecchio', hash('sha256', 'ref|IBX|VECCHIO')]);
+$e = $importa([$mv('VECCHIO', -1.0, '2025-01-01', 'vecchio')]);
+check('#3 movimento importato con l\'hash della prima versione: già presente', $e['gia_presenti'] === 1 && $e['nuovi'] === 0);
+
+// #15 DOCTYPE, #16 codice dal dominio ISO
+try { EstrattoContoParser::parseXmlCbi('<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a SYSTEM "file:///etc/hosts">]><x>&a;</x>'); $e = null; } catch (RuntimeException $e) {}
+check('#15 XML con DOCTYPE rifiutato', $e instanceof RuntimeException && strpos($e->getMessage(), 'DOCTYPE') !== false);
+$domn = str_replace('<ns5:Prtry><ns5:Cd>48//00</ns5:Cd></ns5:Prtry>',
+    '<ns5:Domn><ns5:Cd>PMNT</ns5:Cd><ns5:Fmly><ns5:Cd>RCDT</ns5:Cd><ns5:SubFmlyCd>ESCT</ns5:SubFmlyCd></ns5:Fmly></ns5:Domn>',
+    ntry('D1', 10, 'CRDT', '2026-01-01', 'x'));
+check('#16 codice operazione dal dominio ISO se manca il proprietario', EstrattoContoParser::parseXmlCbi(cbi([$domn], 0, 10))['movimenti'][0]['codice_operazione'] === 'PMNT-RCDT-ESCT'
+    && EstrattoContoParser::parseXmlCbi(cbi([ntry('D2', 10, 'CRDT', '2026-01-01', 'x')], 0, 10))['movimenti'][0]['codice_operazione'] === '48//00');
+
+// #7 subset-sum fermo a maxSoluzioni, #11 note di credito, #8 limite di elementi
+$s = RiconciliazioneMatch::subsetSum([['id' => 'a', 'opzioni' => [100]], ['id' => 'b', 'opzioni' => [100]], ['id' => 'c', 'opzioni' => [100]]], 100, 2);
+check('#7 ricerca fermata a maxSoluzioni = troncata (niente automatico)', count($s['soluzioni']) === 2 && $s['troncato']);
+check('#7 ricerca completa con una soluzione: non troncata', !RiconciliazioneMatch::subsetSum([['id' => 'a', 'opzioni' => [100]], ['id' => 'b', 'opzioni' => [250]]], 100, 2)['troncato']);
+$s = RiconciliazioneMatch::subsetSum([['id' => 'f', 'opzioni' => [100000]], ['id' => 'nc', 'opzioni' => [-20000]]], 80000);
+check('#11 fattura − nota di credito = importo', count($s['soluzioni']) === 1 && ($s['soluzioni'][0]['nc'] ?? 0) === -20000 && !$s['troncato']);
+check('#11 nota di credito da sola: mai', !RiconciliazioneMatch::subsetSum([['id' => 'nc', 'opzioni' => [-20000]]], 20000)['soluzioni']);
+$cinque = array_map(fn($i) => ['id' => $i, 'opzioni' => [100]], range(1, 5));
+check('#8 al massimo 4 documenti per combinazione', !RiconciliazioneMatch::subsetSum($cinque, 500, 3, 200000, 4)['soluzioni']);
+
+// #9 anagrafica: parola intera, ambiguità
+$r9 = fn(array $nomi) => array_map(fn($i, $n) => ['id' => $i + 1, 'partita_iva' => null, 'codice_fiscale' => null, 'ragione_sociale' => $n], array_keys($nomi), $nomi);
+check('#9 parola intera: "Rossini" non è "Rossi"', AnagraficaMatcher::trovaTra($r9(['Rossi Srl', 'Rossini Spa']), null, null, 'BONIFICO DA ROSSINI SPA') === 2
+    && AnagraficaMatcher::trovaTra($r9(['Rossi']), null, null, 'BONIFICO DA ROSSINI') === null);
+check('#9 due clienti diversi nel testo: ambiguo (null)', AnagraficaMatcher::trovaTra($r9(['Alfa Servizi', 'Beta Consulting']), null, null, 'ALFA SERVIZI PER BETA CONSULTING') === null);
+check('#9 nome più lungo che contiene l\'altro: vale il più lungo', AnagraficaMatcher::trovaTra($r9(['Alfa', 'Alfa Servizi']), null, null, 'BONIFICO ALFA SERVIZI') === 2);
+
+// #13 stato precedente, #14 riconciliazioni del record, #10 categoria dopo riconciliazione manuale
+$fatt(100, '90/001', '2026-02-01', 20, 500, 'inviata', '2020-01-01');
+$e = $importa([$mv('C1', 500.0, '2026-03-01', 'Bonifico a vs favore GAMMA IMPIANTI FATT. 90/001 DEL 01/02/2026')]);
+check('#13 pagata dal bonifico', $stato(100) === 'pagata' && Riconciliatore::riconciliazioniDi($pdo, $p, 'fattura', 100) === 1);
+$ric->annulla($idPer('C1'));
+check('#13 annullando torna "inviata" (non "scaduta" dedotta dalla scadenza)', $stato(100) === 'inviata');
+check('#14 nessuna riconciliazione dopo l\'annullamento', Riconciliatore::riconciliazioniDi($pdo, $p, 'fattura', 100) === 0);
+$cls->salvaRegola('GAMMA IMPIANTI', '', 1, $catId('altre_entrate'), 7);
+$cls->classifica([$idPer('C1')]);
+check('#10 prima: classificato dalla regola', $ric->movimento($idPer('C1'))['categoria_fonte'] === 'regola');
+$ric->registra($idPer('C1'), [['tipo' => 'fattura', 'id' => 100, 'importo' => null]], 'manuale', 7);
+$cls->classifica([$idPer('C1')], true);
+check('#10 dopo la riconciliazione manuale: Incassi clienti dalla fattura', ($x = $ric->movimento($idPer('C1')))['categoria_fonte'] === 'fattura' && (int)$x['categoria_id'] === $catId('incassi_clienti'));
+
+// #11 nota di credito dello stesso cliente nel caso (d); nota di credito da sola rifiutata
+$fatt(101, '91/001', '2026-02-10', 21, 1000);
+$fatt(102, '5/001', '2026-02-20', 21, -200);
+$e = $importa([$mv('C2', 800.0, '2026-03-05', 'Bonifico a vs favore DELTA COSTRUZIONI saldo')]);
+check('#11 fattura 1000 − NC 200 = 800: abbinato in automatico', $stato(101) === 'pagata' && $stato(102) === 'pagata'
+    && abs((float)$pdo->query("SELECT SUM(importo) FROM {$p}riconciliazioni WHERE movimento_id = " . $idPer('C2'))->fetchColumn() - 800) < 0.01);
+$fatt(103, '6/001', '2026-02-21', 21, -50);
+$importa([$mv('C3', 50.0, '2026-03-06', 'Bonifico generico', null)]);
+try { $ric->registra($idPer('C3'), [['tipo' => 'fattura', 'id' => 103, 'importo' => -50]], 'manuale', 7); $e = null; } catch (RuntimeException $e) {}
+check('#11 nota di credito da sola: rifiutata', $e instanceof RuntimeException);
+check('#11 la NC è tra i documenti aperti (per la scelta manuale)', (bool)array_filter($ric->documenti()->aperti('fattura'), fn($d) => $d['numero'] === '6/001' && $d['residuo'] < 0));
+
+// #8 più di 20 fatture aperte, sottoinsiemi oltre 4 documenti
+for ($i = 0; $i < 21; $i++) $fatt(200 + $i, (300 + $i) . '/001', '2026-01-15', 22, 100);
+$fatt(230, '330/001', '2026-01-15', 22, 333);
+$importa([$mv('C4', 333.0, '2026-03-10', 'Bonifico a vs favore OMEGA LOGISTICA')]);
+check('#8 cliente con più di 20 fatture aperte: niente automatico', $stato(230) !== 'pagata');
+for ($i = 0; $i < 5; $i++) $fatt(240 + $i, (400 + $i) . '/001', '2026-01-20', 23, 100);
+$importa([$mv('C5', 500.0, '2026-03-11', 'Bonifico a vs favore SIGMA STUDIO ASSOCIATO')]);
+check('#8 servirebbero 5 fatture (> 4): niente automatico', $stato(240) !== 'pagata');
+
+// #1 avviso annullato; #2 unicità e coerenza dell'aggancio
+$fatt(110, '95/001', '2026-03-01', 20, 700);
+$fatt(111, '96/001', '2026-03-01', 20, 650);
+$a1 = $ric->registraAvviso(['data' => '2026-04-10', 'importo' => 700, 'descrizione' => 'Avviso 95', 'file_nome' => 'avv1.pdf'], [['tipo' => 'fattura', 'id' => 110, 'importo' => null]], 7);
+$ric->annulla($a1);
+check('#1 avviso annullato: stato ignorato', $ric->movimento($a1)['stato'] === 'ignorato' && $stato(110) === 'emessa');
+$importa([$mv('A1', 700.0, '2026-04-11', 'Bonifico a vs favore GAMMA IMPIANTI')]);
+check('#1 l\'avviso annullato non si aggancia a un accredito', (int)$ric->movimento($idPer('A1'))['avviso_id'] === 0);
+$a2 = $ric->registraAvviso(['data' => '2026-05-10', 'importo' => 650, 'descrizione' => 'Avviso 96', 'file_nome' => 'avv2.pdf'], [['tipo' => 'fattura', 'id' => 111, 'importo' => null]], 7);
+$importa([$mv('A2', 650.0, '2026-05-11', 'Bonifico a vs favore GAMMA IMPIANTI'), $mv('A3', 650.0, '2026-05-12', 'Bonifico a vs favore GAMMA IMPIANTI')]);
+check('#2 due accrediti candidati per lo stesso avviso: nessun aggancio automatico',
+    !(int)$ric->movimento($idPer('A2'))['avviso_id'] && !(int)$ric->movimento($idPer('A3'))['avviso_id']);
+check('#2 ...ma l\'avviso è tra le proposte', ($ric->proposte($idPer('A2'))[0]['tipo'] ?? '') === 'avviso');
+$fatt(112, '97/001', '2026-03-01', 20, 900);
+$fatt(113, '98/001', '2026-03-01', 24, 900);
+$ric->registraAvviso(['data' => '2026-06-10', 'importo' => 900, 'descrizione' => 'Avviso 97', 'file_nome' => 'avv3.pdf'], [['tipo' => 'fattura', 'id' => 112, 'importo' => null]], 7);
+$importa([$mv('A4', 900.0, '2026-06-11', 'Bonifico a vs favore ZETA CONSULENZE FATT. 98/001 DEL 01/03/2026')]);
+check('#2 la causale cita un\'altra fattura: nessun aggancio all\'avviso', !(int)$ric->movimento($idPer('A4'))['avviso_id']);
+$importa([$mv('A5', 900.0, '2026-06-12', 'Bonifico a vs favore GAMMA IMPIANTI')]);
+check('#2 unico, stesso cliente: agganciato', (int)$ric->movimento($idPer('A5'))['avviso_id'] > 0);
+
+// #6 reimport parziale dello stesso avviso
+$fatt(120, '120/001', '2026-03-01', 24, 500);
+$fatt(121, '121/001', '2026-03-01', 24, 700);
+$x1 = $ric->registraAvviso(['data' => '2026-07-01', 'importo' => 1200, 'descrizione' => 'Avviso 120', 'file_nome' => 'avv4.pdf'], [['tipo' => 'fattura', 'id' => 120, 'importo' => null]], 7);
+$x2 = $ric->registraAvviso(['data' => '2026-07-01', 'importo' => 1200, 'descrizione' => 'Avviso 120, 121', 'file_nome' => 'avv4.pdf'], [['tipo' => 'fattura', 'id' => 121, 'importo' => null]], 7);
+check('#6 stesso file/data/totale: stesso avviso, fatture aggiunte', $x1 === $x2 && $stato(121) === 'pagata'
+    && abs((float)$pdo->query("SELECT SUM(importo) FROM {$p}riconciliazioni WHERE movimento_id = $x1")->fetchColumn() - 1200) < 0.01
+    && abs((float)$ric->movimento($x1)['importo'] - 1200) < 0.01);
+
+// #5 voci dell'avviso con righe già pagate
+$fatt(130, '130/001', '2026-03-01', 24, 300, 'pagata');
+$fatt(131, '130/001', '2026-03-01', 24, 200);
+$v = $ric->vociAvviso([['id' => 130, 'numero_fattura' => '130/001', 'cliente_id' => 24, 'stato' => 'pagata'], ['id' => 131, 'numero_fattura' => '130/001', 'cliente_id' => 24, 'stato' => 'emessa']], 500);
+check('#5 documento con righe già pagate: residuo (null), non l\'importo dell\'avviso', count($v) === 1 && $v[0]['id'] === 131 && $v[0]['importo'] === null);
+$fatt(140, '140/001', '2026-03-01', 24, 400);
+$v = $ric->vociAvviso([['id' => 140, 'numero_fattura' => '140/001', 'cliente_id' => 24, 'stato' => 'emessa']], 402);
+check('#5 importo dell\'avviso limitato al residuo', $v[0]['importo'] === 400.0);
+
+// #4 regole senza chiave vietate, peso; #17 chiave lunga
+check('#4 regola solo per codice operazione: non vale', !Classificatore::regolaCorrisponde(['chiave' => '', 'codice_operazione' => '47//20', 'segno' => -1],
+    ['importo' => -5, 'descrizione' => 'x', 'codice_operazione' => '47//20']));
+check('#4 peso = lunghezza chiave (+1 col codice)', Classificatore::sceltaRegola([
+    ['id' => 1, 'chiave' => 'MUTUO', 'codice_operazione' => '47//20', 'segno' => -1, 'categoria_id' => 1],
+    ['id' => 2, 'chiave' => 'MUTUO CHIRO', 'codice_operazione' => '', 'segno' => -1, 'categoria_id' => 2]],
+    ['importo' => -5, 'descrizione' => 'rata mutuo chiro', 'codice_operazione' => '47//20'])['id'] === 2);
+try { $cls->salvaRegola('12/2026', '47//20', -1, $catId('altre_uscite'), 7); $e = null; } catch (RuntimeException $e) {}
+check('#4 salvare una regola senza chiave valida: rifiutato', $e instanceof RuntimeException);
+$k = Classificatore::preparaChiave(str_repeat('PAROLA ', 40));
+check('#17 chiave oltre 150 caratteri: tagliata a parola intera', strlen($k) <= 150 && substr($k, -6) === 'PAROLA');
+
+// #18 cambio di categoria di una regola: aggiorna i movimenti della regola, non le scelte dell'utente; permessi
+$idWise = (int)$pdo->query("SELECT id FROM {$p}regole_categoria WHERE chiave = 'WISE'")->fetchColumn();
+$cls->salvaRegola('WISE', '', 1, $catId('altre_entrate'), 7, false);
+$cls->applicaRegola($idWise);
+check('#18 movimenti della regola aggiornati, scelta dell\'utente intatta', $movPer('Wise 2000000002')['categoria_id'] == $catId('altre_entrate')
+    && $movPer('Wise 1944617001')['categoria_fonte'] === 'utente');
+$r = $cls->classificaUtente((int)$movPer('Wise 2000000002')['id'], $catId('rimborsi'), ['aggiorna_regola' => true], 8, false);
+check('permessi: un operatore non modifica la regola di un altro, ne crea una più specifica',
+    (int)$pdo->query("SELECT categoria_id FROM {$p}regole_categoria WHERE id = $idWise")->fetchColumn() === $catId('altre_entrate')
+    && $r['regola_id'] !== $idWise && $pdo->query("SELECT chiave FROM {$p}regole_categoria WHERE id = " . (int)$r['regola_id'])->fetchColumn() === 'WISE ITALY');
+
+// #20 stesso estratto in XML e poi in PDF
+$importa([$mv('Z1', 123.45, '2026-08-01', 'Bonifico a vs favore ZETA CONSULENZE causale prova servizi')], ['iban' => 'IBZ']);
+$pdf = $importa([['data_operazione' => '2026-08-01', 'data_valuta' => '2026-08-01', 'importo' => 123.45,
+    'descrizione' => 'BONIFICO A VS FAVORE ZETA CONSULENZE CAUSALE PROVA', 'controparte' => null]], ['iban' => '']);
+check('#20 stesso movimento dal PDF dopo l\'XML: non duplicato, con avviso', $pdf['altro_formato'] === 1 && $pdf['nuovi'] === 0 && $pdf['avvisi']);
+
+// #12 lista senza una query per movimento
+$n = (int)$pdo->query("SELECT COUNT(*) FROM {$p}movimenti_banca")->fetchColumn();
+$pdo->n = 0;
+$lista = $ric->lista([]);
+check("#12 lista di $n movimenti con poche query ({$pdo->n})", count($lista) === $n && $pdo->n <= 6);
 
 // ═══ 4. Estratto conto vero (facoltativo) ═══════════════════
 $file = getenv('CBI_FILE') ?: '';

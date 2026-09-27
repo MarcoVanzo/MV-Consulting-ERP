@@ -21,7 +21,7 @@ class Promemoria
         $this->p = $prefix;
     }
 
-    /** @return array{inviata: bool, destinatari: string[], voci: int, fatture_scadute_marcate: int} */
+    /** @return array{inviata: bool, destinatari: int, voci: int, fatture_scadute_marcate: int} */
     public function esegui(bool $invia = true): array
     {
         // Le fatture oltre la scadenza passano a "scaduta" (stato già usato dalla contabilità)
@@ -48,7 +48,8 @@ class Promemoria
                 $inviata = Mailer::send($d, null, $oggetto, $html, true) && $inviata;
             }
         }
-        return ['inviata' => $inviata, 'destinatari' => $dest, 'voci' => $voci, 'fatture_scadute_marcate' => $marcate];
+        // Solo il numero: gli indirizzi non escono dalla risposta del cron (log di GitHub Actions)
+        return ['inviata' => $inviata, 'destinatari' => count($dest), 'voci' => $voci, 'fatture_scadute_marcate' => $marcate];
     }
 
     private function destinatari(): array
@@ -70,7 +71,8 @@ class Promemoria
 
         $sezioni = [
             ['Rate da fatturare in Sistemi', $s['rate_da_fatturare'], fn($r) =>
-                "<b>{$e($r['cliente_nome'])}</b> — {$e($r['testo_fattura'])}<br>Imponibile {$eur($r['importo'])}, da emettere il {$d($r['data_prevista'])}"],
+                "<b>{$e($r['cliente_nome'])}</b> — {$e($r['testo_fattura'])}<br>Imponibile {$eur($r['importo'])}, "
+                . ($r['data_prevista'] ? "da emettere il {$d($r['data_prevista'])}" : 'senza data: pianificala nella scheda commessa')],
             ['Clienti in ritardo di pagamento', $s['incassi_scaduti'], fn($r) =>
                 "<b>{$e($r['cliente_nome'])}</b> — fattura {$e($r['numero_fattura'])} da {$eur($r['importo_totale'])}, scaduta il {$d($r['data_scadenza'])} ({$e($r['giorni_ritardo'])} gg)"],
             ['Incassi attesi nei prossimi giorni', $s['incassi_in_arrivo'], fn($r) =>
@@ -84,15 +86,20 @@ class Promemoria
                 "<b>{$e($r['cliente_nome'])}</b> — {$e($r['numero'])} «{$e($r['oggetto'])}», valida fino al {$d($r['data_scadenza'])}"],
         ];
 
-        $html = '<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;max-width:640px">'
-            . '<h2 style="font-size:18px">Da fare oggi, ' . $d($s['oggi']) . '</h2>';
+        // Un elemento per riga: l'SMTP ammette righe fino a 998 caratteri, oltre il messaggio si rompe
+        $html = '<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;max-width:640px">' . "\r\n"
+            . '<h2 style="font-size:18px">Da fare oggi, ' . $d($s['oggi']) . '</h2>' . "\r\n";
         foreach ($sezioni as [$titolo, $righe, $fmt]) {
             if (!$righe) continue;
-            $html .= '<h3 style="font-size:15px;margin:20px 0 6px">' . $e($titolo) . ' (' . count($righe) . ')</h3><ul style="padding-left:18px;margin:0">';
-            foreach ($righe as $r) $html .= '<li style="margin-bottom:6px">' . $fmt($r) . '</li>';
-            $html .= '</ul>';
+            $html .= '<h3 style="font-size:15px;margin:20px 0 6px">' . $e($titolo) . ' (' . count($righe) . ')</h3>' . "\r\n"
+                . '<ul style="padding-left:18px;margin:0">' . "\r\n";
+            foreach ($righe as $r) $html .= '<li style="margin-bottom:6px">' . $fmt($r) . '</li>' . "\r\n";
+            $html .= '</ul>' . "\r\n";
         }
         $url = getenv('APP_URL') ?: 'https://www.mv-consulting.it/ERP/';
-        return $html . '<p style="margin-top:24px;color:#666">Dettagli e solleciti: <a href="' . $e($url) . '">ERP → Scadenzario</a></p></div>';
+        $html .= '<p style="margin-top:24px;color:#666">Dettagli e solleciti: <a href="' . $e($url) . '">ERP → Scadenzario</a></p></div>' . "\r\n";
+        // Righe ancora troppo lunghe (testi lunghi): a capo sugli spazi, indifferente per l'HTML
+        $righe = array_map(fn($l) => wordwrap($l, 900, "\r\n", false), explode("\r\n", $html));
+        return implode("\r\n", $righe);
     }
 }

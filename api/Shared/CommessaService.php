@@ -48,9 +48,10 @@ class CommessaService
     }
 
     /**
-     * Abbina una fattura emessa alla prima rata libera del suo incarico
-     * (preferendo quella con lo stesso importo) e ne completa la scadenza.
-     * Restituisce l'id della rata o null.
+     * Abbina una fattura emessa alle rate libere del suo incarico: la rata con lo stesso importo
+     * oppure più rate consecutive la cui somma corrisponde (es. acconto + saldo fatturati insieme);
+     * in mancanza, la prima rata libera. Completa la scadenza della fattura.
+     * Restituisce l'id della (prima) rata o null.
      */
     public function collegaFatturaARata(int $fatturaId): ?int
     {
@@ -59,27 +60,59 @@ class CommessaService
         $f = $stmt->fetch();
         if (!$f || !$f['incarico_id'] || (float)$f['imponibile'] <= 0) return null;
 
-        $stmt = $this->pdo->prepare("SELECT id FROM {$this->p}incarichi_rate WHERE fattura_id = ?");
+        $stmt = $this->pdo->prepare("SELECT id FROM {$this->p}incarichi_rate WHERE fattura_id = ? ORDER BY ordine, id LIMIT 1");
         $stmt->execute([$fatturaId]);
         $gia = $stmt->fetchColumn();
         if ($gia) return (int)$gia;
 
-        $stmt = $this->pdo->prepare("SELECT id, importo, giorni_pagamento FROM {$this->p}incarichi_rate
+        $stmt = $this->pdo->prepare("SELECT id, descrizione, percentuale, importo, giorni_pagamento FROM {$this->p}incarichi_rate
             WHERE incarico_id = ? AND fattura_id IS NULL ORDER BY ordine, id");
         $stmt->execute([$f['incarico_id']]);
         $libere = $stmt->fetchAll();
         if (!$libere) return null;
 
-        $scelta = $libere[0];
-        foreach ($libere as $r) {
-            if (abs((float)$r['importo'] - (float)$f['imponibile']) <= 1.0) { $scelta = $r; break; }
+        $gruppo = $this->rateCoperte($libere, (float)$f['imponibile']);
+        $scelta = $gruppo[0];
+        $upd = $this->pdo->prepare("UPDATE {$this->p}incarichi_rate SET fattura_id = ? WHERE id = ?");
+        $upd->execute([$fatturaId, $scelta['id']]);
+        foreach (array_slice($gruppo, 1) as $r) {
+            try {
+                $upd->execute([$fatturaId, $r['id']]);
+            } catch (PDOException $e) {
+                if ((int)($e->errorInfo[1] ?? 0) !== 1062) throw $e;
+                // Indice unico su fattura_id ancora presente (migrazione non applicata):
+                // si collega solo la prima rata, le altre restano da abbinare a mano.
+                // Mai fondere o cancellare rate in automatico.
+                error_log("collegaFatturaARata: fattura {$fatturaId} copre più rate ma l'indice unico lo impedisce; lancia le migrazioni");
+                break;
+            }
         }
-        $this->pdo->prepare("UPDATE {$this->p}incarichi_rate SET fattura_id = ? WHERE id = ?")->execute([$fatturaId, $scelta['id']]);
         if (!$f['data_scadenza']) {
             $scad = date('Y-m-d', strtotime($f['data_emissione'] . ' +' . (int)$scelta['giorni_pagamento'] . ' days'));
             $this->pdo->prepare("UPDATE {$this->p}fatture SET data_scadenza = ? WHERE id = ?")->execute([$scad, $fatturaId]);
         }
         return (int)$scelta['id'];
+    }
+
+    /**
+     * Rate coperte da un imponibile (tolleranza 1 €): prima una rata di pari importo,
+     * poi una sequenza di rate consecutive; altrimenti la prima rata libera.
+     */
+    private function rateCoperte(array $libere, float $imponibile): array
+    {
+        foreach ($libere as $r) {
+            if (abs((float)$r['importo'] - $imponibile) <= 1.0) return [$r];
+        }
+        $n = count($libere);
+        for ($i = 0; $i < $n; $i++) {
+            $somma = 0.0;
+            for ($j = $i; $j < $n; $j++) {
+                $somma += (float)$libere[$j]['importo'];
+                if (abs($somma - $imponibile) <= 1.0) return array_slice($libere, $i, $j - $i + 1);
+                if ($somma > $imponibile + 1.0) break;
+            }
+        }
+        return [$libere[0]];
     }
 
     /**

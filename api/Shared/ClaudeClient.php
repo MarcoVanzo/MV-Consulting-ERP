@@ -13,6 +13,10 @@ class ClaudeClient
 {
     private const API_URL = 'https://api.anthropic.com/v1/messages';
     private const DEFAULT_MODEL = 'claude-opus-5';
+    /** Tempo massimo complessivo della chiamata (sotto il timeout del proxy) */
+    private const BUDGET_SECONDS = 95;
+    /** Secondi residui minimi per tentare di nuovo */
+    private const MIN_RETRY_SECONDS = 30;
 
     public static function isConfigured(): bool
     {
@@ -66,13 +70,14 @@ class ClaudeClient
             throw new RuntimeException('Documento non leggibile (codifica del testo)');
         }
 
-        @set_time_limit(180);
+        // Il proxy di Aruba chiude le richieste dopo circa 100 s: tutto (tentativi compresi) sta sotto i 95 s
+        $scadenza = microtime(true) + self::BUDGET_SECONDS;
+        @set_time_limit(self::BUDGET_SECONDS + 15);
         $ch = curl_init(self::API_URL);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_TIMEOUT => 150,
             CURLOPT_HTTPHEADER => [
                 'Content-Type: application/json',
                 'x-api-key: ' . $apiKey,
@@ -82,18 +87,29 @@ class ClaudeClient
             CURLOPT_POSTFIELDS => $payload,
         ]);
 
-        // Un solo nuovo tentativo sugli errori temporanei (rete, 429, 5xx)
+        // Un solo nuovo tentativo, e solo su errori rapidi e temporanei (connessione, 429, 5xx).
+        // Dopo un timeout no: il tempo è finito e la richiesta potrebbe essere ancora in lavorazione.
         $raw = false;
         $httpCode = 0;
+        $curlErrno = 0;
+        $curlError = '';
         for ($attempt = 1; $attempt <= 2; $attempt++) {
+            $residuo = (int)floor($scadenza - microtime(true));
+            curl_setopt($ch, CURLOPT_TIMEOUT, max(5, $residuo));
             $raw = curl_exec($ch);
             $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $retryable = $raw === false || $httpCode === 429 || $httpCode >= 500;
-            if (!$retryable || $attempt === 2) break;
+            $curlErrno = curl_errno($ch);
+            $curlError = curl_error($ch);
+            $erroreRete = $raw === false && $curlErrno !== CURLE_OPERATION_TIMEOUTED;
+            $retryable = $erroreRete || $httpCode === 429 || $httpCode >= 500;
+            // Serve margine per un secondo tentativo sensato
+            if (!$retryable || $attempt === 2 || ($scadenza - microtime(true)) < self::MIN_RETRY_SECONDS) break;
             sleep(3);
         }
-        $curlError = curl_error($ch);
 
+        if ($raw === false && $curlErrno === CURLE_OPERATION_TIMEOUTED) {
+            throw new RuntimeException('Il servizio AI non ha risposto in tempo: riprova o usa un documento più breve');
+        }
         if ($raw === false) {
             throw new RuntimeException('Servizio AI non raggiungibile: ' . $curlError);
         }

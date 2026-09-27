@@ -80,6 +80,8 @@ class EstrattoContoParser
      */
     public static function parseXmlCbi(string $xml, string $banca = ''): array
     {
+        // Niente DTD: un estratto conto CBI non ne ha, e le entità esterne sono un rischio
+        if (preg_match('/<!DOCTYPE/i', $xml)) throw new RuntimeException('XML non valido: dichiarazione DOCTYPE non ammessa');
         $dom = new DOMDocument();
         $prev = libxml_use_internal_errors(true);
         $ok = $xml !== '' && $dom->loadXML($xml, LIBXML_NONET);
@@ -131,7 +133,7 @@ class EstrattoContoParser
                     'descrizione' => preg_replace('/\s+/u', ' ', $descr) ?? $descr,
                     'controparte' => $parte !== '' ? $parte : self::controparte($descr),
                     'riferimento' => $testo($n, './' . $el('NtryRef')) ?: $testo($n, './/' . $el('AcctSvcrRef')),
-                    'codice_operazione' => $testo($n, './' . $el('BkTxCd') . '//' . $el('Cd')),
+                    'codice_operazione' => self::codiceOperazione($xp, $n, $el),
                     'iban' => $ibanStmt,
                     'segno_incerto' => false,
                 ];
@@ -143,6 +145,18 @@ class EstrattoContoParser
         }
         if ($banca === '') $banca = self::riconosciBanca($xml);
         return ['banca' => $banca, 'iban' => $iban, 'metodo' => 'cbi', 'movimenti' => $movimenti, 'avvisi' => $avvisi];
+    }
+
+    /** BkTxCd: codice proprietario (es. 48//00), altrimenti dominio ISO (Domn/Cd-Fmly/Cd-SubFmlyCd). */
+    private static function codiceOperazione(DOMXPath $xp, DOMNode $n, callable $el): string
+    {
+        $q = fn(string $path) => ($r = $xp->query($path, $n)) && $r->length ? trim((string)$r->item(0)->textContent) : '';
+        $b = './' . $el('BkTxCd');
+        $prtry = $q($b . '/' . $el('Prtry') . '/' . $el('Cd'));
+        if ($prtry !== '') return $prtry;
+        $parti = array_filter([$q($b . '/' . $el('Domn') . '/' . $el('Cd')), $q($b . '/' . $el('Domn') . '/' . $el('Fmly') . '/' . $el('Cd')),
+            $q($b . '/' . $el('Domn') . '/' . $el('Fmly') . '/' . $el('SubFmlyCd'))]);
+        return implode('-', $parti);
     }
 
     /**
@@ -339,18 +353,32 @@ class EstrattoContoParser
 
     /**
      * Chiave di deduplica. Con il riferimento della banca (NtryRef/AcctSvcrRef del CBI):
-     * sha256("ref|IBAN|riferimento"). Senza: sha256(data_operazione|importo|descrizione normalizzata);
-     * movimenti identici nello stesso file (es. due commissioni uguali lo stesso giorno) ricevono
-     * "|#2", "|#3"... in ordine, così reimportando lo stesso estratto gli hash tornano uguali.
+     * sha256("ref|IBAN|riferimento|data_operazione|importo") — data e importo evitano di perdere movimenti
+     * se la banca usa riferimenti progressivi che ripartono o fissi. Senza riferimento:
+     * sha256(data_operazione|importo|descrizione normalizzata). Movimenti identici nello stesso file
+     * ricevono "|#2", "|#3"... in ordine, così reimportando lo stesso estratto gli hash tornano uguali.
      */
     public static function hashRiga(array $m, int $occorrenza = 1): string
     {
+        $dataImporto = $m['data_operazione'] . '|' . number_format((float)$m['importo'], 2, '.', '');
         if (!empty($m['riferimento'])) {
-            $base = 'ref|' . ($m['iban'] ?? '') . '|' . $m['riferimento'];
+            $base = 'ref|' . ($m['iban'] ?? '') . '|' . $m['riferimento'] . '|' . $dataImporto;
         } else {
-            $base = $m['data_operazione'] . '|' . number_format((float)$m['importo'], 2, '.', '') . '|' . self::normalizzaDescrizione((string)$m['descrizione']);
+            $base = $dataImporto . '|' . self::normalizzaDescrizione((string)$m['descrizione']);
         }
         return hash('sha256', $occorrenza > 1 ? $base . '|#' . $occorrenza : $base);
+    }
+
+    /** Hash della prima versione (v057, solo riferimento): i movimenti già importati così contano come presenti. */
+    public static function hashRigaV1(array $m): ?string
+    {
+        return !empty($m['riferimento']) ? hash('sha256', 'ref|' . ($m['iban'] ?? '') . '|' . $m['riferimento']) : null;
+    }
+
+    /** Avviso di pagamento: stesso file, data e totale = stesso avviso (reimport anche parziale). */
+    public static function hashAvviso(string $fileNome, string $data, float $totale): string
+    {
+        return hash('sha256', 'avviso|' . mb_strtolower(trim($fileNome), 'UTF-8') . '|' . $data . '|' . number_format(abs($totale), 2, '.', ''));
     }
 
     /** Aggiunge hash_riga a ogni movimento, numerando i doppioni. */

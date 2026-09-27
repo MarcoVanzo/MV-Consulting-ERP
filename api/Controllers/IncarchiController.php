@@ -127,6 +127,16 @@ class IncarchiController {
                 $this->pdo->prepare("UPDATE {$p}incarichi_rate SET importo = ?, percentuale = 100, giorni_pagamento = ? WHERE id = ?")
                     ->execute([$fields['importo_totale'], $fields['giorni_pagamento'], $rate[0]['id']]);
             }
+            // Piano con più rate (o già fatturato): non si ritocca da solo, ma si avvisa se non torna
+            $stmt = $this->pdo->prepare("SELECT COUNT(*) AS n, COALESCE(SUM(importo), 0) AS somma FROM {$p}incarichi_rate WHERE incarico_id = ?");
+            $stmt->execute([$id]);
+            $piano = $stmt->fetch();
+            $warning = null;
+            if ((int)$piano['n'] > 0 && abs((float)$piano['somma'] - $fields['importo_totale']) > 0.01) {
+                $warning = 'Le rate del piano sommano a ' . number_format((float)$piano['somma'], 2, ',', '.')
+                    . ' € ma l\'importo dell\'incarico è ' . number_format($fields['importo_totale'], 2, ',', '.')
+                    . ' €: aggiorna il piano di fatturazione nella scheda commessa.';
+            }
             $this->pdo->commit();
             $this->recalculate($id);
 
@@ -134,7 +144,7 @@ class IncarchiController {
                 'tipo_commessa' => $fields['tipo_commessa'],
                 'importo_totale' => $fields['importo_totale']
             ]);
-            Response::json(true, 'Incarico aggiornato', ['id' => $id]);
+            Response::json(true, 'Incarico aggiornato' . ($warning ? '. Attenzione: ' . $warning : ''), ['id' => $id, 'warning' => $warning]);
         } else {
             $cols = implode(', ', array_keys($fields));
             $placeholders = implode(', ', array_fill(0, count($fields), '?'));

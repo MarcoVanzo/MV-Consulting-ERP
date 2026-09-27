@@ -21,6 +21,7 @@ const UI = (() => {
 
     // ── Modal System ──
     let _modalSaveCallback = null;
+    let _modalReturnFocus = null;
 
     // opts.wide: modal largo (schede con tabelle); opts.readOnly: solo "Chiudi"
     function openModal(title, bodyHtml, onSave, opts = {}) {
@@ -37,12 +38,38 @@ const UI = (() => {
             if (saveBtn) saveBtn.style.display = 'none';
             if (cancelBtn) cancelBtn.textContent = 'Chiudi';
         }
-        document.getElementById('modal-overlay').classList.add('active');
+        const overlay = document.getElementById('modal-overlay');
+        // Ricorda chi aveva il fuoco solo alla prima apertura (una modale può sostituirne un'altra)
+        if (!overlay.classList.contains('active')) _modalReturnFocus = document.activeElement;
+        overlay.classList.add('active');
+        focusFirstField();
     }
 
     function closeModal() {
         document.getElementById('modal-overlay').classList.remove('active');
         _modalSaveCallback = null;
+        const back = _modalReturnFocus;
+        _modalReturnFocus = null;
+        if (back && typeof back.focus === 'function' && document.contains(back)) back.focus();
+    }
+
+    // ── Gestione del fuoco nella modale ──
+    const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    function modalFocusables() {
+        return [...document.getElementById('modal').querySelectorAll(FOCUSABLE)]
+            .filter(el => el.offsetParent !== null || el.getClientRects().length > 0);
+    }
+
+    // Primo campo utile del corpo; in mancanza, il primo pulsante del footer, poi la X
+    function focusFirstField() {
+        const body = document.getElementById('modal-body');
+        const campo = [...body.querySelectorAll('input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled])')]
+            .find(el => !el.readOnly && (el.offsetParent !== null || el.getClientRects().length > 0));
+        const target = campo
+            || modalFocusables().find(el => !body.contains(el) && el.id !== 'modal-close')
+            || document.getElementById('modal-close');
+        if (target) target.focus();
     }
 
     function initModalEvents() {
@@ -58,7 +85,17 @@ const UI = (() => {
         });
         // Chiusura con Esc
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && overlay.classList.contains('active')) closeModal();
+            if (!overlay.classList.contains('active')) return;
+            if (e.key === 'Escape') { closeModal(); return; }
+            // Il Tab resta dentro la modale
+            if (e.key !== 'Tab') return;
+            const items = modalFocusables();
+            if (!items.length) { e.preventDefault(); return; }
+            const first = items[0], last = items[items.length - 1];
+            const modal = document.getElementById('modal');
+            if (!modal.contains(document.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+            else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+            else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
         });
         const saveBtn = document.getElementById('modal-save');
         saveBtn.addEventListener('click', async () => {

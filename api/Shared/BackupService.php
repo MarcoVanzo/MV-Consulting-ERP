@@ -27,32 +27,87 @@ class BackupService
      */
     public function dump(?string $createdBy, string $authorName = 'System'): array
     {
-        // ── 1. Resolve writable storage directory ─────────────────────────────
-        $envPath = getenv('BACKUP_STORAGE_PATH') ?: '';
-        $candidates = array_filter([
-            $envPath ? rtrim($envPath, '/') . '/' : '',
-            dirname(__DIR__, 2) . '/storage/backups/',
-            dirname(__DIR__, 2) . '/backups/',
-            dirname(__DIR__, 2) . '/uploads/backups/',
-            sys_get_temp_dir() . '/mv_backups/',
-        ]);
-
-        $storagePath = null;
-        foreach ($candidates as $candidate) {
-            if (!is_dir($candidate)) {
-                @mkdir($candidate, 0750, true);
-            }
-            if (is_dir($candidate) && is_writable($candidate)) {
-                $storagePath = $candidate;
-                break;
-            }
+        // ── 1. Cartella dei backup: solo storage/backups (protetta da .htaccess, letta da download/elimina)
+        $storagePath = self::storageDir();
+        if (!is_dir($storagePath)) {
+            @mkdir($storagePath, 0750, true);
+        }
+        if (!is_dir($storagePath) || !is_writable($storagePath)) {
+            return ['success' => false, 'error' => 'Cartella di backup non scrivibile: storage/backups'];
         }
 
-        if ($storagePath === null) {
-            return ['success' => false, 'error' => 'Nessuna directory di backup scrivibile disponibile'];
+        // ── 2. Snapshot coerente: tutte le SELECT vedono il DB allo stesso istante (InnoDB)
+        try {
+            $this->pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+            $this->pdo->exec('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+        } catch (\Throwable $e) {
+            return ['success' => false, 'error' => 'Impossibile aprire lo snapshot: ' . $e->getMessage()];
+        }
+        try {
+            $scrittura = $this->scriviDump($storagePath, $authorName);
+        } finally {
+            try { $this->pdo->exec('COMMIT'); } catch (\Throwable $e) {}
+        }
+        if (!$scrittura['success']) return $scrittura;
+        ['backupId' => $backupId, 'sqlFile' => $sqlFile, 'zipFile' => $zipFile, 'sqlPath' => $sqlPath,
+         'zipPath' => $zipPath, 'tableNames' => $tableNames, 'totalRows' => $totalRows] = $scrittura;
+
+        // ── 6. Compress to ZIP ────────────────────────────────────────────────
+        $filesize = 0;
+        $finalFile = $zipFile;
+        $finalPath = $zipPath;
+
+        if (class_exists('ZipArchive')) {
+            $zip = new \ZipArchive();
+            if ($zip->open($zipPath, \ZipArchive::CREATE) === true) {
+                $zip->addFile($sqlPath, $sqlFile);
+                if ($zip->close() && file_exists($zipPath)) {
+                    unlink($sqlPath);
+                    $filesize = filesize($zipPath);
+                } else {
+                    // ZIP non scritto: si tiene lo .sql non compresso
+                    @unlink($zipPath);
+                    $finalFile = $sqlFile;
+                    $finalPath = $sqlPath;
+                    $filesize = file_exists($sqlPath) ? filesize($sqlPath) : 0;
+                }
+            } else {
+                $finalFile = $sqlFile;
+                $finalPath = $sqlPath;
+                $filesize = file_exists($sqlPath) ? filesize($sqlPath) : 0;
+            }
+        } else {
+            $finalFile = $sqlFile;
+            $finalPath = $sqlPath;
+            $filesize = file_exists($sqlPath) ? filesize($sqlPath) : 0;
         }
 
-        // ── 2. List tables ────────────────────────────────────────────────────
+        // ── 7. Persist metadata (if table exists) ───────────────────────────────
+        try {
+            // Check if db_backups table exists
+            $stmt = $this->pdo->query("SHOW TABLES LIKE " . $this->pdo->quote(addcslashes($this->prefix . 'db_backups', '\\_%')));
+            if ($stmt->fetch()) {
+                $sql = "INSERT INTO {$this->prefix}db_backups (id, filename, filesize, row_count, created_by, status) VALUES (?, ?, ?, ?, ?, 'ok')";
+                $this->pdo->prepare($sql)->execute([$backupId, $finalFile, $filesize, $totalRows, $createdBy]);
+            }
+        } catch (\Throwable $e) {
+            error_log('[BACKUP] DB saveBackupRecord failed: ' . $e->getMessage());
+        }
+
+        return [
+            'success' => true,
+            'id' => $backupId,
+            'filename' => $finalFile,
+            'filepath' => $finalPath,
+            'filesize' => $filesize,
+            'table_names' => $tableNames,
+            'total_rows' => $totalRows,
+        ];
+    }
+
+    /** Scrive il dump SQL (dentro lo snapshot aperto da dump()) */
+    private function scriviDump(string $storagePath, string $authorName): array
+    {
         // '_' e '%' nel prefisso sono jolly di LIKE: vanno escapati
         $likePrefix = addcslashes($this->prefix, '\\_%') . '%';
         $stmt = $this->pdo->prepare("SELECT TABLE_NAME, TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE ?");
@@ -76,7 +131,7 @@ class BackupService
 
         $fh = fopen($sqlPath, 'w');
         if ($fh === false) {
-            return ['success' => false, 'error' => 'Impossibile scrivere il file di backup in ' . $sqlPath];
+            return ['success' => false, 'error' => 'Impossibile scrivere il file di backup ' . $sqlFile];
         }
 
         // ── 4. Write SQL header ───────────────────────────────────────────────
@@ -157,56 +212,76 @@ class BackupService
             return ['success' => false, 'error' => 'Backup incompleto, errore di lettura: ' . implode('; ', $readErrors)];
         }
 
-        // ── 6. Compress to ZIP ────────────────────────────────────────────────
-        $filesize = 0;
-        $finalFile = $zipFile;
-        $finalPath = $zipPath;
+        return ['success' => true, 'backupId' => $backupId, 'sqlFile' => $sqlFile, 'zipFile' => $zipFile, 'sqlPath' => $sqlPath,
+                'zipPath' => $zipPath, 'tableNames' => $tableNames, 'totalRows' => $totalRows];
+    }
 
-        if (class_exists('ZipArchive')) {
-            $zip = new \ZipArchive();
-            if ($zip->open($zipPath, \ZipArchive::CREATE) === true) {
-                $zip->addFile($sqlPath, $sqlFile);
-                if ($zip->close() && file_exists($zipPath)) {
-                    unlink($sqlPath);
-                    $filesize = filesize($zipPath);
-                } else {
-                    // ZIP non scritto: si tiene lo .sql non compresso
-                    @unlink($zipPath);
-                    $finalFile = $sqlFile;
-                    $finalPath = $sqlPath;
-                    $filesize = file_exists($sqlPath) ? filesize($sqlPath) : 0;
-                }
-            } else {
-                $finalFile = $sqlFile;
-                $finalPath = $sqlPath;
-                $filesize = file_exists($sqlPath) ? filesize($sqlPath) : 0;
-            }
-        } else {
-            $finalFile = $sqlFile;
-            $finalPath = $sqlPath;
-            $filesize = file_exists($sqlPath) ? filesize($sqlPath) : 0;
+    /** Unica cartella dei backup */
+    public static function storageDir(): string
+    {
+        return dirname(__DIR__, 2) . '/storage/backups/';
+    }
+
+    /**
+     * Backup notturno: dump, upload su Google Drive (se configurato) e pulizia dei vecchi.
+     * Lo usano cron/backup_nightly.php (CLI) e router.php (module=cron&action=backup).
+     * Esito senza percorsi né dati: finisce nella risposta HTTP del cron.
+     *
+     * @return array{success: bool, drive: string, filename?: string, filesize?: int, total_rows?: int, eliminati?: int, error?: string}
+     */
+    public function eseguiNotturno(string $authorName = 'Cron Automatico'): array
+    {
+        $result = $this->dump(null, $authorName);
+        if (!$result['success']) {
+            return ['success' => false, 'drive' => 'saltato', 'error' => $result['error']];
         }
-
-        // ── 7. Persist metadata (if table exists) ───────────────────────────────
-        try {
-            // Check if db_backups table exists
-            $stmt = $this->pdo->query("SHOW TABLES LIKE " . $this->pdo->quote(addcslashes($this->prefix . 'db_backups', '\\_%')));
-            if ($stmt->fetch()) {
-                $sql = "INSERT INTO {$this->prefix}db_backups (id, filename, filesize, row_count, created_by, status) VALUES (?, ?, ?, ?, ?, 'ok')";
-                $this->pdo->prepare($sql)->execute([$backupId, $finalFile, $filesize, $totalRows, $createdBy]);
-            }
-        } catch (\Throwable $e) {
-            error_log('[BACKUP] DB saveBackupRecord failed: ' . $e->getMessage());
-        }
-
-        return [
+        $esito = [
             'success' => true,
-            'id' => $backupId,
-            'filename' => $finalFile,
-            'filepath' => $finalPath,
-            'filesize' => $filesize,
-            'table_names' => $tableNames,
-            'total_rows' => $totalRows,
+            'filename' => $result['filename'],
+            'filesize' => (int)$result['filesize'],
+            'total_rows' => (int)$result['total_rows'],
+            'drive' => 'non_configurato',
         ];
+
+        if (!empty(getenv('GDRIVE_CLIENT_ID')) && !empty(getenv('GDRIVE_REFRESH_TOKEN'))) {
+            require_once __DIR__ . '/GoogleDrive.php';
+            try {
+                GoogleDrive::uploadFile($result['filepath'], $result['filename']);
+                try {
+                    $this->pdo->prepare("UPDATE {$this->prefix}db_backups SET status = 'synced' WHERE id = ?")->execute([$result['id']]);
+                } catch (\Throwable $e) {}
+                $esito['drive'] = 'ok';
+            } catch (\Throwable $e) {
+                error_log('[BACKUP] Upload Drive non riuscito: ' . $e->getMessage());
+                $esito['success'] = false;
+                $esito['drive'] = 'errore';
+                $esito['error'] = 'Backup locale creato, upload su Google Drive non riuscito';
+            }
+        }
+
+        $keep = (int)(getenv('BACKUP_KEEP') ?: 14);
+        $esito['eliminati'] = $this->pulisciVecchi($keep);
+        return $esito;
+    }
+
+    /**
+     * Tiene in storage/backups solo gli ultimi $keep backup (minimo 1) e toglie dal registro
+     * le righe dei file eliminati. Restituisce quanti file ha cancellato.
+     */
+    public function pulisciVecchi(int $keep = 14): int
+    {
+        $keep = max(1, $keep);
+        $files = array_filter(glob(self::storageDir() . 'backup_*') ?: [], fn($f) => preg_match('/\.(zip|sql)$/', $f));
+        // Il nome inizia con backup_AAAAMMGG_HHMMSS: l'ordine alfabetico è quello cronologico
+        rsort($files, SORT_STRING);
+        $eliminati = 0;
+        foreach (array_slice($files, $keep) as $file) {
+            if (!@unlink($file)) continue;
+            $eliminati++;
+            try {
+                $this->pdo->prepare("DELETE FROM {$this->prefix}db_backups WHERE filename = ?")->execute([basename($file)]);
+            } catch (\Throwable $e) {}
+        }
+        return $eliminati;
     }
 }

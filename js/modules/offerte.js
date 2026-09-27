@@ -207,18 +207,46 @@ const ModOfferte = (() => {
                 <td><input class="form-control num-s" type="number" step="0.5" data-r="${i}" data-k="quantita" value="${UI.esc(r.quantita)}"></td>
                 <td><input class="form-control num" data-r="${i}" data-k="unita" value="${UI.esc(r.unita || '')}"></td>
                 <td><input class="form-control num" type="number" step="0.01" data-r="${i}" data-k="prezzo_unitario" value="${UI.esc(r.prezzo_unitario)}"></td>
-                <td class="text-right" style="white-space:nowrap">${UI.formatCurrency(num(r.quantita) * num(r.prezzo_unitario))}</td>
+                <td class="text-right" style="white-space:nowrap" data-imp="${i}">${UI.formatCurrency(num(r.quantita) * num(r.prezzo_unitario))}</td>
                 <td><button type="button" class="btn btn-sm btn-ghost" data-del="${i}" aria-label="Elimina voce"><i class="ph ph-x"></i></button></td></tr>`).join('')}
             </tbody></table></div>
             <div class="rows-total"><button type="button" class="chip-btn" id="of-add-riga"><i class="ph ph-plus"></i> Voce</button><span>Imponibile <b id="of-tot">${UI.formatCurrency(tot)}</b></span></div>`;
+        // Sul change si aggiornano solo importi e totali: ridisegnare la tabella farebbe perdere il fuoco (Tab)
         box.querySelectorAll('input[data-r]').forEach(inp => inp.addEventListener('change', () => {
-            _righe[inp.dataset.r][inp.dataset.k] = inp.value;
-            if (inp.dataset.k !== 'descrizione' && inp.dataset.k !== 'unita') delete _righe[inp.dataset.r].importo;
-            renderRighe();
-            renderPiano();
+            const r = _righe[inp.dataset.r];
+            r[inp.dataset.k] = inp.value;
+            if (inp.dataset.k === 'descrizione' || inp.dataset.k === 'unita') return;
+            delete r.importo;
+            const cell = box.querySelector(`[data-imp="${inp.dataset.r}"]`);
+            if (cell) cell.textContent = UI.formatCurrency(num(r.quantita) * num(r.prezzo_unitario));
+            document.getElementById('of-tot').textContent = UI.formatCurrency(totaleRighe());
+            aggiornaImportiPiano();
         }));
         box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => { _righe.splice(b.dataset.del, 1); renderRighe(); renderPiano(); }));
-        document.getElementById('of-add-riga').addEventListener('click', () => { _righe.push({ descrizione: '', quantita: 1, unita: '', prezzo_unitario: 0 }); renderRighe(); });
+        document.getElementById('of-add-riga').addEventListener('click', () => {
+            _righe.push({ descrizione: '', quantita: 1, unita: '', prezzo_unitario: 0 });
+            renderRighe();
+            box.querySelector(`input[data-r="${_righe.length - 1}"][data-k="descrizione"]`)?.focus();
+        });
+    }
+
+    const totaleRighe = () => _righe.reduce((a, r) => a + num(r.quantita) * num(r.prezzo_unitario), 0);
+
+    // Aggiorna importi delle rate e totale % senza ridisegnare il piano
+    function aggiornaImportiPiano() {
+        const box = document.getElementById('of-piano');
+        if (!box) return;
+        const tot = totaleRighe();
+        _piano.forEach((r, i) => {
+            const cell = box.querySelector(`[data-pimp="${i}"]`);
+            if (cell) cell.textContent = UI.formatCurrency(tot * num(r.percentuale) / 100);
+        });
+        const somma = _piano.reduce((a, r) => a + num(r.percentuale), 0);
+        const b = document.getElementById('of-piano-tot');
+        if (b) {
+            b.textContent = UI.formatNumber(somma, 0) + '%';
+            b.className = Math.abs(somma - 100) > 0.01 ? 'text-danger' : 'text-ok';
+        }
     }
 
     function renderPiano() {
@@ -230,14 +258,21 @@ const ModOfferte = (() => {
                 <td><input class="form-control" data-p="${i}" data-k="descrizione" value="${UI.esc(r.descrizione)}"></td>
                 <td><input class="form-control num-s" type="number" step="0.01" data-p="${i}" data-k="percentuale" value="${UI.esc(r.percentuale)}"></td>
                 <td><input class="form-control num" type="number" data-p="${i}" data-k="giorni_da_accettazione" value="${UI.esc(r.giorni_da_accettazione ?? '')}" placeholder="da decidere"></td>
-                <td class="text-right">${UI.formatCurrency(tot * num(r.percentuale) / 100)}</td>
+                <td class="text-right" data-pimp="${i}">${UI.formatCurrency(tot * num(r.percentuale) / 100)}</td>
                 <td><button type="button" class="btn btn-sm btn-ghost" data-pdel="${i}" aria-label="Elimina rata"><i class="ph ph-x"></i></button></td></tr>`).join('')}
             </tbody></table>
             <div class="rows-total"><button type="button" class="chip-btn" id="of-add-rata"><i class="ph ph-plus"></i> Rata</button>
-            <span>Totale rate <b class="${Math.abs(somma - 100) > 0.01 ? 'text-danger' : 'text-ok'}">${UI.formatNumber(somma, 0)}%</b></span></div>`;
-        box.querySelectorAll('input[data-p]').forEach(inp => inp.addEventListener('change', () => { _piano[inp.dataset.p][inp.dataset.k] = inp.value; renderPiano(); }));
+            <span>Totale rate <b id="of-piano-tot" class="${Math.abs(somma - 100) > 0.01 ? 'text-danger' : 'text-ok'}">${UI.formatNumber(somma, 0)}%</b></span></div>`;
+        box.querySelectorAll('input[data-p]').forEach(inp => inp.addEventListener('change', () => {
+            _piano[inp.dataset.p][inp.dataset.k] = inp.value;
+            if (inp.dataset.k === 'percentuale') aggiornaImportiPiano();
+        }));
         box.querySelectorAll('[data-pdel]').forEach(b => b.addEventListener('click', () => { _piano.splice(b.dataset.pdel, 1); renderPiano(); }));
-        document.getElementById('of-add-rata').addEventListener('click', () => { _piano.push({ descrizione: 'Rata', percentuale: 0, giorni_da_accettazione: '' }); renderPiano(); });
+        document.getElementById('of-add-rata').addEventListener('click', () => {
+            _piano.push({ descrizione: 'Rata', percentuale: 0, giorni_da_accettazione: '' });
+            renderPiano();
+            box.querySelector(`input[data-p="${_piano.length - 1}"][data-k="descrizione"]`)?.focus();
+        });
     }
 
     async function save() {
