@@ -613,7 +613,16 @@ $queries = [
     "ALTER TABLE {$prefix}offerte MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software') NOT NULL DEFAULT 'assistenza'",
 
     // v073: categoria di uscita Assicurazioni (polizze e premi), riconosciuta anche dalle euristiche del Classificatore
-    "INSERT IGNORE INTO {$prefix}categorie_movimento (codice, nome, tipo, colore, ordine) VALUES ('assicurazioni', 'Assicurazioni', 'uscita', '#B45309', 175)"
+    "INSERT IGNORE INTO {$prefix}categorie_movimento (codice, nome, tipo, colore, ordine) VALUES ('assicurazioni', 'Assicurazioni', 'uscita', '#B45309', 175)",
+
+    // v074–v075: i prospect delle offerte già salvate entrano in anagrafica clienti e le offerte si collegano
+    "INSERT INTO {$prefix}clienti (ragione_sociale, note)
+        SELECT DISTINCT TRIM(o.cliente_nome), 'Prospect: aggiunto da un preventivo' FROM {$prefix}offerte o
+        WHERE o.cliente_id IS NULL AND TRIM(COALESCE(o.cliente_nome, '')) <> ''
+          AND NOT EXISTS (SELECT 1 FROM {$prefix}clienti c WHERE LOWER(TRIM(c.ragione_sociale)) = LOWER(TRIM(o.cliente_nome)))",
+    "UPDATE {$prefix}offerte o JOIN {$prefix}clienti c ON LOWER(TRIM(c.ragione_sociale)) = LOWER(TRIM(o.cliente_nome))
+        SET o.cliente_id = c.id, o.cliente_nome = NULL
+        WHERE o.cliente_id IS NULL"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
 
