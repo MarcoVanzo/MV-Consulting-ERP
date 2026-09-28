@@ -727,6 +727,29 @@ return [
 
     // v090–v091: tipo di commessa «altro» per quello che non è DPO, assistenza, formazione né le consulenze specifiche
     "ALTER TABLE {$prefix}incarichi MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software','altro') NOT NULL DEFAULT 'assistenza'",
-    "ALTER TABLE {$prefix}offerte MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software','altro') NOT NULL DEFAULT 'assistenza'"
+    "ALTER TABLE {$prefix}offerte MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software','altro') NOT NULL DEFAULT 'assistenza'",
+
+    // v092–v093: ogni commessa nasce da un'offerta (CommessaService::offertaRapida). Le commesse registrate prima
+    // non l'hanno: si crea l'offerta già accettata con gli stessi dati, numerata dopo l'ultima dell'anno
+    // (conteggio correlato invece di ROW_NUMBER, per non dipendere da MySQL 8), poi si collega alla commessa
+    "INSERT INTO {$prefix}offerte (numero, versione, cliente_id, sottocliente_id, data_offerta, oggetto, tipo_commessa,
+            num_giornate, imponibile, giorni_pagamento, condizioni_pagamento, stato, data_esito, incarico_id, origine, note)
+        SELECT CONCAT('OFF-', YEAR(i.data_incarico), '-', LPAD(
+                COALESCE((SELECT MAX(CAST(SUBSTRING(o2.numero, 10) AS UNSIGNED)) FROM {$prefix}offerte o2
+                    WHERE o2.numero LIKE CONCAT('OFF-', YEAR(i.data_incarico), '-%')), 0)
+                + (SELECT COUNT(*) FROM {$prefix}incarichi i2
+                    WHERE i2.offerta_id IS NULL AND YEAR(i2.data_incarico) = YEAR(i.data_incarico)
+                      AND (i2.data_incarico < i.data_incarico OR (i2.data_incarico = i.data_incarico AND i2.id <= i.id))
+                      AND NOT EXISTS (SELECT 1 FROM {$prefix}offerte o3 WHERE o3.incarico_id = i2.id AND o3.deleted_at IS NULL)),
+                3, '0')),
+            1, i.cliente_id, i.sottocliente_id, i.data_incarico,
+            LEFT(COALESCE(NULLIF(TRIM(i.descrizione), ''), CONCAT('Commessa ', COALESCE(NULLIF(i.numero_protocollo, ''), i.id))), 255),
+            i.tipo_commessa, COALESCE(i.num_giornate, 0), i.importo_totale, i.giorni_pagamento, i.condizioni_pagamento,
+            'accettata', i.data_incarico, i.id, 'rapida', 'Offerta registrata insieme alla commessa'
+        FROM {$prefix}incarichi i
+        WHERE i.offerta_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM {$prefix}offerte o WHERE o.incarico_id = i.id AND o.deleted_at IS NULL)",
+    "UPDATE {$prefix}incarichi i JOIN {$prefix}offerte o ON o.incarico_id = i.id AND o.deleted_at IS NULL
+        SET i.offerta_id = o.id WHERE i.offerta_id IS NULL"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
