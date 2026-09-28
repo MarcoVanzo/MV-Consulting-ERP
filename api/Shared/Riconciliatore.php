@@ -116,8 +116,53 @@ class Riconciliatore
             if ($abbinabile) $daAnalizzare[] = [$id, !empty($m['segno_incerto']), $ctx];
             else $out['senza_aggancio']++;
         }
-        // 2. Abbinamento. Candidati per ogni avviso contati prima di registrare qualcosa: se un avviso ha
-        //    due accrediti possibili nel file, non si aggancia a nessuno nemmeno dopo che uno è stato usato
+        // 2. Abbinamento
+        $this->abbina($daAnalizzare, $userId, $out);
+        if ($out['altro_formato']) {
+            $out['avvisi'][] = "{$out['altro_formato']} movimenti erano già stati importati dall'altro formato (XML/PDF) e non sono stati duplicati.";
+        }
+        return $out;
+    }
+
+    /**
+     * Riprova l'abbinamento sui movimenti ancora da riconciliare: all'import dell'estratto le fatture
+     * pagate potevano non esserci ancora (fatture passive importate dopo, fornitori creati dagli elenchi).
+     * Ricalcola anche l'aggancio: un movimento senza aggancio lo acquista se ora il fornitore o il cliente
+     * c'è; non lo perde mai (una scelta fatta in coda resta visibile). Un movimento con l'abbinamento annullato
+     * a mano o col segno incerto riceve solo proposte. Va chiamato dentro una transazione.
+     */
+    public function riabbina(?int $userId): array
+    {
+        $out = ['analizzati' => 0, 'nuovi_agganci' => 0, 'abbinati' => 0, 'da_verificare' => 0, 'ids' => [], 'movimenti' => []];
+        $this->cache = ['clienti' => null, 'fornitori' => null, 'aperti' => []]; // anagrafiche e fatture di adesso
+        $conFlag = RiconciliazioneDocumenti::colonna($this->pdo, "{$this->p}movimenti_banca", 'abbinamento_annullato');
+        $righe = $this->pdo->query("SELECT * FROM {$this->p}movimenti_banca
+            WHERE origine IN ('estratto_conto', 'estratto_carta') AND stato = 'da_riconciliare' AND avviso_id IS NULL
+            ORDER BY data_valuta, id")->fetchAll(PDO::FETCH_ASSOC);
+        $daAnalizzare = [];
+        foreach ($righe as $mov) {
+            $ctx = $this->contesto($mov);
+            if (!($ctx['refs'] || $ctx['anagrafica_id'] || $ctx['avvisi'])) continue;
+            if (isset($mov['abbinabile']) && !(int)$mov['abbinabile']) {
+                $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET abbinabile = 1 WHERE id = ?")->execute([(int)$mov['id']]);
+                $out['nuovi_agganci']++;
+            }
+            // Segno incerto o abbinamento già annullato a mano: solo proposte
+            $daAnalizzare[] = [(int)$mov['id'], $conFlag && (!empty($mov['segno_incerto']) || !empty($mov['abbinamento_annullato'])), $ctx];
+        }
+        $out['analizzati'] = count($daAnalizzare);
+        $this->abbina($daAnalizzare, $userId, $out);
+        foreach ($out['movimenti'] as $m) if ($m['esito'] === 'abbinato') $out['ids'][] = $m['id'];
+        return $out;
+    }
+
+    /**
+     * Abbinamento dei movimenti [id, segno incerto, contesto]: aggiorna in $out abbinati, da_verificare e movimenti.
+     * Candidati per ogni avviso contati prima di registrare qualcosa: se un avviso ha due accrediti possibili,
+     * non si aggancia a nessuno nemmeno dopo che uno è stato usato.
+     */
+    private function abbina(array $daAnalizzare, ?int $userId, array &$out): void
+    {
         $candidatiAvviso = [];
         foreach ($daAnalizzare as [$id, $incerto, $ctx]) {
             foreach ($this->docs->avvisiPerAccredito($this->movimento($id)) as $a) {
@@ -129,7 +174,7 @@ class Riconciliatore
             $mov = $this->movimento($id);
             $esito = ['id' => $id, 'data' => $mov['data_valuta'], 'importo' => (float)$mov['importo'],
                 'descrizione' => $mov['descrizione'], 'esito' => 'da_verificare', 'dettaglio' => '', 'proposte' => []];
-            $ctx['avvisi'] = (float)$mov['importo'] > 0 ? $this->docs->avvisiPerAccredito($mov) : [];
+            $ctx['avvisi'] = (float)$mov['importo'] > 0 && ($mov['origine'] ?? 'estratto_conto') === 'estratto_conto' ? $this->docs->avvisiPerAccredito($mov) : [];
             $an = $this->analizza($mov, $incerto, $ctx);
             if ($an['avviso_id']) {
                 $this->collegaAvviso($id, $an['avviso_id']);
@@ -147,10 +192,6 @@ class Riconciliatore
             }
             $out['movimenti'][] = $esito;
         }
-        if ($out['altro_formato']) {
-            $out['avvisi'][] = "{$out['altro_formato']} movimenti erano già stati importati dall'altro formato (XML/PDF) e non sono stati duplicati.";
-        }
-        return $out;
     }
 
     /**
@@ -493,6 +534,10 @@ class Riconciliatore
                 $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET stato = 'ignorato' WHERE id = ?")->execute([$movimentoId]);
             } else {
                 $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET avviso_id = NULL, stato = 'da_riconciliare' WHERE id = ?")->execute([$movimentoId]);
+                // riabbina() non rifà da solo un abbinamento tolto a mano
+                if (RiconciliazioneDocumenti::colonna($this->pdo, "{$this->p}movimenti_banca", 'abbinamento_annullato')) {
+                    $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET abbinamento_annullato = 1 WHERE id = ?")->execute([$movimentoId]);
+                }
             }
         });
         $this->cache['aperti'] = [];
@@ -547,6 +592,10 @@ class Riconciliatore
                 $taglia($conto['file_nome'] ?? null, 255)]);
         $id = (int)$this->pdo->lastInsertId();
         if (!$abbinabile) $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET abbinabile = 0 WHERE id = ?")->execute([$id]);
+        // Segno non letto dal PDF: anche la nuova analisi di riabbina() deve limitarsi alle proposte
+        if (!empty($m['segno_incerto']) && RiconciliazioneDocumenti::colonna($this->pdo, "{$this->p}movimenti_banca", 'abbinamento_annullato')) {
+            $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET segno_incerto = 1 WHERE id = ?")->execute([$id]);
+        }
         return $id;
     }
 

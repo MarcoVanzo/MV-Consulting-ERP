@@ -533,6 +533,7 @@ class ApiRouter {
             case 'conferma':         $ctrl->conferma($data); break;
             case 'annulla':          $ctrl->annulla($data); break;
             case 'ignora':           $ctrl->ignora($data); break;
+            case 'riabbina':         $ctrl->riabbina(); break;
             default:                 Response::json(false, "Azione riconciliazione non supportata: $action");
         }
     }

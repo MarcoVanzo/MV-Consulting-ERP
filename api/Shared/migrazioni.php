@@ -750,6 +750,15 @@ return [
         WHERE i.offerta_id IS NULL
           AND NOT EXISTS (SELECT 1 FROM {$prefix}offerte o WHERE o.incarico_id = i.id AND o.deleted_at IS NULL)",
     "UPDATE {$prefix}incarichi i JOIN {$prefix}offerte o ON o.incarico_id = i.id AND o.deleted_at IS NULL
-        SET i.offerta_id = o.id WHERE i.offerta_id IS NULL"
+        SET i.offerta_id = o.id WHERE i.offerta_id IS NULL",
+
+    // v094–v095: movimenti che Riconciliatore::riabbina non abbina da solo (solo proposte): segno non letto dal PDF
+    // (colonna dare/avere illeggibile, come all'import) o abbinamento annullato a mano (non si rifà lo stesso errore).
+    // Gli annullamenti già fatti si ricavano dal registro delle operazioni
+    "ALTER TABLE {$prefix}movimenti_banca
+        ADD COLUMN segno_incerto TINYINT(1) NOT NULL DEFAULT 0,
+        ADD COLUMN abbinamento_annullato TINYINT(1) NOT NULL DEFAULT 0",
+    "UPDATE {$prefix}movimenti_banca SET abbinamento_annullato = 1
+        WHERE CAST(id AS CHAR) IN (SELECT record_id FROM {$prefix}audit_logs WHERE action = 'ANNULLA' AND table_name = 'movimenti_banca')"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
