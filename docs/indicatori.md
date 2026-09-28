@@ -30,6 +30,7 @@ situazione di oggi gli incassi aperti si vedono tutti.
 | Da fatturare (commesse) | valore della commessa non ancora coperto da fatture, mai negativo | netto IVA |
 | Rate da fatturare | rate senza fattura con data prevista entro l'orizzonte (le rate senza data contano sempre) | netto IVA |
 | Pipeline | offerte in stato `inviata` (le bozze sono a parte: non le ha ancora viste nessuno) | netto IVA |
+| Pipeline pesata | somma di valore × probabilità di lead, bozze e inviate; probabilità dell'offerta o quella dello stato (lead 10%, bozza 30%, inviata 50%, `Indicatori::PROBABILITA`) | netto IVA |
 | Conversione | accettate / (accettate + rifiutate + scadute) | % |
 | Partner da pagare | fatture passive `da_pagare`; `importo_totale` è già il netto a pagare dopo la ritenuta | IVA inclusa |
 

@@ -31,7 +31,7 @@ const ModClienti = (() => {
                 <td>
                     ${parseInt(c.num_sottoclienti) > 0 ? `<button class="expand-btn" data-cliente-id="${UI.esc(c.id)}" title="Espandi sottoclienti"><i class="ph ph-caret-right"></i></button>` : ''}
                 </td>
-                <td class="td-primary">${UI.esc(c.ragione_sociale)}${c.tipo === 'prospect' ? ' <span class="badge badge-gray" title="Nessuna commessa né fattura">Prospect</span>' : ''}</td>
+                <td class="td-primary"><button type="button" class="sc-link" onclick="ModScheda.apri(${parseInt(c.id)})" title="Apri la scheda">${UI.esc(c.ragione_sociale)}</button>${c.tipo === 'prospect' ? ' <span class="badge badge-gray" title="Nessuna commessa né fattura">Prospect</span>' : ''}</td>
                 <td class="td-mono">${UI.esc(c.partita_iva || '—')}</td>
                 <td>${UI.esc(c.citta || '')}${c.provincia ? ` (${UI.esc(c.provincia)})` : ''}</td>
                 <td>${UI.esc(c.email || c.pec || '—')}</td>

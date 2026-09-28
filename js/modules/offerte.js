@@ -1,7 +1,8 @@
 'use strict';
 /**
- * Modulo Offerte — preventivi ai clienti: righe, piano di pagamento, costi dei partner,
- * invio con data di ricontatto, accettazione (nasce l'incarico), revisioni, import da Cowork.
+ * Modulo Offerte — dal lead all'accettazione: il lead è un'opportunità ancora senza preventivo
+ * (valore stimato, fonte, probabilità, prossima azione); poi bozza con righe, piano di pagamento e
+ * costi dei partner, invio con data di ricontatto, accettazione (nasce la commessa), revisioni.
  */
 const ModOfferte = (() => {
     let _offerte = [], _kpis = {}, _filtro = '';
@@ -9,6 +10,7 @@ const ModOfferte = (() => {
     let _righe = [], _piano = [], _cur = null;
 
     const STATI = {
+        lead:       ['badge-gray', 'Lead'],
         bozza:      ['badge-blue', 'Bozza'],
         inviata:    ['badge-yellow', 'Inviata'],
         accettata:  ['badge-green', 'Accettata'],
@@ -16,6 +18,9 @@ const ModOfferte = (() => {
         scaduta:    ['badge-red', 'Scaduta'],
         sostituita: ['badge-purple', 'Sostituita'],
     };
+    const FONTI = { passaparola: 'Passaparola', cliente: 'Cliente esistente', sito: 'Sito web', linkedin: 'LinkedIn', evento: 'Evento', partner: 'Partner', altro: 'Altro' };
+    const PROB_STATO = { lead: 10, bozza: 30, inviata: 50 };
+    const fontiOptions = sel => `<option value="">—</option>` + Object.entries(FONTI).map(([k, l]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${l}</option>`).join('');
     const PRESET = {
         '100% all\'accettazione': [['Saldo', 100, 0]],
         '30% + 70% a 60 gg': [['Acconto', 30, 0], ['Saldo', 70, 60]],
@@ -40,18 +45,19 @@ const ModOfferte = (() => {
 
     function render(box) {
         const k = _kpis;
-        const chips = [['', 'Aperte e chiuse'], ['bozza', 'Bozze'], ['inviata', 'Inviate'], ['accettata', 'Accettate'], ['rifiutata', 'Rifiutate'], ['sostituita', 'Versioni superate']]
+        const chips = [['', 'Aperte e chiuse'], ['lead', 'Lead'], ['bozza', 'Bozze'], ['inviata', 'Inviate'], ['accettata', 'Accettate'], ['rifiutata', 'Rifiutate'], ['sostituita', 'Versioni superate']]
             .map(([v, l]) => `<span class="filter-chip ${_filtro === v ? 'active' : ''}" data-f="${v}">${l}</span>`).join('');
         box.innerHTML = `
             <div class="comm-toolbar">
                 <button class="btn btn-ghost" data-importa><i class="ph ph-upload-simple"></i> Importa offerta</button>
+                <button class="btn btn-secondary" id="off-lead" type="button"><i class="ph ph-plus"></i> Nuovo lead</button>
                 <button class="btn btn-primary" id="off-new"><i class="ph ph-plus"></i> Nuova offerta</button>
             </div>
             <div class="kpi-grid">
                 <div class="kpi-card kpi-blue"><div class="kpi-label">In trattativa</div><div class="kpi-value">${UI.formatCurrency(k.pipeline)}</div><div class="kpi-sub">${UI.plurale(k.num_inviate, 'offerta inviata', 'offerte inviate')}${k.num_bozze ? ` · ${k.num_bozze} in bozza` : ''}</div></div>
                 <div class="kpi-card kpi-green"><div class="kpi-label">Accettato</div><div class="kpi-value">${UI.formatCurrency(k.accettato)}</div><div class="kpi-sub">${UI.plurale(k.num_accettate, 'offerta', 'offerte')}</div></div>
-                <div class="kpi-card kpi-yellow"><div class="kpi-label">Conversione</div><div class="kpi-value">${k.tasso_conversione !== null && k.tasso_conversione !== undefined ? k.tasso_conversione + '%' : '—'}</div><div class="kpi-sub">accettate su chiuse</div></div>
-                <div class="kpi-card kpi-red"><div class="kpi-label">Perse</div><div class="kpi-value">${k.num_perse || 0}</div><div class="kpi-sub">rifiutate o scadute</div></div>
+                <div class="kpi-card kpi-yellow"><div class="kpi-label">Conversione</div><div class="kpi-value">${k.tasso_conversione !== null && k.tasso_conversione !== undefined ? k.tasso_conversione + '%' : '—'}</div><div class="kpi-sub">accettate su chiuse · ${UI.plurale(k.num_perse, 'persa', 'perse')}</div></div>
+                <div class="kpi-card kpi-purple"><div class="kpi-label">Pipeline pesata</div><div class="kpi-value">${UI.formatCurrency(k.pipeline_pesata)}</div><div class="kpi-sub">${UI.plurale(k.num_lead, 'lead', 'lead')} · valore × probabilità</div></div>
             </div>
             <div class="table-container">
                 <div class="table-toolbar"><div class="filters-row" style="margin-bottom:0">${chips}</div></div>
@@ -63,6 +69,7 @@ const ModOfferte = (() => {
 
         box.querySelectorAll('.filter-chip').forEach(c => c.addEventListener('click', () => { _filtro = c.dataset.f; load(); }));
         document.getElementById('off-new').addEventListener('click', openNew);
+        document.getElementById('off-lead').addEventListener('click', () => openLead({}));
         box.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => azione(b.dataset.act, parseInt(b.dataset.id, 10))));
     }
 
@@ -75,9 +82,10 @@ const ModOfferte = (() => {
             const b = (act, icon, title, cls = 'btn-ghost') => `<button class="btn btn-sm ${cls}" data-act="${act}" data-id="${o.id}" title="${title}" aria-label="${title}"><i class="ph ${icon}"></i></button>`;
             const azioni = [
                 b('edit', 'ph-pencil-simple', 'Apri'),
+                o.stato === 'lead' ? b('prepara', 'ph-file-plus', 'Prepara l\'offerta') : '',
                 o.stato === 'bozza' ? b('invia', 'ph-paper-plane-tilt', 'Segna come inviata') : '',
-                ['bozza', 'inviata'].includes(o.stato) ? b('accetta', 'ph-check-circle', 'Accettata: crea incarico') : '',
-                o.stato === 'inviata' ? b('rifiuta', 'ph-x-circle', 'Rifiutata') : '',
+                ['bozza', 'inviata'].includes(o.stato) ? b('accetta', 'ph-check-circle', 'Accettata: crea la commessa') : '',
+                ['lead', 'inviata'].includes(o.stato) ? b('rifiuta', 'ph-x-circle', o.stato === 'lead' ? 'Perso' : 'Rifiutata') : '',
                 ['bozza', 'inviata', 'rifiutata', 'scaduta'].includes(o.stato) ? b('versione', 'ph-copy', 'Nuova versione') : '',
                 o.incarico_id ? b('commessa', 'ph-folder-open', 'Scheda commessa') : '',
                 o.file_path ? b('doc', 'ph-file-pdf', 'Documento') : '',
@@ -86,7 +94,8 @@ const ModOfferte = (() => {
             return `<tr>
                 <td class="td-mono">${UI.esc(o.numero)}${o.versione > 1 ? ' v' + UI.esc(o.versione) : ''}${o.origine === 'cowork' ? ' <i class="ph ph-magic-wand" title="Importata da Cowork"></i>' : ''}</td>
                 <td class="td-primary">${UI.esc(o.cliente_nome_vis || '—')}${o.sottocliente_nome ? ` <span style="color:var(--text-muted)">/ ${UI.esc(o.sottocliente_nome)}</span>` : ''}</td>
-                <td>${UI.esc(o.oggetto)}${o.da_ricontattare == 1 ? ' <span class="badge badge-red">Ricontattare</span>' : ''}</td>
+                <td>${UI.esc(o.oggetto)}${o.da_ricontattare == 1 ? ' <span class="badge badge-red">Ricontattare</span>' : ''}
+                    ${o.prossima_azione && ['lead', 'bozza', 'inviata'].includes(o.stato) ? `<div class="td-sub">${UI.esc(o.prossima_azione)}${o.data_followup ? ' · ' + UI.formatDate(o.data_followup) : ''}</div>` : ''}</td>
                 <td>${UI.formatDate(o.data_offerta)}</td>
                 <td class="text-right td-primary">${UI.formatCurrency(o.imponibile)}</td>
                 <td class="text-right">${costi > 0 ? UI.formatCurrency(marg) + ` <span style="color:var(--text-muted)">${pct}%</span>` : '—'}</td>
@@ -107,6 +116,7 @@ const ModOfferte = (() => {
     async function edit(id) {
         try {
             _cur = await Store.api('get', 'offerte', { id });
+            if (_cur.stato === 'lead') { openLead(_cur); return; }
             _righe = (_cur.righe || []).map(r => ({ ...r }));
             _piano = (_cur.piano_rate || []).map(r => ({ ...r }));
             openForm(`Offerta ${_cur.numero}${_cur.versione > 1 ? ' v' + _cur.versione : ''}`);
@@ -132,6 +142,9 @@ const ModOfferte = (() => {
                 <div class="form-group"><label>Valida fino al</label><input type="date" class="form-control" id="of-scadenza" value="${UI.esc(d.data_scadenza || '')}"></div>
                 <div class="form-group"><label>Giornate previste</label><input type="number" step="0.5" class="form-control" id="of-gg" value="${UI.esc(d.num_giornate || 0)}"></div>
                 <div class="form-group"><label>Ricontattare il</label><input type="date" class="form-control" id="of-followup" value="${UI.esc(d.data_followup || '')}"></div>
+                <div class="form-group"><label>Prossima azione</label><input class="form-control" id="of-azione" value="${UI.esc(d.prossima_azione || '')}" placeholder="es. chiamare per l'esito"></div>
+                <div class="form-group"><label>Fonte</label><select class="form-control" id="of-fonte">${fontiOptions(d.fonte)}</select></div>
+                <div class="form-group"><label>Probabilità di chiusura %</label><input type="number" min="0" max="100" class="form-control" id="of-prob" value="${UI.esc(d.probabilita ?? '')}" placeholder="${PROB_STATO[d.stato] ?? ''} (predefinita)"></div>
                 <div class="form-group full-width"><label>Descrizione</label><textarea class="form-control" id="of-desc">${UI.esc(d.descrizione || '')}</textarea></div>
             </div>
 
@@ -315,6 +328,7 @@ const ModOfferte = (() => {
             id: v('of-id'), cliente_id: v('of-cliente'), cliente_nome: v('of-cliente-nome'), sottocliente_id: v('of-sotto'),
             tipo_commessa: v('of-tipo'), oggetto: v('of-oggetto'), data_offerta: v('of-data'), data_scadenza: v('of-scadenza'),
             num_giornate: v('of-gg'), data_followup: v('of-followup'), descrizione: v('of-desc'), giorni_pagamento: v('of-giorni'),
+            prossima_azione: v('of-azione'), fonte: v('of-fonte'), probabilita: v('of-prob'),
             iva_percentuale: v('of-iva'), condizioni_pagamento: v('of-condizioni'), note: v('of-note'),
             righe: JSON.stringify(_righe), piano_rate: JSON.stringify(_piano),
         };
@@ -328,6 +342,59 @@ const ModOfferte = (() => {
         load();
         if (!fields.id && res?.id) edit(res.id); // riapre per aggiungere i partner
         else UI.closeModal();
+    }
+
+    // ── Lead ────────────────────────────────────────────
+
+    /** Lead: un'opportunità in poche righe. Con clienteId arriva dalla scheda cliente. */
+    function openLead(l, clienteId = null) {
+        const clienti = ModClienti.getClienti();
+        const cid = l.cliente_id || clienteId;
+        const cOpts = clienti.map(c => `<option value="${UI.esc(c.id)}" ${c.id == cid ? 'selected' : ''}>${UI.esc(c.ragione_sociale)}</option>`).join('');
+        UI.openModal(l.id ? `Lead ${l.numero}` : 'Nuovo lead', `
+            <p class="form-intro">Un'opportunità prima del preventivo: quando è il momento, «Prepara l'offerta» la trasforma in bozza.</p>
+            <div class="form-grid">
+                <div class="form-group"><label for="ld-cliente">Cliente</label><select class="form-control" id="ld-cliente"><option value="">— Prospect non in anagrafica —</option>${cOpts}</select></div>
+                <div class="form-group" id="ld-nome-wrap"><label for="ld-nome">Nome prospect *</label><input class="form-control" id="ld-nome" value="${UI.esc(l.cliente_nome || '')}"></div>
+                <div class="form-group full-width"><label for="ld-oggetto">Opportunità *</label><input class="form-control" id="ld-oggetto" value="${UI.esc(l.oggetto || '')}" placeholder="es. Adeguamento NIS 2 per il gruppo"></div>
+                <div class="form-group"><label for="ld-valore">Valore stimato €</label><input type="number" step="100" min="0" class="form-control" id="ld-valore" value="${UI.esc(l.imponibile ?? '')}"></div>
+                <div class="form-group"><label for="ld-prob">Probabilità %</label><input type="number" min="0" max="100" class="form-control" id="ld-prob" value="${UI.esc(l.probabilita ?? '')}" placeholder="10 (predefinita)"></div>
+                <div class="form-group"><label for="ld-fonte">Fonte</label><select class="form-control" id="ld-fonte">${fontiOptions(l.fonte)}</select></div>
+                <div class="form-group"><label for="ld-tipo">Tipo</label><select class="form-control" id="ld-tipo">${UI.tipiCommessaOptions(l.tipo_commessa)}</select></div>
+                <div class="form-group"><label for="ld-azione">Prossima azione</label><input class="form-control" id="ld-azione" value="${UI.esc(l.prossima_azione || '')}" placeholder="es. fissare un incontro"></div>
+                <div class="form-group"><label for="ld-quando">Entro il</label><input type="date" class="form-control" id="ld-quando" value="${UI.esc(l.data_followup || '')}"></div>
+                <div class="form-group full-width"><label for="ld-note">Note</label><textarea class="form-control" id="ld-note">${UI.esc(l.note || '')}</textarea></div>
+            </div>`, async () => {
+            const v = id => document.getElementById(id).value;
+            if (!v('ld-oggetto').trim()) throw new Error('Scrivi l\'opportunità');
+            if (!v('ld-cliente') && !v('ld-nome').trim()) throw new Error('Indica il cliente o il nome del prospect');
+            const fd = new FormData();
+            Object.entries({ id: l.id || '', stato: 'lead', cliente_id: v('ld-cliente'), cliente_nome: v('ld-nome'), oggetto: v('ld-oggetto'),
+                imponibile: v('ld-valore'), probabilita: v('ld-prob'), fonte: v('ld-fonte'), tipo_commessa: v('ld-tipo'),
+                prossima_azione: v('ld-azione'), data_followup: v('ld-quando'), note: v('ld-note'), data_offerta: l.data_offerta || UI.todayLocal(),
+                righe: '[]', piano_rate: '[]' }).forEach(([k, val]) => fd.append(k, val ?? ''));
+            await Store.upload('save', 'offerte', fd);
+            UI.closeModal();
+            UI.toast(l.id ? 'Lead aggiornato' : 'Lead creato');
+            if (!v('ld-cliente')) await ModClienti.load();
+            load();
+            if (clienteId) window.ModScheda?.apri(clienteId); // si torna alla scheda da cui si è partiti
+        });
+        const sel = document.getElementById('ld-cliente');
+        const toggle = () => document.getElementById('ld-nome-wrap').classList.toggle('hidden', !!sel.value);
+        sel.addEventListener('change', toggle);
+        toggle();
+    }
+
+    /** Dal lead al preventivo: diventa bozza con una prima riga al valore stimato. */
+    async function prepara(id) {
+        await Store.api('set_stato', 'offerte', { id, stato: 'bozza' });
+        await edit(id);
+        if (_cur && !_righe.length) {
+            _righe = [{ descrizione: _cur.oggetto || '', quantita: 1, unita: 'a corpo', prezzo_unitario: parseFloat(_cur.imponibile) || 0 }];
+            renderRighe();
+        }
+        load();
     }
 
     // ── Azioni ──────────────────────────────────────────
@@ -363,8 +430,10 @@ const ModOfferte = (() => {
                     break;
                 }
                 case 'accetta': if (o) openAccetta(o); break;
+                case 'prepara': await prepara(id); break;
                 case 'rifiuta': {
-                    const motivo = await UI.chiedi({ titolo: 'Offerta rifiutata', etichetta: 'Motivo (facoltativo): prezzo, tempi, concorrente…', tipo: 'text', conferma: 'Segna rifiutata' });
+                    const lead = o?.stato === 'lead';
+                    const motivo = await UI.chiedi({ titolo: lead ? 'Lead perso' : 'Offerta rifiutata', etichetta: 'Motivo (facoltativo): prezzo, tempi, concorrente…', tipo: 'text', conferma: lead ? 'Segna perso' : 'Segna rifiutata' });
                     if (motivo === null) return;
                     await Store.api('set_stato', 'offerte', { id, stato: 'rifiutata', motivo_esito: motivo });
                     load();
@@ -389,6 +458,6 @@ const ModOfferte = (() => {
         } catch (e) { UI.toast(e.message || 'Errore', 'error'); }
     }
 
-    return { load, edit, openNew };
+    return { load, edit, openNew, openLead };
 })();
 window.ModOfferte = ModOfferte;

@@ -148,3 +148,39 @@ button.nav-item { width: 100%; background: none; border: 0; font: inherit; color
   .sidebar .nav-item span[data-breve] { font-size: 0; }
   .sidebar .nav-item span[data-breve]::after { content: attr(data-breve); font-size: 0.62rem; }
 }
+
+/* ── Vendite: lead e scheda cliente ── */
+.kpi-card.kpi-purple::after { background: var(--accent-purple); opacity: 1; }
+.td-sub { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+.form-intro { color: var(--text-secondary); font-size: 0.88rem; margin: 0 0 14px; }
+.sc-link { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.sc-link:hover { color: var(--accent-primary); text-decoration: underline; }
+.sc { display: grid; gap: 16px; }
+.sc-testa { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.sc-contatti { color: var(--text-secondary); font-size: 0.88rem; flex: 1 1 16rem; overflow-wrap: anywhere; }
+.sc-azioni { display: flex; gap: 6px; flex-wrap: wrap; }
+.sc-numeri { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.sc-numeri > div { background: var(--bg-surface); border-radius: var(--radius-sm); padding: 10px 12px; display: grid; gap: 2px; }
+.sc-numeri b { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.sc-numeri span { font-size: 0.75rem; color: var(--text-muted); }
+.sc-colonne { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.sc-sezione { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.sc-sezione h3 { font-size: 0.9rem; font-weight: 600; margin: 0; }
+.sc-sezione > .btn { justify-self: start; }
+.sc-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.sc-lista li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg-surface); border-radius: var(--radius-sm); font-size: 0.88rem; }
+.sc-dx { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-secondary); display: flex; gap: 6px; align-items: center; }
+.sc-nota { display: grid; gap: 8px; }
+.sc-nota-riga { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sc-nota .btn { justify-self: start; }
+.sc-storico { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 320px; overflow-y: auto; }
+.sc-storico li { display: grid; grid-template-columns: 84px 20px 1fr auto; gap: 8px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--border-subtle); font-size: 0.86rem; }
+.sc-data { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.sc-storico i { color: var(--accent-primary); }
+.sc-testo { min-width: 0; overflow-wrap: anywhere; }
+.sc-check { display: flex; align-items: center; gap: 8px; flex-direction: row; }
+@media (max-width: 700px) {
+  .sc-colonne, .sc-numeri { grid-template-columns: 1fr; }
+  .sc-lista li { flex-wrap: wrap; }
+  .sc-storico li { grid-template-columns: 72px 18px 1fr auto; }
+}

@@ -27,6 +27,38 @@ class CommessaService
         $this->p = $prefix;
     }
 
+    /** Prossimo numero d'offerta dell'anno (OFF-AAAA-NNN). Calcolato in PHP: la stessa query vale su MySQL e SQLite. */
+    public function nuovoNumeroOfferta(int $anno): string
+    {
+        $stmt = $this->pdo->prepare("SELECT numero FROM {$this->p}offerte WHERE numero LIKE ?");
+        $stmt->execute(["OFF-$anno-%"]);
+        $max = 0;
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $n) $max = max($max, (int)substr((string)$n, 9));
+        return sprintf('OFF-%d-%03d', $anno, $max + 1);
+    }
+
+    /**
+     * Ogni commessa nasce da un'offerta: per una commessa creata a mano (o da una lettera d'incarico)
+     * si registra un'offerta già accettata con gli stessi dati, così pipeline e conversione tornano.
+     * Da chiamare dentro la transazione che crea l'incarico. Restituisce l'id dell'offerta.
+     */
+    public function offertaRapida(int $incaricoId, array $i): int
+    {
+        $data = (string)($i['data_incarico'] ?? date('Y-m-d'));
+        $numero = $this->nuovoNumeroOfferta((int)substr($data, 0, 4));
+        $this->pdo->prepare("INSERT INTO {$this->p}offerte (numero, versione, cliente_id, sottocliente_id, data_offerta, oggetto,
+                tipo_commessa, num_giornate, imponibile, giorni_pagamento, condizioni_pagamento, stato, data_esito, incarico_id, origine, note)
+            VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'accettata', ?, ?, 'rapida', ?)")
+            ->execute([$numero, $i['cliente_id'], $i['sottocliente_id'] ?? null, $data,
+                mb_substr(trim((string)($i['descrizione'] ?? '')) ?: 'Commessa ' . ($i['numero_protocollo'] ?? $numero), 0, 255),
+                $i['tipo_commessa'] ?? 'assistenza', (float)($i['num_giornate'] ?? 0), (float)$i['importo_totale'],
+                (int)($i['giorni_pagamento'] ?? 30), $i['condizioni_pagamento'] ?? null, $data, $incaricoId,
+                'Offerta registrata insieme alla commessa']);
+        $offertaId = (int)$this->pdo->lastInsertId();
+        $this->pdo->prepare("UPDATE {$this->p}incarichi SET offerta_id = ? WHERE id = ?")->execute([$offertaId, $incaricoId]);
+        return $offertaId;
+    }
+
     /**
      * Crea le rate di un incarico da un piano [{descrizione, percentuale, giorni_da_accettazione}].
      * L'ultima rata assorbe gli arrotondamenti, così la somma torna al centesimo.

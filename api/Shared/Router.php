@@ -37,7 +37,7 @@ class ApiRouter {
      */
     public const READ_ONLY_ACTIONS = [
         'auth'         => ['verify'],
-        'clienti'      => ['list', 'get', 'lookup-vat'],
+        'clienti'      => ['list', 'get', 'lookup-vat', 'scheda'],
         'sottoclienti' => ['list'],
         'trasferte'    => ['list', 'rendiconto', 'impostazioni'],
         'mezzi'        => ['getAllVehicles', 'getVehicleById', 'allegato'],
@@ -297,6 +297,23 @@ class ApiRouter {
             case 'save':       $ctrl->save($data); break;
             case 'delete':     Auth::richiediAdmin(); $ctrl->delete($data['id'] ?? $_GET['id'] ?? 0); break;
             case 'lookup-vat': $ctrl->lookupVat($data['vat'] ?? $_GET['vat'] ?? ''); break;
+            // Scheda 360°: referenti, note, offerte, commesse, fatture, storico
+            case 'scheda':
+            case 'referente_save':
+            case 'referente_delete':
+            case 'nota_save':
+            case 'nota_delete':
+                require_once __DIR__ . '/../Controllers/SchedaClienteController.php';
+                $s = new SchedaClienteController();
+                $id = $data['id'] ?? $_GET['id'] ?? 0;
+                match ($action) {
+                    'scheda' => $s->scheda($id),
+                    'referente_save' => $s->salvaReferente($data),
+                    'referente_delete' => $s->eliminaReferente($id),
+                    'nota_save' => $s->salvaNota($data),
+                    'nota_delete' => $s->eliminaNota($id),
+                };
+                break;
             default:           Response::json(false, "Azione clienti non supportata: $action");
         }
     }
