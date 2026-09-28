@@ -337,8 +337,8 @@ const ModImporta = (() => {
     /** Dopo l'import si aggiorna quello che è a schermo. */
     function ricarica() {
         const offerta = _voci.find(v => v.offertaId);
-        [window.ModContabilita, window.ModRiconciliazione, window.ModIncarichi, window.ModPartner, window.ModCommerciale, window.ModClienti]
-            .forEach(m => { try { m?.load?.(); } catch (e) { /* vista non aperta */ } });
+        const vista = document.querySelector('.view-section.active')?.id.replace('view-', '');
+        if (vista && window.apriVista) apriVista(vista, undefined, { storia: false });
         if (offerta && window.ModOfferte) ModOfferte.edit(offerta.offertaId);
     }
 

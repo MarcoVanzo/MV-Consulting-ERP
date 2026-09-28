@@ -45,6 +45,13 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   `api/Shared/ArchivioImport.php`, che salva l'originale in `storage/import/<sha256>.<ext>` e lo
   registra in `import_file` (v077). Un import nuovo va aggiunto a `AZIONI` e il frontend manda il file
   nel campo `originale` quando al server arriva solo il testo estratto con pdf.js.
+- **Viste** (dal 28/09/2026): sei voci di menu, ognuna con le sue schede e senza sovrapposizioni —
+  Oggi (dashboard, `js/modules/oggi.js` su `indicatori/oggi`, sotto le scadenze nel dettaglio di `commerciale.js`),
+  Vendite (offerte, commesse, margini), Incassi (fatture emesse e ricevute), Banca (movimenti, da classificare,
+  andamento), Trasferte (viaggi, mezzi), Anagrafiche (clienti e prospect, partner e fornitori).
+  Schede generiche `.vtabs/.vtab/.vpane` (`UI.initVtabs`), anno unico `UI.anno()` (selettori `.sel-anno`),
+  router in `app.js` (tabella `CARICA`, indirizzo `#vista/scheda`). Stili in `css/viste.css`; su telefono il menu
+  diventa una barra in basso. Niente `prompt()`: `UI.chiedi()` (finestra con calendario).
 - **Importazione unica** (`js/modules/importa.js`): ogni pulsante `[data-importa]` e i file trascinati sulla
   finestra aprono la stessa finestra, che riconosce il tipo, chiede l'**anteprima** e poi importa. L'anteprima
   è l'import vero eseguito dentro una transazione annullata (`api/Shared/Anteprima.php`): le transazioni

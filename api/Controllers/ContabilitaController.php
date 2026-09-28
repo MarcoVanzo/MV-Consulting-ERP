@@ -28,7 +28,12 @@ class ContabilitaController {
             WHERE YEAR(f.data_emissione) = ?";
         $params = [$year];
 
-        if ($stato) {
+        // Filtri con le stesse definizioni degli Indicatori (docs/indicatori.md)
+        if ($stato === 'da_incassare') {
+            $sql .= " AND f.stato <> 'pagata'";
+        } elseif ($stato === 'scaduta') {
+            $sql .= " AND f.stato <> 'pagata' AND f.data_scadenza IS NOT NULL AND f.data_scadenza < CURDATE()";
+        } elseif ($stato && in_array($stato, self::STATI_FATTURA, true)) {
             $sql .= " AND f.stato = ?";
             $params[] = $stato;
         }

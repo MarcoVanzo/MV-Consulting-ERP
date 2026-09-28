@@ -479,7 +479,7 @@ const ModMezzi = (() => {
                 
                 if (newStatus === 'resolved') {
                     // Prompt per note
-                    const notes = prompt("Inserisci note di risoluzione (opzionale):");
+                    const notes = await UI.chiedi({ titolo: 'Anomalia risolta', etichetta: 'Note di risoluzione (facoltative)', tipo: 'text', conferma: 'Segna risolta' });
                     if (notes !== null) {
                         await updateAnomStatus(id, newStatus, notes);
                     } else {

@@ -239,6 +239,88 @@ const UI = (() => {
         return l.length ? 'Già in anagrafica: ' + l.join(', ') : '';
     }
 
+    /**
+     * Piccola finestra per un solo valore (data, numero, testo) al posto di prompt():
+     * su telefono una data si sceglie dal calendario. Restituisce il valore o null se si annulla.
+     */
+    function chiedi({ titolo, etichetta = '', tipo = 'date', valore = '', conferma = 'Conferma' }) {
+        return new Promise(resolve => {
+            const d = document.createElement('dialog');
+            d.className = 'mini-dialog';
+            d.innerHTML = `<form method="dialog">
+                <h3>${esc(titolo)}</h3>
+                <label class="mini-campo"><span>${esc(etichetta)}</span>
+                    <input class="form-control" type="${['number', 'text', 'email'].includes(tipo) ? tipo : 'date'}" value="${esc(valore)}"${tipo === 'number' ? ' min="1" inputmode="numeric"' : ''}></label>
+                <div class="mini-azioni">
+                    <button class="btn btn-ghost" type="button" data-annulla>Annulla</button>
+                    <button class="btn btn-primary" value="ok">${esc(conferma)}</button>
+                </div></form>`;
+            document.body.appendChild(d);
+            const inp = d.querySelector('input');
+            d.querySelector('[data-annulla]').addEventListener('click', () => d.close(''));
+            d.addEventListener('close', () => {
+                const v = d.returnValue === 'ok' ? inp.value : null;
+                d.remove();
+                resolve(!['text'].includes(tipo) && v === '' ? null : v);
+            });
+            d.showModal();
+            inp.focus();
+        });
+    }
+
+    // ── Anno di lavoro: uno solo per tutte le viste (selettori .sel-anno sincronizzati) ──
+    let _anno = new Date().getFullYear();
+    function anno() { return _anno; }
+    /** Cambia l'anno di lavoro senza ricaricare (es. dopo aver salvato un documento di un altro anno). */
+    function impostaAnno(y) {
+        _anno = parseInt(y, 10) || _anno;
+        document.querySelectorAll('.sel-anno').forEach(s => { s.value = _anno; });
+    }
+    function initAnno(onChange) {
+        const corrente = new Date().getFullYear();
+        document.querySelectorAll('.sel-anno').forEach(sel => {
+            sel.innerHTML = '';
+            for (let y = corrente + 1; y >= 2024; y--) sel.add(new Option(y, y, false, y === _anno));
+            sel.addEventListener('change', () => {
+                _anno = parseInt(sel.value, 10);
+                document.querySelectorAll('.sel-anno').forEach(s => { s.value = _anno; });
+                onChange?.(_anno);
+            });
+        });
+    }
+
+    /** Schede di una vista: pulsanti .vtab[data-pane] dentro .vtabs, pannelli .vpane. */
+    let _suScheda = null;
+    function initVtabs(onChange) {
+        _suScheda = onChange;
+        document.querySelectorAll('.vtabs').forEach(barra => {
+            const tabs = [...barra.querySelectorAll('.vtab')];
+            tabs.forEach(t => t.addEventListener('click', () => mostraPane(t.dataset.pane, onChange)));
+            // Frecce sinistra/destra tra le schede, come da pattern ARIA tablist
+            barra.addEventListener('keydown', e => {
+                if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+                const i = tabs.indexOf(document.activeElement);
+                if (i < 0) return;
+                const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+                n.focus(); n.click();
+            });
+        });
+    }
+    /** Mostra una scheda; onChange predefinito = quello registrato da initVtabs (carica e aggiorna l'indirizzo). */
+    function mostraPane(paneId, onChange = _suScheda) {
+        const pane = document.getElementById(paneId);
+        const vista = pane?.closest('.view-section');
+        if (!pane || !vista) return;
+        vista.querySelectorAll('.vtab').forEach(t => {
+            const on = t.dataset.pane === paneId;
+            t.classList.toggle('active', on);
+            t.setAttribute('aria-selected', on ? 'true' : 'false');
+            t.tabIndex = on ? 0 : -1;
+        });
+        vista.querySelectorAll(':scope > .vpane').forEach(p => p.classList.toggle('active', p === pane));
+        onChange?.(vista.id.replace('view-', ''), paneId);
+    }
+
     function isModalOpen() {
         return document.getElementById('modal-overlay').classList.contains('active');
     }
@@ -247,7 +329,7 @@ const UI = (() => {
         toast, openModal, closeModal, initModalEvents, copyText, isModalOpen,
         formatCurrency, formatDate, formatNumber,
         statoBadge, populateYearSelect, esc, safeUrl, todayLocal, tipoCommessa, tipiCommessaOptions,
-        cercaPiva, testoGiaPresenti, plurale
+        cercaPiva, testoGiaPresenti, plurale, chiedi, anno, impostaAnno, initAnno, initVtabs, mostraPane
     };
 })();
 

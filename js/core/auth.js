@@ -191,10 +191,11 @@ const AuthFlow = (() => {
         return missing.length ? 'La nuova password deve contenere: ' + missing.join(', ') + '.' : '';
     }
 
-    function renderForgotPassword() {
+    async function renderForgotPassword() {
         const emailInput = document.querySelector('#login-email')?.value.trim() || '';
-        
-        const emailStr = window.prompt("Password dimenticata?\n\nInserisci il tuo indirizzo email. Ti invieremo un link per reimpostare la password, valido un'ora.", emailInput);
+
+        const emailStr = await UI.chiedi({ titolo: 'Password dimenticata', tipo: 'email', valore: emailInput, conferma: 'Invia il link',
+            etichetta: 'Il tuo indirizzo email: ti mandiamo un link per reimpostare la password, valido un\'ora.' });
         
         if (emailStr && emailStr.includes('@')) {
             Store.api('request_reset', 'auth', { email: emailStr })
