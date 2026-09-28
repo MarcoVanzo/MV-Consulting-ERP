@@ -1,0 +1,33 @@
+name: Test
+
+# Sintassi PHP e test CLI (SQLite in memoria, nessun DB reale).
+# Gira su ogni PR ed è il cancello del deploy: deploy-ftp.yml lo richiama prima di pubblicare.
+
+on:
+  pull_request:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, zip, simplexml, dom, openssl, mbstring
+          coverage: none
+
+      - name: Sintassi PHP
+        run: find api cron tests -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null
+
+      - name: Test
+        run: |
+          esito=0
+          for t in tests/*_cli.php; do
+            echo "::group::$t"
+            php "$t" || esito=1
+            echo "::endgroup::"
+          done
+          exit $esito
