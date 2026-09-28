@@ -716,32 +716,25 @@ class ContabilitaController {
         ]);
     }
 
-    /**
-     * Import della "Lista Fatture" di Sistemi (.xlsx, campo file): crea le fatture che mancano.
-     * Quelle già presenti (stesso numero, anno e verso) non si toccano: se il totale è diverso lo segnala.
-     * Il cliente si riconosce per nome; se non c'è in anagrafica la fattura entra senza cliente
-     * (crearlo solo dal nome lo duplicherebbe al primo import XML, che cerca per P.IVA).
-     */
+    /** Import della "Lista Fatture" di Sistemi (.xlsx, campo file): passa dall'import unico degli elenchi. */
     public function importListaFatture() {
-        require_once __DIR__ . '/../Shared/ListaFattureParser.php';
-        require_once __DIR__ . '/../Shared/AnagraficaMatcher.php';
-        $f = $_FILES['file'] ?? null;
-        if (!$f || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) Response::json(false, 'Caricamento del file non riuscito');
-        if (strtolower(pathinfo((string)$f['name'], PATHINFO_EXTENSION)) !== 'xlsx') {
-            Response::json(false, 'Serve il file Excel .xlsx (il vecchio .xls va risalvato come .xlsx)');
-        }
-        try {
-            $letto = ListaFattureParser::fatture(ListaFattureParser::leggiXlsx($f['tmp_name']));
-        } catch (RuntimeException $e) {
-            Response::json(false, $e->getMessage());
-        }
-        if (!$letto['fatture']) Response::json(false, 'Nessuna fattura nel file', ['errors' => $letto['avvisi']]);
+        require_once __DIR__ . '/ImportaController.php';
+        (new ImportaController())->lista(['verso' => 'attiva']);
+    }
 
+    /**
+     * Fatture emesse da un elenco (Lista Fatture di Sistemi o portale): crea quelle che mancano.
+     * Quelle già presenti (stesso numero, anno e verso) non si toccano: se il totale è diverso lo segnala.
+     * Il cliente si riconosce per nome; se non c'è in anagrafica si crea col solo nome e la P.IVA si cerca
+     * poi sul web (AnagraficaAuto): così il primo import XML lo ritrova per partita IVA invece di duplicarlo.
+     */
+    public function importLista(array $letto, string $nomeFile) {
+        require_once __DIR__ . '/../Shared/AnagraficaAuto.php';
         $conTipoDoc = $this->colonnaTipoDocumento();
         $clienti = $this->pdo->query("SELECT id, partita_iva, codice_fiscale, ragione_sociale FROM {$this->prefix}clienti")->fetchAll(PDO::FETCH_ASSOC);
         $perNome = [];
-        $out = ['num_imported' => 0, 'num_existing' => 0, 'num_different' => 0, 'num_without_client' => 0, 'errors' => $letto['avvisi']];
-        $senzaCliente = [];
+        $out = ['verso' => 'attiva', 'num_imported' => 0, 'num_existing' => 0, 'num_different' => 0, 'num_without_client' => 0,
+            'anagrafiche_create' => [], 'errors' => $letto['avvisi']];
 
         $this->pdo->beginTransaction();
         try {
@@ -763,18 +756,22 @@ class ContabilitaController {
                     if (abs((float)$somma - $d['totale']) > 0.01) {
                         $out['num_different']++;
                         $out['errors'][] = "Fattura {$d['numero']}: nell'ERP il totale è " . number_format((float)$somma, 2, ',', '.')
-                            . ', in Sistemi ' . number_format($d['totale'], 2, ',', '.') . '.';
+                            . ', nel file ' . number_format($d['totale'], 2, ',', '.') . '.';
                     }
                     continue;
                 }
-                $clienteId = $d['cliente'] === '' ? null
-                    : ($perNome[$d['cliente']] ??= AnagraficaMatcher::trovaTra($clienti, null, null, $d['cliente']));
-                if (!$clienteId) {
+                $clienteId = null;
+                if ($d['cliente'] !== '') {
+                    if (!isset($perNome[$d['cliente']])) {
+                        [$perNome[$d['cliente']], $creato] = AnagraficaAuto::trovaOCrea($this->pdo, $this->prefix, 'cliente', $d['cliente'], $clienti);
+                        if ($creato) $out['anagrafiche_create'][] = $d['cliente'];
+                    }
+                    $clienteId = $perNome[$d['cliente']];
+                } else {
                     $out['num_without_client']++;
-                    if ($d['cliente'] !== '') $senzaCliente[$d['cliente']] = true;
                 }
                 $ivaPerc = abs($d['imponibile']) > 0.004 ? round($d['iva'] / $d['imponibile'] * 100, 2) : 0.0;
-                $descr = ($d['nota_credito'] ? "[Nota di credito]\n" : '') . 'Importata dalla lista fatture di Sistemi'
+                $descr = ($d['nota_credito'] ? "[Nota di credito]\n" : '') . 'Importata dall\'elenco fatture'
                     . ($d['registro'] !== '' ? " (registro {$d['registro']})" : '');
                 $valori = [$d['numero'], $d['data'], $clienteId, $d['imponibile'], $ivaPerc, $d['iva'], $d['totale'], $descr];
                 if ($conTipoDoc) $valori[] = $d['nota_credito'] ? 'TD04' : 'TD01';
@@ -784,14 +781,12 @@ class ContabilitaController {
             $this->pdo->commit();
         } catch (\Throwable $e) {
             if ($this->pdo->inTransaction()) $this->pdo->rollBack();
-            error_log('[Contabilita::importListaFatture] ' . $e->getMessage());
+            error_log('[Contabilita::importLista] ' . $e->getMessage());
             Response::json(false, 'Import annullato: ' . $e->getMessage());
         }
-        foreach (array_keys($senzaCliente) as $nome) {
-            $out['errors'][] = "Cliente \"$nome\" non trovato in anagrafica: fatture importate senza cliente, da completare.";
-        }
-        Audit::log('IMPORT', 'fatture', null, null, null, ['file' => (string)$f['name'], 'nuove' => $out['num_imported'], 'gia_presenti' => $out['num_existing']]);
-        Response::json(true, 'Lista fatture importata', $out);
+        $out['da_cercare'] = AnagraficaAuto::daCercare($this->pdo, $this->prefix);
+        Audit::log('IMPORT', 'fatture', null, null, null, ['file' => $nomeFile, 'nuove' => $out['num_imported'], 'gia_presenti' => $out['num_existing']]);
+        Response::json(true, 'Elenco fatture emesse importato', $out);
     }
 
     /**

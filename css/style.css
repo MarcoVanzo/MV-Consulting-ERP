@@ -1068,6 +1068,8 @@ button.nav-importa { width: 100%; background: none; border: 0; font: inherit; co
 .imp-nome { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
 .imp-tipo { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-secondary); }
 .imp-tipo select { max-width: 320px; }
+.imp-inc-tutte { margin: 8px 0; }
+.imp-inc-tipo { min-width: 130px; }
 .imp-errore { color: #FCA5A5; font-size: 0.85rem; }
 .imp-riassunto { margin: 0; padding-left: 18px; font-size: 0.88rem; color: var(--text-secondary); display: grid; gap: 2px; }
 .imp-avvisi { font-size: 0.82rem; color: #FCD34D; }

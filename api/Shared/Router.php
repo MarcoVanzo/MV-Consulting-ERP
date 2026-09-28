@@ -174,9 +174,14 @@ class ApiRouter {
                 };
                 break;
             case 'importa':
-                if ($action !== 'fattura') Response::json(false, "Azione importa non supportata: $action");
                 require_once __DIR__ . '/../Controllers/ImportaController.php';
-                (new ImportaController())->fattura($data);
+                $imp = new ImportaController();
+                match ($action) {
+                    'fattura' => $imp->fattura($data),
+                    'lista' => $imp->lista($data),
+                    'cerca_piva' => $imp->cercaPiva($data),
+                    default => Response::json(false, "Azione importa non supportata: $action"),
+                };
                 break;
             case 'riconciliazione':
                 self::handleRiconciliazione($action, $data);

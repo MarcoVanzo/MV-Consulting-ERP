@@ -53,6 +53,57 @@ class ImportaController
     }
 
     /**
+     * Elenco di fatture in Excel (campo file): Lista Fatture di Sistemi o elenco del portale, emesse o ricevute.
+     * Il verso lo dice l'intestazione (colonna Fornitore o Cliente); $data['verso'] vale solo se l'intestazione tace.
+     */
+    public function lista(array $data): void
+    {
+        require_once __DIR__ . '/../Shared/ListaFattureParser.php';
+        $f = $_FILES['file'] ?? null;
+        if (!$f || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) Response::json(false, 'Caricamento del file non riuscito');
+        if (strtolower(pathinfo((string)$f['name'], PATHINFO_EXTENSION)) !== 'xlsx') {
+            Response::json(false, 'Serve il file Excel .xlsx (il vecchio .xls va risalvato come .xlsx)');
+        }
+        try {
+            $letto = ListaFattureParser::fatture(ListaFattureParser::leggiXlsx($f['tmp_name']));
+        } catch (RuntimeException $e) {
+            Response::json(false, $e->getMessage());
+        }
+        if (!$letto['fatture']) Response::json(false, 'Nessuna fattura nel file', ['errors' => $letto['avvisi']]);
+
+        $scelto = in_array($data['verso'] ?? '', ['attiva', 'passiva'], true) ? $data['verso'] : null;
+        $verso = $letto['verso'] ?? $scelto;
+        if ($verso === null) Response::json(false, 'Non capisco se sono fatture emesse o ricevute: scegli tu il tipo', ['serve_verso' => true]);
+        if ($scelto && $scelto !== $verso) {
+            $letto['avvisi'][] = 'Il file ha la colonna ' . ($verso === 'passiva' ? 'Fornitore' : 'Cliente')
+                . ': importato come elenco di fatture ' . ($verso === 'passiva' ? 'ricevute' : 'emesse') . '.';
+        }
+        $nome = (string)($data['file_nome'] ?? $f['name']);
+        if ($verso === 'attiva') {
+            require_once __DIR__ . '/ContabilitaController.php';
+            (new ContabilitaController())->importLista($letto, $nome);
+        } else {
+            require_once __DIR__ . '/FatturePassiveController.php';
+            (new FatturePassiveController())->importLista($letto, $nome);
+        }
+    }
+
+    /** Una anagrafica creata da un elenco: cerca sul web la sua partita IVA (una per richiesta, dura decine di secondi). */
+    public function cercaPiva(array $data): void
+    {
+        require_once __DIR__ . '/../Shared/AnagraficaAuto.php';
+        require_once __DIR__ . '/../Shared/ClaudeClient.php';
+        if (!ClaudeClient::isConfigured()) Response::json(false, 'Ricerca della partita IVA non disponibile: manca ANTHROPIC_API_KEY');
+        try {
+            $r = AnagraficaAuto::cerca($this->pdo, $this->prefix, (string)($data['tipo'] ?? ''), (int)($data['id'] ?? 0));
+        } catch (Throwable $e) {
+            error_log('[Importa::cercaPiva] ' . $e->getMessage());
+            Response::json(false, $e->getMessage());
+        }
+        Response::json(true, $r['messaggio'], $r);
+    }
+
+    /**
      * attiva | passiva | null (non si sa).
      * Legge le partite IVA di cedente e cessionario senza dipendere dai namespace.
      */

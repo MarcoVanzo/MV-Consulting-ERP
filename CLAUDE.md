@@ -78,6 +78,13 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   Fatture XML/p7m entrano da `importa/fattura` (`ImportaController`: emessa o ricevuta da `AZIENDA_PARTITA_IVA`).
   Estratti CSV/Excel: `EstrattoTabellare` (colonne scelte dall'utente salvate in settings per intestazione).
   Le risposte AI sono in cache 7 giorni in `storage/cache/ai/`. Prova: `php tests/importa_cli.php`.
+- **Elenchi di fatture Excel** (dal 28/09/2026): `importa/lista` (`ImportaController::lista`) legge Lista Fatture di
+  Sistemi ed elenchi del portale; il verso lo dà l'intestazione (colonna Fornitore → ricevute in `fatture_passive`,
+  Cliente → emesse). Clienti e fornitori mancanti si creano col solo nome (`piva_ricerca = 'da_cercare'`, v088–v089)
+  e il frontend chiama `importa/cerca_piva` uno alla volta: Claude con ricerca web (`ClaudeClient::cercaSulWeb`),
+  P.IVA controllata con la cifra di controllo; se è già di un'altra anagrafica le fatture passano lì e il doppione
+  si toglie (`AnagraficaAuto`). Le ricevute dall'elenco hanno solo il totale: l'XML le completa (`DA_ELENCO`).
+  Prova: `php tests/elenco_fatture_cli.php`.
   Lettere d'incarico: lette quattro alla volta (`incarichi/import_pdf`, non salva) e riviste in **una tabella**,
   poi salvate con `incarichi/save`. Doppioni per protocollo (`CommessaService::chiaviProtocollo`: «820/2026» e
   «SZ.DPS.F011.26» sono chiavi della stessa lettera): esclusi in tabella e rifiutati dal `save`.

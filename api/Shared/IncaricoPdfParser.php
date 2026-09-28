@@ -238,8 +238,10 @@ class IncaricoPdfParser
                 $extracted['tipo_commessa'] = 'dpo';
             } elseif (strpos($textLower, 'formazione') !== false || strpos($textLower, 'corso') !== false || strpos($textLower, 'training') !== false) {
                 $extracted['tipo_commessa'] = 'formazione';
-            } else {
+            } elseif (strpos($textLower, 'assistenza') !== false || strpos($textLower, 'consulenza') !== false) {
                 $extracted['tipo_commessa'] = 'assistenza';
+            } else {
+                $extracted['tipo_commessa'] = 'altro';
             }
         }
 

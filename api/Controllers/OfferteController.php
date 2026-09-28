@@ -18,7 +18,7 @@ class OfferteController {
     private const STATI = ['lead', 'bozza', 'inviata', 'accettata', 'rifiutata', 'scaduta', 'sostituita'];
     /** Da dove arriva l'opportunità. */
     private const FONTI = ['passaparola', 'cliente', 'sito', 'linkedin', 'evento', 'partner', 'altro'];
-    private const TIPI = ['assistenza', 'dpo', 'formazione', 'nis2', 'ict', 'digital', 'sviluppo_software'];
+    private const TIPI = ['assistenza', 'dpo', 'formazione', 'nis2', 'ict', 'digital', 'sviluppo_software', 'altro'];
 
     public function __construct() {
         $this->pdo = Database::getConnection();

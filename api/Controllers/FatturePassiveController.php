@@ -176,15 +176,25 @@ class FatturePassiveController {
                 $scadenza = date('Y-m-d', strtotime($dataEm . ' +' . $this->giorniPagamento($fornitoreId, $costoId) . ' days'));
             }
 
-            $stmt = $this->pdo->prepare("SELECT id FROM {$p}fatture_passive WHERE fornitore_id = ? AND numero = ? AND data_emissione = ?");
-            $stmt->execute([$fornitoreId, $numero, $dataEm]);
-            if ($stmt->fetchColumn()) {
-                $messaggi[] = "Fattura $numero di $nome già presente.";
-                continue;
-            }
             $imp = round($segno * $imponibile, 2);
             $iv = round($segno * $iva, 2);
             $rit = round($segno * $ritenuta, 2);
+            $stmt = $this->pdo->prepare("SELECT id, descrizione FROM {$p}fatture_passive WHERE fornitore_id = ? AND numero = ? AND data_emissione = ?");
+            $stmt->execute([$fornitoreId, $numero, $dataEm]);
+            $gia = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($gia && str_contains((string)$gia['descrizione'], self::DA_ELENCO)) {
+                // Entrata dall'elenco col solo totale: l'XML porta imponibile, IVA, ritenuta, righe e scadenza
+                $this->pdo->prepare("UPDATE {$p}fatture_passive SET descrizione = ?, imponibile = ?, importo_iva = ?, ritenuta = ?, importo_totale = ?,
+                        data_scadenza = ?, costo_id = COALESCE(costo_id, ?), incarico_id = COALESCE(incarico_id, ?) WHERE id = ?")
+                    ->execute([$descrizione, $imp, $iv, $rit, round($imp + $iv - $rit, 2), $scadenza, $costoId, $incaricoId, $gia['id']]);
+                $importate++;
+                $messaggi[] = "Fattura $numero di $nome completata con i dati dell'XML.";
+                continue;
+            }
+            if ($gia) {
+                $messaggi[] = "Fattura $numero di $nome già presente.";
+                continue;
+            }
             try {
                 $this->pdo->prepare("INSERT INTO {$p}fatture_passive
                         (fornitore_id, incarico_id, costo_id, numero, data_emissione, descrizione, imponibile, importo_iva, ritenuta, importo_totale, data_scadenza)
@@ -202,6 +212,67 @@ class FatturePassiveController {
         $this->pdo->commit();
         Audit::log('IMPORT', 'fatture_passive', null, null, null, ['fornitore' => $nome, 'importate' => $importate]);
         Response::json(true, 'Import completato', ['num_imported' => $importate, 'messages' => $messaggi]);
+    }
+
+    /** Descrizione delle fatture entrate da un elenco: l'XML, quando arriva, le completa (importXml). */
+    public const DA_ELENCO = 'Dall\'elenco fatture ricevute: solo il totale, imponibile e IVA arrivano con l\'XML.';
+
+    /**
+     * Fatture ricevute da un elenco Excel (portale fatture): una per riga, col fornitore riconosciuto per nome
+     * o creato (la P.IVA si cerca poi sul web, AnagraficaAuto). L'elenco dà solo il totale: finché non arriva
+     * l'XML imponibile = totale e IVA = 0.
+     * Le stesse righe entrate per errore tra le emesse (vecchio import «Lista fatture», senza cliente) si tolgono.
+     */
+    public function importLista(array $letto, string $nomeFile) {
+        require_once __DIR__ . '/../Shared/AnagraficaAuto.php';
+        require_once __DIR__ . '/../Shared/Riconciliatore.php';
+        $p = $this->prefix;
+        $fornitori = $this->pdo->query("SELECT id, partita_iva, codice_fiscale, ragione_sociale FROM {$p}fornitori WHERE deleted_at IS NULL")->fetchAll(PDO::FETCH_ASSOC);
+        $perNome = [];
+        $out = ['verso' => 'passiva', 'num_imported' => 0, 'num_existing' => 0, 'num_tolte_emesse' => 0,
+            'anagrafiche_create' => [], 'errors' => $letto['avvisi']];
+
+        $this->pdo->beginTransaction();
+        try {
+            $esiste = $this->pdo->prepare("SELECT id FROM {$p}fatture_passive WHERE fornitore_id = ? AND numero = ? AND data_emissione = ?");
+            $ins = $this->pdo->prepare("INSERT INTO {$p}fatture_passive
+                (fornitore_id, incarico_id, costo_id, numero, data_emissione, descrizione, imponibile, importo_iva, ritenuta, importo_totale, data_scadenza)
+                VALUES (?, NULL, NULL, ?, ?, ?, ?, 0, 0, ?, ?)");
+            $emessaSbagliata = $this->pdo->prepare("SELECT id FROM {$p}fatture WHERE numero_fattura = ? AND data_emissione = ?
+                AND cliente_id IS NULL AND ABS(importo_totale - ?) < 0.01 AND descrizione LIKE '%Importata dalla lista fatture di Sistemi%'");
+            foreach ($letto['fatture'] as $d) {
+                // Tolta dalle emesse se c'era finita per errore (e non è già abbinata alla banca)
+                $emessaSbagliata->execute([$d['numero'], $d['data'], abs($d['totale'])]);
+                foreach ($emessaSbagliata->fetchAll(PDO::FETCH_COLUMN) as $idEmessa) {
+                    if (Riconciliatore::riconciliazioniDi($this->pdo, $p, 'fattura', (int)$idEmessa)) continue;
+                    $this->pdo->prepare("DELETE FROM {$p}fatture WHERE id = ?")->execute([(int)$idEmessa]);
+                    $out['num_tolte_emesse']++;
+                }
+                if ($d['cliente'] === '') {
+                    $out['errors'][] = "Fattura {$d['numero']}: manca il fornitore, saltata.";
+                    continue;
+                }
+                if (!isset($perNome[$d['cliente']])) {
+                    [$perNome[$d['cliente']], $creato] = AnagraficaAuto::trovaOCrea($this->pdo, $p, 'fornitore', $d['cliente'], $fornitori);
+                    if ($creato) $out['anagrafiche_create'][] = $d['cliente'];
+                }
+                $fornitoreId = $perNome[$d['cliente']];
+                $esiste->execute([$fornitoreId, $d['numero'], $d['data']]);
+                if ($esiste->fetchColumn()) { $out['num_existing']++; continue; }
+                $scadenza = date('Y-m-d', strtotime($d['data'] . ' +' . $this->giorniPagamento($fornitoreId, null) . ' days'));
+                $ins->execute([$fornitoreId, $d['numero'], $d['data'], ($d['nota_credito'] ? "[Nota di credito]\n" : '') . self::DA_ELENCO,
+                    $d['totale'], $d['totale'], $scadenza]);
+                $out['num_imported']++;
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            error_log('[FatturePassive::importLista] ' . $e->getMessage());
+            Response::json(false, 'Import annullato: ' . $e->getMessage());
+        }
+        $out['da_cercare'] = AnagraficaAuto::daCercare($this->pdo, $p);
+        Audit::log('IMPORT', 'fatture_passive', null, null, null, ['file' => $nomeFile, 'nuove' => $out['num_imported'], 'gia_presenti' => $out['num_existing']]);
+        Response::json(true, 'Elenco fatture ricevute importato', $out);
     }
 
     // ── Helper ──────────────────────────────────────────

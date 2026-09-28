@@ -1,10 +1,13 @@
 <?php
 /**
- * ListaFattureParser — "Lista Fatture" esportata da Sistemi in Excel (.xlsx).
+ * ListaFattureParser — elenco di fatture in Excel (.xlsx): la "Lista Fatture" di Sistemi (emesse) e gli
+ * elenchi del portale fatture della banca, emesse o ricevute.
  *
  * Colonne attese (riconosciute dall'intestazione, in qualunque ordine): Tipo Documento, Numero, Data,
- * Cliente, Imponibile, Iva, Totale. Registro e F/N sono facoltative. Il "Residuo" si ignora: Sistemi non
- * registra gli incassi (residuo = totale), i pagamenti li porta la riconciliazione con la banca.
+ * Cliente o Fornitore, Imponibile, Iva, Totale. Registro, F/N e Stato sono facoltative. La colonna
+ * Fornitore dice che l'elenco è di fatture ricevute (verso "passiva"), Cliente che sono emesse ("attiva").
+ * Il "Residuo" si ignora: Sistemi non registra gli incassi (residuo = totale), i pagamenti li porta la
+ * riconciliazione con la banca. Le note di credito escono sempre con importi negativi.
  * Il .xlsx è uno zip di XML: si legge con ZipArchive, senza librerie. Il vecchio .xls binario non è supportato.
  * Solo funzioni pure: niente database, così si prova da CLI (tests/lista_fatture_cli.php).
  */
@@ -18,7 +21,9 @@ class ListaFattureParser
         'registro' => ['registro', 'sezionale'],
         'numero' => ['numero', 'numero documento', 'n. documento', 'nr'],
         'data' => ['data', 'data documento', 'data emissione'],
-        'cliente' => ['cliente', 'ragione sociale', 'intestatario'],
+        'cliente' => ['cliente', 'ragione sociale', 'intestatario', 'destinatario', 'cessionario', 'committente'],
+        'fornitore' => ['fornitore', 'cedente', 'cedente/prestatore', 'emittente', 'mittente'],
+        'stato' => ['stato fte', 'stato sdi', 'stato'],
         'imponibile' => ['imponibile'],
         'iva' => ['iva', 'imposta'],
         'totale' => ['totale', 'totale documento'],
@@ -77,8 +82,8 @@ class ListaFattureParser
 
     /**
      * Fatture dalle righe del foglio: la prima riga con Numero, Data e Totale fa da intestazione.
-     * @return array{fatture:array, avvisi:string[]} fattura: {nota_credito, registro, numero, data, cliente,
-     *         imponibile, iva, totale}
+     * @return array{fatture:array, avvisi:string[], verso:?string} fattura: {nota_credito, registro, numero, data,
+     *         cliente (la controparte: cliente o fornitore), imponibile, iva, totale}; verso: passiva | attiva | null
      */
     public static function fatture(array $righe): array
     {
@@ -98,25 +103,33 @@ class ListaFattureParser
                 $avvisi[] = 'Riga ' . ($i + 1) . ': numero, data o totale mancanti, saltata.';
                 continue;
             }
+            // Fatture scartate o rifiutate dallo SdI non esistono per il fisco
+            if (preg_match('/scartat|rifiutat/i', $v('stato'))) {
+                $avvisi[] = 'Riga ' . ($i + 1) . ': fattura ' . $v('numero') . ' ' . mb_strtolower($v('stato'), 'UTF-8') . ', saltata.';
+                continue;
+            }
             $tipo = mb_strtolower($v('tipo'), 'UTF-8');
             $nota = str_contains($tipo, 'nota') || strtoupper($v('fn')) === 'N' || $totale < 0;
             $imponibile = self::numero($v('imponibile'));
             $iva = self::numero($v('iva'));
             if ($imponibile === null) $imponibile = $iva !== null ? round($totale - $iva, 2) : $totale;
             if ($iva === null) $iva = round($totale - $imponibile, 2);
+            // Il portale scrive le note di credito in positivo, Sistemi in negativo: qui sempre negative
+            if ($nota && $totale > 0) [$totale, $imponibile, $iva] = [-$totale, -$imponibile, -$iva];
             $fatture[] = [
                 'nota_credito' => $nota,
                 'registro' => $v('registro'),
                 'numero' => $v('numero'),
                 'data' => $data,
-                'cliente' => html_entity_decode($v('cliente'), ENT_QUOTES | ENT_XML1, 'UTF-8'),
+                'cliente' => html_entity_decode($v(isset($mappa['fornitore']) ? 'fornitore' : 'cliente'), ENT_QUOTES | ENT_XML1, 'UTF-8'),
                 'imponibile' => $imponibile,
                 'iva' => $iva,
                 'totale' => $totale,
             ];
         }
         if ($mappa === null) throw new RuntimeException('Il file è vuoto');
-        return ['fatture' => $fatture, 'avvisi' => $avvisi];
+        $verso = isset($mappa['fornitore']) ? 'passiva' : (isset($mappa['cliente']) ? 'attiva' : null);
+        return ['fatture' => $fatture, 'avvisi' => $avvisi, 'verso' => $verso];
     }
 
     /** Colonna di ogni campo; eccezione se mancano Numero, Data o Totale. */
@@ -130,7 +143,7 @@ class ListaFattureParser
             }
         }
         $mancano = array_diff(['numero', 'data', 'totale'], array_keys($mappa));
-        if ($mancano) throw new RuntimeException('Colonne mancanti nella prima riga: ' . implode(', ', $mancano) . ' (serve la Lista Fatture di Sistemi)');
+        if ($mancano) throw new RuntimeException('Colonne mancanti nella prima riga: ' . implode(', ', $mancano) . ' (serve un elenco fatture con Numero, Data e Totale)');
         return $mappa;
     }
 

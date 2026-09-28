@@ -3,7 +3,7 @@
 /**
  * Importa — un solo punto d'ingresso per tutti i file: fatture elettroniche (XML/p7m, emesse o
  * ricevute), estratti conto (XML CBI/camt, CSV, Excel, PDF), estratti della carta, avvisi di
- * pagamento, lista fatture di Sistemi, fatture PDF, lettere d'incarico, offerte.
+ * pagamento, elenchi Excel di fatture emesse o ricevute, fatture PDF, lettere d'incarico, offerte.
  *
  * 1. riconosce il tipo di ogni file (si può correggere);
  * 2. anteprima: il server esegue l'import vero e lo annulla (api/Shared/Anteprima.php);
@@ -15,14 +15,15 @@ const ModImporta = (() => {
         estratto: { nome: 'Estratto conto', icona: 'ph-bank' },
         estratto_carta: { nome: 'Estratto carta di credito', icona: 'ph-credit-card' },
         avviso: { nome: 'Avviso di pagamento', icona: 'ph-money' },
-        lista_fatture: { nome: 'Lista fatture di Sistemi', icona: 'ph-file-xls' },
+        lista_passive: { nome: 'Elenco fatture ricevute (passive)', icona: 'ph-file-xls', verso: 'passiva' },
+        lista_attive: { nome: 'Elenco fatture emesse (attive)', icona: 'ph-file-xls', verso: 'attiva' },
         fattura_pdf: { nome: 'Fattura PDF (lettura approssimativa)', icona: 'ph-file-pdf' },
         incarico: { nome: "Lettera d'incarico", icona: 'ph-file-text' },
         offerta: { nome: 'Offerta o preventivo', icona: 'ph-file-doc' },
         scontrino: { nome: 'Scontrino o ricevuta di una spesa', icona: 'ph-receipt' },
     };
     const PER_ESTENSIONE = {
-        xml: ['fattura', 'estratto'], p7m: ['fattura'], csv: ['estratto'], xlsx: ['lista_fatture', 'estratto'],
+        xml: ['fattura', 'estratto'], p7m: ['fattura'], csv: ['estratto'], xlsx: ['lista_passive', 'lista_attive', 'estratto'],
         pdf: ['estratto', 'estratto_carta', 'avviso', 'fattura_pdf', 'incarico', 'offerta', 'scontrino'],
         jpg: ['scontrino'], jpeg: ['scontrino'], png: ['scontrino'], webp: ['scontrino'],
         docx: ['offerta'], txt: ['offerta'], md: ['offerta'],
@@ -34,18 +35,19 @@ const ModImporta = (() => {
     let _voci = [];
     let _fase = 'scelta'; // scelta → anteprima → fatto
     let _seq = 0;
+    let _tipoTutte = ''; // tipo di commessa scelto una volta per tutte le lettere d'incarico
 
     // ── Apertura e file ──────────────────────────────────
 
     function apri(files = []) {
         if (UI.isModalOpen() && document.getElementById('imp-lista')) { aggiungi(files); return; }
-        _voci = []; _fase = 'scelta';
+        _voci = []; _fase = 'scelta'; _tipoTutte = '';
         UI.openModal('Importa file', `
             <label class="imp-drop" id="imp-drop" for="imp-input" tabindex="0" role="button">
                 <i class="ph ph-upload-simple"></i>
                 <strong>Trascina qui i file o tocca per sceglierli</strong>
                 <span>Fatture XML/p7m, estratti conto (XML, CSV, Excel, PDF), estratti carta, avvisi di pagamento,
-                lista fatture di Sistemi, lettere d'incarico, offerte, foto degli scontrini</span>
+                elenchi Excel di fatture emesse o ricevute, lettere d'incarico, offerte, foto degli scontrini</span>
             </label>
             <input type="file" id="imp-input" multiple class="visually-hidden"
                 accept=".xml,.p7m,.csv,.xlsx,.pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp">
@@ -88,7 +90,12 @@ const ModImporta = (() => {
         if (v.ext === 'csv') return 'estratto';
         if (['jpg', 'jpeg', 'png', 'webp'].includes(v.ext)) return 'scontrino';
         if (['docx', 'txt', 'md'].includes(v.ext)) return 'offerta';
-        if (v.ext === 'xlsx') return /estratt|moviment|conto|banca/.test(nome) ? 'estratto' : 'lista_fatture';
+        if (v.ext === 'xlsx') {
+            if (/passiv|ricevut|acquist|fornitor/.test(nome)) return 'lista_passive';
+            if (/estratt|moviment|conto|banca/.test(nome)) return 'estratto';
+            // Il server guarda l'intestazione (colonna Fornitore o Cliente) e corregge se serve
+            return 'lista_attive';
+        }
         if (v.ext === 'xml') {
             v.testo = await v.file.text();
             if (/<(\w+:)?FatturaElettronica\b/.test(v.testo)) return 'fattura';
@@ -164,9 +171,11 @@ const ModImporta = (() => {
                 module = 'contabilita'; action = 'import_pdf';
                 fd = Store.formDataFromArray('pages', piatte());
                 break;
-            case 'lista_fatture':
-                module = 'contabilita'; action = 'import_lista';
+            case 'lista_passive':
+            case 'lista_attive':
+                module = 'importa'; action = 'lista';
                 fd.append('file', v.file);
+                fd.append('verso', TIPI[v.tipo].verso);
                 break;
             case 'offerta':
                 module = 'offerte'; action = 'importa';
@@ -228,7 +237,10 @@ const ModImporta = (() => {
             const r = await richiesta(v, true);
             const e = r?.esito || {};
             v.mappatura = null; v.chiediVerso = false;
-            if (e.success) { v.stato = 'ok'; v.riassunto = riassumi(v, e.data || {}); }
+            if (e.success) {
+                if (e.data?.verso) v.tipo = e.data.verso === 'passiva' ? 'lista_passive' : 'lista_attive';
+                v.stato = 'ok'; v.riassunto = riassumi(v, e.data || {});
+            }
             else if (e.data?.serve_mappatura) { v.stato = 'scegli'; v.mappatura = e.data; v.mappa = v.mappa || { ...e.data.proposta }; }
             else if (e.data?.serve_verso) { v.stato = 'scegli'; v.chiediVerso = true; v.errore = e.message; }
             else { v.stato = 'errore'; v.errore = e.message || 'Import non riuscito'; }
@@ -311,7 +323,8 @@ const ModImporta = (() => {
                 <td><select class="form-control imp-inc-cliente" ${off ? 'disabled' : ''}>${cOpts}</select></td>
                 <td><input class="form-control imp-inc-prot" value="${UI.esc(d.numero_protocollo || '')}" ${off ? 'disabled' : ''}></td>
                 <td><input type="number" step="0.01" class="form-control imp-inc-importo" value="${UI.esc(d.importo_totale)}" ${off ? 'disabled' : ''}></td>
-                <td>${UI.esc(d.data_incarico ? UI.formatDate(d.data_incarico) : '—')}<div class="imp-inc-file">${UI.esc(UI.tipoCommessa(d.tipo_commessa || ''))}</div></td>
+                <td><select class="form-control imp-inc-tipo" ${off ? 'disabled' : ''} aria-label="Tipo di commessa">${UI.tipiCommessaOptions(d.tipo_commessa)}</select></td>
+                <td>${UI.esc(d.data_incarico ? UI.formatDate(d.data_incarico) : '—')}</td>
                 <td><span class="badge ${stato[0]}">${stato[1]}</span>${nota ? `<div class="imp-inc-nota">${UI.esc(nota)}</div>` : ''}</td>
             </tr>`;
         }).join('');
@@ -324,7 +337,9 @@ const ModImporta = (() => {
                 <span>${[salvate && UI.plurale(salvate, 'salvata', 'salvate'), nuove && `${nuove} da salvare`, senza && `${senza} senza cliente`,
                     conta(v => v.inc.duplicato) && UI.plurale(conta(v => v.inc.duplicato), 'già presente', 'già presenti'),
                     conta(v => v.inc.doppioneDi) && UI.plurale(conta(v => v.inc.doppioneDi), 'doppione', 'doppioni')].filter(Boolean).join(' · ')}</span></div>
-            <div class="table-container"><table class="data-table imp-inc-tab"><thead><tr><th></th><th>Azienda</th><th>Cliente</th><th>Protocollo</th><th>Importo €</th><th>Data</th><th>Stato</th></tr></thead>
+            ${bloccato ? '' : `<label class="imp-tipo imp-inc-tutte"><span>Tipo per tutte</span><select class="form-control" id="imp-inc-tipo-tutte">
+                <option value="">— quello riconosciuto in ogni lettera —</option>${_tipoTutte ? UI.tipiCommessaOptions(_tipoTutte) : UI.tipiCommessaOptions('').replace(' selected', '')}</select></label>`}
+            <div class="table-container"><table class="data-table imp-inc-tab"><thead><tr><th></th><th>Azienda</th><th>Cliente</th><th>Protocollo</th><th>Importo €</th><th>Tipo</th><th>Data</th><th>Stato</th></tr></thead>
             <tbody>${righe}</tbody></table></div></div>`;
     }
 
@@ -337,6 +352,17 @@ const ModImporta = (() => {
             tr.querySelector('.imp-inc-cliente')?.addEventListener('change', e => { riprova(); v.inc.cliente_id = e.target.value || null; aggiorna(); });
             tr.querySelector('.imp-inc-prot')?.addEventListener('change', e => { riprova(); v.inc.numero_protocollo = e.target.value.trim(); });
             tr.querySelector('.imp-inc-importo')?.addEventListener('change', e => { riprova(); v.inc.importo_totale = e.target.value; });
+            tr.querySelector('.imp-inc-tipo')?.addEventListener('change', e => { riprova(); v.inc.tipo_commessa = e.target.value; });
+        });
+        // Un tipo scelto una volta vale per tutte le lettere non ancora salvate
+        box.querySelector('#imp-inc-tipo-tutte')?.addEventListener('change', e => {
+            _tipoTutte = e.target.value;
+            if (!_tipoTutte) return;
+            _voci.filter(v => v.inc && v.stato !== 'importato').forEach(v => {
+                v.inc.tipo_commessa = e.target.value;
+                if (v.stato === 'errore') { v.stato = 'ok'; v.errore = null; }
+            });
+            aggiorna();
         });
     }
 
@@ -354,8 +380,51 @@ const ModImporta = (() => {
             v.stato = 'importato';
             v.riassunto = riassumi(v, r || {});
             if (v.tipo === 'offerta' && r?.id) v.offertaId = r.id;
+            if (r?.verso) v.tipo = r.verso === 'passiva' ? 'lista_passive' : 'lista_attive';
+            if (r?.da_cercare?.length) cercaPartiteIva(v, r.da_cercare);
         } catch (err) { v.stato = 'errore'; v.errore = err.message; }
         aggiorna();
+    }
+
+    // ── Partite IVA dei clienti e fornitori creati dagli elenchi ──
+
+    let _cercando = false;
+
+    /** Cerca sul web, una alla volta, le P.IVA delle anagrafiche create col solo nome (anche chiudendo la finestra). */
+    async function cercaPartiteIva(v, voci) {
+        if (_cercando) return;
+        _cercando = true;
+        v.piva = { totale: voci.length, fatte: 0, trovate: 0, unite: 0, non_trovate: [] };
+        aggiorna();
+        try {
+            for (const a of voci) {
+                try {
+                    const r = await Store.api('cerca_piva', 'importa', { tipo: a.tipo, id: a.id });
+                    if (r?.esito === 'trovata') v.piva.trovate++;
+                    else if (r?.esito === 'unita') { v.piva.trovate++; v.piva.unite++; }
+                    else v.piva.non_trovate.push(a.nome);
+                } catch (err) {
+                    v.piva.non_trovate.push(a.nome);
+                    // Senza chiave AI o con il servizio giù è inutile insistere sulle altre
+                    if (/ANTHROPIC_API_KEY|non raggiungibile/.test(err.message)) { v.piva.errore = err.message; break; }
+                }
+                v.piva.fatte++;
+                aggiorna();
+            }
+        } finally {
+            _cercando = false;
+            v.piva.finito = true;
+            if (v.piva.non_trovate.length) v.riassunto.avvisi.push(...v.piva.non_trovate.map(x => `P.IVA non trovata, da inserire in Anagrafiche: ${x}`));
+            aggiorna();
+            ricarica();
+        }
+    }
+
+    function testoPiva(p) {
+        if (p.errore) return `Partite IVA: ricerca interrotta (${p.errore})`;
+        const base = `Partite IVA: ${p.trovate} trovate su ${p.fatte}`;
+        if (!p.finito) return `Cerco le partite IVA sul web… ${p.fatte}/${p.totale} (${p.trovate} trovate)`;
+        return base + (p.unite ? `, ${p.unite} già in anagrafica con altro nome (unite)` : '') + (p.non_trovate.length ? `, ${p.non_trovate.length} da inserire a mano` : '');
     }
 
     /** Esito del server → righe leggibili e avvisi, uguali in anteprima e dopo l'import. */
@@ -379,12 +448,20 @@ const ModImporta = (() => {
                 if (d.totale_pagamento) righe.push(`Totale ${UI.formatCurrency(d.totale_pagamento)}${d.data_pagamento ? ' del ' + UI.formatDate(d.data_pagamento) : ''}`);
                 avvisi.push(...(d.messages || []).filter(m => typeof m === 'string'));
                 break;
-            case 'lista_fatture':
-                righe.push(`${n(d.num_imported, 'fattura nuova', 'fatture nuove')}, ${d.num_existing ?? 0} già presenti`);
+            case 'lista_passive':
+            case 'lista_attive': {
+                const passive = (d.verso || TIPI[v.tipo].verso) === 'passiva';
+                righe.push(`${n(d.num_imported, passive ? 'fattura ricevuta nuova' : 'fattura emessa nuova', passive ? 'fatture ricevute nuove' : 'fatture emesse nuove')}, ${d.num_existing ?? 0} già presenti`);
+                const nuove = d.anagrafiche_create || [];
+                if (nuove.length) righe.push(`${n(nuove.length, passive ? 'fornitore nuovo' : 'cliente nuovo', passive ? 'fornitori nuovi' : 'clienti nuovi')}: la partita IVA la cerco sul web dopo l'import`);
+                if (d.num_tolte_emesse) righe.push(`${n(d.num_tolte_emesse, 'fattura tolta dalle emesse', 'fatture tolte dalle emesse')} (erano ricevute, importate per errore)`);
+                if (passive && d.num_imported) avvisi.push("Dall'elenco arriva solo il totale: imponibile e IVA si completano quando importi l'XML della fattura.");
                 if (d.num_different) avvisi.push(`${d.num_different} con totale diverso da quello registrato`);
-                if (d.num_without_client) avvisi.push(`${d.num_without_client} senza cliente in anagrafica`);
+                if (d.num_without_client) avvisi.push(`${d.num_without_client} senza cliente nel file`);
+                if (nuove.length) avvisi.push(...nuove.map(x => `Nuovo in anagrafica: ${x}`));
                 avvisi.push(...(d.errors || []));
                 break;
+            }
             case 'fattura_pdf':
                 righe.push(`${n(d.num_imported, 'fattura nuova', 'fatture nuove')} (IVA al 22% se non indicata: controllale)`);
                 avvisi.push(...(d.errors || []));
@@ -432,7 +509,7 @@ const ModImporta = (() => {
                 ${v.chiediVerso ? `<label class="imp-tipo"><span>La fattura è</span><select class="form-control imp-verso"><option value="">— scegli —</option><option value="attiva">emessa da noi</option><option value="passiva">ricevuta da un fornitore</option></select></label>` : ''}
                 ${v.mappatura ? mappaturaHtml(v) : ''}
                 ${v.errore && v.stato !== 'ok' && v.stato !== 'importato' ? `<div class="imp-errore">${UI.esc(v.errore)}</div>` : ''}
-                ${v.riassunto && ['ok', 'importato'].includes(v.stato) ? `<ul class="imp-riassunto">${v.riassunto.righe.map(r => `<li>${UI.esc(r)}</li>`).join('')}</ul>
+                ${v.riassunto && ['ok', 'importato'].includes(v.stato) ? `<ul class="imp-riassunto">${[...v.riassunto.righe, ...(v.piva ? [testoPiva(v.piva)] : [])].map(r => `<li>${UI.esc(r)}</li>`).join('')}</ul>
                     ${v.riassunto.avvisi.length ? `<details class="imp-avvisi"><summary>${UI.plurale(v.riassunto.avvisi.length, 'nota', 'note')}</summary><ul>${v.riassunto.avvisi.map(a => `<li>${UI.esc(a)}</li>`).join('')}</ul></details>` : ''}` : ''}
             </div>`;
         }).join('') || '';
