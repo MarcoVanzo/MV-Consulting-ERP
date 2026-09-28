@@ -34,7 +34,7 @@ const ModOggi = (() => {
         box.innerHTML = `
             <p class="oggi-data">${UI.esc(oggi)}</p>
             <div class="oggi-kpi">
-                ${kpi('Pipeline', euro(o.pipeline), `${UI.plurale(o.num_inviate, 'offerta inviata', 'offerte inviate')}${o.num_bozze ? ` · ${o.num_bozze} in bozza` : ''}`, 'vendite', 'comm-offerte')}
+                ${kpi('Pipeline pesata', euro(o.pipeline_pesata), `${UI.plurale(o.num_lead, 'lead', 'lead')} · ${o.num_bozze || 0} bozze · ${o.num_inviate || 0} inviate`, 'vendite', 'comm-offerte')}
                 ${kpi(`Da fatturare · ${r.giorni || 30} gg`, euro(r.importo), `${UI.plurale(r.num_rate, 'rata', 'rate')} da comunicare`, 'vendite', 'tab-incarichi')}
                 ${kpi('Da incassare', euro(f.da_incassare), f.scaduto > 0 ? `di cui <b class="oggi-rosso">${euro(f.scaduto)} scaduti</b>` : 'niente di scaduto', 'incassi', 'tab-fatture', true)}
                 ${kpi('Partner da pagare', euro(p.da_pagare), p.num_scaduti ? `<b class="oggi-rosso">${UI.plurale(p.num_scaduti, 'fattura scaduta', 'fatture scadute')}</b>` : UI.plurale(p.num_da_pagare, 'fattura', 'fatture'), 'incassi', 'inc-ricevute', true)}
@@ -95,7 +95,7 @@ const ModOggi = (() => {
     }
 
     function pipeline(o) {
-        const fasi = [['In bozza', o.num_bozze, o.bozze], ['Inviate', o.num_inviate, o.pipeline], ['Accettate', o.num_accettate, o.accettato], ['Perse', o.num_perse, null]];
+        const fasi = [['Lead', o.num_lead, o.valore_lead], ['In bozza', o.num_bozze, o.bozze], ['Inviate', o.num_inviate, o.pipeline], ['Accettate', o.num_accettate, o.accettato], ['Perse', o.num_perse, null]];
         const max = Math.max(1, ...fasi.map(f => f[2] || 0));
         return `<div class="oggi-fasi">${fasi.map(([nome, n, v]) => `
             <div class="oggi-fase"><span>${nome}</span>

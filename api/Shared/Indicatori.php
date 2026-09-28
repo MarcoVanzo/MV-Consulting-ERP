@@ -117,9 +117,13 @@ class Indicatori
         return $this->numeri(($stmt->fetch(PDO::FETCH_ASSOC) ?: []) + ['giorni' => $giorni]);
     }
 
+    /** Probabilità di chiusura predefinita per stato, se l'offerta non ne ha una sua (%). */
+    public const PROBABILITA = ['lead' => 10, 'bozza' => 30, 'inviata' => 50];
+
     /**
      * Offerte. pipeline = offerte inviate e non ancora decise (le bozze no: non le ha viste nessuno).
-     * tasso_conversione = accettate / (accettate + perse), in percentuale.
+     * pipeline_pesata = somma di imponibile × probabilità di lead, bozze e inviate (probabilità dell'offerta
+     * o quella predefinita dello stato). tasso_conversione = accettate / (accettate + perse), in percentuale.
      */
     public function offerte(?int $anno = null): array
     {
@@ -130,6 +134,11 @@ class Indicatori
                 COUNT(CASE WHEN stato = 'inviata' THEN 1 END) AS num_inviate,
                 COALESCE(SUM(CASE WHEN stato = 'bozza' THEN imponibile ELSE 0 END), 0) AS bozze,
                 COUNT(CASE WHEN stato = 'bozza' THEN 1 END) AS num_bozze,
+                COALESCE(SUM(CASE WHEN stato = 'lead' THEN imponibile ELSE 0 END), 0) AS valore_lead,
+                COUNT(CASE WHEN stato = 'lead' THEN 1 END) AS num_lead,
+                COALESCE(SUM(CASE WHEN stato IN ('lead', 'bozza', 'inviata') THEN imponibile * COALESCE(probabilita,
+                    CASE stato WHEN 'lead' THEN " . self::PROBABILITA['lead'] . " WHEN 'bozza' THEN " . self::PROBABILITA['bozza'] . "
+                    ELSE " . self::PROBABILITA['inviata'] . " END) / 100.0 ELSE 0 END), 0) AS pipeline_pesata,
                 COALESCE(SUM(CASE WHEN stato = 'accettata' THEN imponibile ELSE 0 END), 0) AS accettato,
                 COUNT(CASE WHEN stato = 'accettata' THEN 1 END) AS num_accettate,
                 COUNT(CASE WHEN stato IN ('rifiutata', 'scaduta') THEN 1 END) AS num_perse
@@ -177,7 +186,7 @@ class Indicatori
             'partner_da_pagare' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(importo_totale), 0) AS importo FROM {$p}fatture_passive
                 WHERE stato = 'da_pagare' AND (data_scadenza IS NULL OR data_scadenza <= ?)", [$limite]),
             'offerte_da_ricontattare' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(imponibile), 0) AS importo FROM {$p}offerte
-                WHERE deleted_at IS NULL AND stato = 'inviata' AND data_followup IS NOT NULL AND data_followup <= ?", [$this->oggi]),
+                WHERE deleted_at IS NULL AND stato IN ('lead', 'inviata') AND data_followup IS NOT NULL AND data_followup <= ?", [$this->oggi]),
             'movimenti_da_abbinare' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(importo), 0) AS importo FROM {$p}movimenti_banca
                 WHERE stato = 'da_riconciliare' AND abbinabile = 1 AND origine = 'estratto_conto'", []),
             // Movimenti del conto che chiedono un intervento (da abbinare o da classificare), contati una volta

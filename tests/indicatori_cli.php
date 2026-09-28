@@ -32,7 +32,7 @@ foreach ([
     "CREATE TABLE {$p}fatture (id INTEGER PRIMARY KEY, numero_fattura TEXT, data_emissione TEXT, cliente_id INT, sottocliente_id INT,
         incarico_id INT, imponibile REAL, importo_totale REAL, stato TEXT DEFAULT 'emessa', data_scadenza TEXT)",
     "CREATE TABLE {$p}fatture_passive (id INTEGER PRIMARY KEY, importo_totale REAL, ritenuta REAL DEFAULT 0, stato TEXT, data_scadenza TEXT)",
-    "CREATE TABLE {$p}offerte (id INTEGER PRIMARY KEY, data_offerta TEXT, stato TEXT, imponibile REAL, deleted_at TEXT)",
+    "CREATE TABLE {$p}offerte (id INTEGER PRIMARY KEY, data_offerta TEXT, stato TEXT, imponibile REAL, deleted_at TEXT, probabilita INT)",
 ] as $sql) $pdo->exec($sql);
 
 $oggi = '2026-09-28';
@@ -53,7 +53,9 @@ $pdo->exec("INSERT INTO {$p}fatture_passive (importo_totale, ritenuta, stato, da
     (800, 200, 'da_pagare', '2026-09-01'), (500, 0, 'da_pagare', '2026-12-01'), (999, 0, 'pagata', '2026-01-01')");
 $pdo->exec("INSERT INTO {$p}offerte (data_offerta, stato, imponibile, deleted_at) VALUES
     ('2026-01-10', 'inviata', 5000, NULL), ('2026-02-10', 'bozza', 1500, NULL), ('2026-03-10', 'accettata', 10000, NULL),
-    ('2026-04-10', 'rifiutata', 3000, NULL), ('2026-05-10', 'inviata', 9999, '2026-05-11'), ('2026-06-10', 'sostituita', 4000, NULL)");
+    ('2026-04-10', 'rifiutata', 3000, NULL), ('2026-05-10', 'inviata', 9999, '2026-05-11'), ('2026-06-10', 'sostituita', 4000, NULL),
+    ('2026-07-10', 'lead', 20000, NULL)");
+$pdo->exec("UPDATE {$p}offerte SET probabilita = 80 WHERE stato = 'inviata' AND deleted_at IS NULL");
 
 $ind = new Indicatori($pdo, $p, $oggi);
 
@@ -90,7 +92,10 @@ $o = $ind->offerte(2026);
 check('pipeline = solo offerte inviate non eliminate', uguale($o['pipeline'], 5000) && $o['num_inviate'] === 1, $o);
 check('bozze a parte', uguale($o['bozze'], 1500), $o);
 check('conversione = accettate / chiuse', $o['tasso_conversione'] === 50, $o);
-check('versioni sostituite non contate', $o['num_offerte'] === 4, $o);
+check('versioni sostituite non contate', $o['num_offerte'] === 5, $o);
+check('lead contati a parte', $o['num_lead'] === 1 && abs($o['valore_lead'] - 20000) < 0.01, $o);
+// 20000 × 10% (lead, predefinita) + 1500 × 30% (bozza, predefinita) + 5000 × 80% (inviata, sua)
+check('pipeline pesata con probabilità propria o dello stato', abs($o['pipeline_pesata'] - (2000 + 450 + 4000)) < 0.01, $o);
 $pp = $ind->partnerDaPagare();
 check('partner da pagare = netto a pagare', uguale($pp['da_pagare'], 1300) && $pp['num_da_pagare'] === 2, $pp);
 check('partner scaduti', uguale($pp['scaduto'], 800) && $pp['num_scaduti'] === 1, $pp);

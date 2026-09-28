@@ -644,6 +644,45 @@ $queries = [
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uq_import_file_sha (sha256),
         KEY idx_import_file_tipo (tipo, ultima_importazione)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+    // v078–v079: il lead è un'offerta prima della bozza, con fonte, probabilità e prossima azione (data in data_followup)
+    "ALTER TABLE {$prefix}offerte MODIFY stato ENUM('lead','bozza','inviata','accettata','rifiutata','scaduta','sostituita') NOT NULL DEFAULT 'bozza'",
+    "ALTER TABLE {$prefix}offerte ADD COLUMN fonte VARCHAR(40) DEFAULT NULL AFTER origine,
+        ADD COLUMN probabilita TINYINT UNSIGNED DEFAULT NULL COMMENT 'Percentuale; NULL = quella predefinita dello stato' AFTER fonte,
+        ADD COLUMN prossima_azione VARCHAR(255) DEFAULT NULL AFTER data_followup",
+
+    // v080: referenti dei clienti (più persone per azienda)
+    "CREATE TABLE IF NOT EXISTS {$prefix}referenti (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        cliente_id INT NOT NULL,
+        nome VARCHAR(150) NOT NULL,
+        ruolo VARCHAR(100) DEFAULT NULL,
+        email VARCHAR(150) DEFAULT NULL,
+        telefono VARCHAR(50) DEFAULT NULL,
+        principale TINYINT(1) NOT NULL DEFAULT 0,
+        note VARCHAR(255) DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        deleted_at DATETIME DEFAULT NULL,
+        KEY idx_referenti_cliente (cliente_id),
+        CONSTRAINT fk_referenti_cliente FOREIGN KEY (cliente_id) REFERENCES {$prefix}clienti(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+    // v081: note datate sul cliente (chiamate, email, incontri); il resto dello storico si ricava da offerte, commesse e fatture
+    "CREATE TABLE IF NOT EXISTS {$prefix}attivita (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        cliente_id INT NOT NULL,
+        offerta_id INT DEFAULT NULL,
+        tipo ENUM('nota','chiamata','email','incontro') NOT NULL DEFAULT 'nota',
+        data DATE NOT NULL,
+        testo TEXT NOT NULL,
+        user_id INT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        KEY idx_attivita_cliente (cliente_id, data),
+        CONSTRAINT fk_attivita_cliente FOREIGN KEY (cliente_id) REFERENCES {$prefix}clienti(id) ON DELETE CASCADE,
+        CONSTRAINT fk_attivita_offerta FOREIGN KEY (offerta_id) REFERENCES {$prefix}offerte(id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];

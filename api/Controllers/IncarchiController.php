@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../Shared/Documenti.php';
 require_once __DIR__ . '/../Shared/Indicatori.php';
+require_once __DIR__ . '/../Shared/CommessaService.php';
 require_once __DIR__ . '/../Shared/DocumentAi.php';
 require_once __DIR__ . '/../Shared/AnagraficaMatcher.php';
 require_once __DIR__ . '/../Shared/IncaricoPdfParser.php';
@@ -154,6 +155,8 @@ class IncarchiController {
             $dataFatt = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($data['data_fatturazione'] ?? '')) ? $data['data_fatturazione'] : null;
             $this->pdo->prepare("INSERT INTO {$p}incarichi_rate (incarico_id, ordine, descrizione, percentuale, importo, data_prevista, giorni_pagamento)
                 VALUES (?, 1, 'Saldo', 100, ?, ?, ?)")->execute([$newId, $fields['importo_totale'], $dataFatt, $fields['giorni_pagamento']]);
+            // Ogni commessa nasce da un'offerta: qui la si registra già accettata (CommessaService::offertaRapida)
+            (new CommessaService($this->pdo, $p))->offertaRapida($newId, $fields);
             $this->pdo->commit();
             Audit::log('INSERT', 'incarichi', $newId, null, null, [
                 'tipo_commessa' => $fields['tipo_commessa'],

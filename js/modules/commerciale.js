@@ -44,7 +44,7 @@ const ModCommerciale = (() => {
                 ${card('ph-receipt', 'Rate da fatturare in Sistemi', s.rate_da_fatturare, itemRata, 'Nessuna rata da emettere')}
                 ${card('ph-warning-circle', 'Clienti da sollecitare', s.incassi_scaduti, itemScaduto, 'Nessun incasso in ritardo')}
                 ${card('ph-hand-coins', 'Partner da pagare', s.pagamenti_partner, itemPartner, 'Nessun pagamento in scadenza')}
-                ${card('ph-phone-call', 'Offerte da ricontattare', s.offerte_da_ricontattare, itemFollowup, 'Nessuna offerta da ricontattare')}
+                ${card('ph-phone-call', 'Lead e offerte da ricontattare', s.offerte_da_ricontattare, itemFollowup, 'Nessuno da ricontattare')}
                 ${card('ph-hourglass-medium', 'Offerte in scadenza', s.offerte_in_scadenza, itemOffScad, 'Nessuna offerta in scadenza')}
                 ${card('ph-calendar-check', 'Incassi attesi', s.incassi_in_arrivo, itemInArrivo, 'Nessun incasso atteso')}
             </div>`;
@@ -111,7 +111,7 @@ const ModCommerciale = (() => {
         return `<div class="scad-item"><div class="scad-main">
             <div class="scad-title">${UI.esc(r.cliente_nome || '—')}</div>
             <div class="scad-sub">${UI.esc(r.numero)} · ${UI.esc(r.oggetto)}</div>
-            <div class="scad-sub">Inviata il ${UI.formatDate(r.data_invio)} · da ricontattare dal ${UI.formatDate(r.data_followup)}</div>
+            <div class="scad-sub">${r.stato === 'lead' ? `Lead${r.prossima_azione ? ' · ' + UI.esc(r.prossima_azione) : ''}` : 'Inviata il ' + UI.formatDate(r.data_invio)} · da ricontattare dal ${UI.formatDate(r.data_followup)}</div>
             <div class="scad-actions">
                 <button class="btn btn-sm btn-ghost" data-act="ricontattato" data-i="${i}"><i class="ph ph-phone"></i> Sentito, riprova tra…</button>
                 <button class="btn btn-sm btn-ghost" data-act="apri-offerta" data-i="${i}"><i class="ph ph-file-text"></i> Offerta</button>
@@ -191,7 +191,7 @@ const ModCommerciale = (() => {
                     const d = new Date();
                     d.setDate(d.getDate() + (parseInt(g, 10) || 7));
                     const pad = n => String(n).padStart(2, '0');
-                    await Store.api('set_stato', 'offerte', { id: o.id, stato: 'inviata', data_followup: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` });
+                    await Store.api('set_stato', 'offerte', { id: o.id, stato: o.stato === 'lead' ? 'lead' : 'inviata', data_followup: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` });
                     UI.toast('Promemoria spostato');
                     aggiorna();
                     break;

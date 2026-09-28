@@ -15,7 +15,9 @@ class OfferteController {
     private $pdo;
     private $prefix;
 
-    private const STATI = ['bozza', 'inviata', 'accettata', 'rifiutata', 'scaduta', 'sostituita'];
+    private const STATI = ['lead', 'bozza', 'inviata', 'accettata', 'rifiutata', 'scaduta', 'sostituita'];
+    /** Da dove arriva l'opportunità. */
+    private const FONTI = ['passaparola', 'cliente', 'sito', 'linkedin', 'evento', 'partner', 'altro'];
     private const TIPI = ['assistenza', 'dpo', 'formazione', 'nis2', 'ict', 'digital', 'sviluppo_software'];
 
     public function __construct() {
@@ -103,6 +105,9 @@ class OfferteController {
             'giorni_pagamento'     => max(0, (int)($data['giorni_pagamento'] ?? 30)),
             'piano_rate'           => json_encode($piano, JSON_UNESCAPED_UNICODE),
             'data_followup'        => $this->data($data['data_followup'] ?? null),
+            'prossima_azione'      => mb_substr(trim((string)($data['prossima_azione'] ?? '')), 0, 255) ?: null,
+            'fonte'                => in_array($data['fonte'] ?? '', self::FONTI, true) ? $data['fonte'] : null,
+            'probabilita'          => isset($data['probabilita']) && $data['probabilita'] !== '' ? max(0, min(100, (int)$data['probabilita'])) : null,
             'note'                 => trim((string)($data['note'] ?? '')) ?: null,
         ];
         if ($fields['oggetto'] === '') Response::json(false, 'Oggetto obbligatorio');
@@ -129,7 +134,8 @@ class OfferteController {
         } else {
             $fields['numero'] = $this->nuovoNumero((int)substr($dataOfferta, 0, 4));
             $fields['versione'] = 1;
-            $fields['stato'] = 'bozza';
+            // Un lead è un'opportunità ancora senza offerta: stesso registro, stato proprio
+            $fields['stato'] = ($data['stato'] ?? '') === 'lead' ? 'lead' : 'bozza';
             $fields['file_path'] = $file;
             $fields['origine'] = ($data['origine'] ?? '') === 'cowork' ? 'cowork' : 'manuale';
             $cols = implode(', ', array_keys($fields));
@@ -169,7 +175,7 @@ class OfferteController {
         $stato = $data['stato'] ?? '';
         $o = $this->load($id);
         if (!$o) Response::json(false, 'Offerta non trovata', null, 404);
-        if (!in_array($stato, ['bozza', 'inviata', 'rifiutata', 'scaduta'], true)) Response::json(false, 'Stato non valido');
+        if (!in_array($stato, ['lead', 'bozza', 'inviata', 'rifiutata', 'scaduta'], true)) Response::json(false, 'Stato non valido');
         if (in_array($o['stato'], ['accettata', 'sostituita'], true)) Response::json(false, 'Offerta ' . $o['stato'] . ': stato non modificabile');
 
         $set = ['stato' => $stato];
@@ -181,6 +187,9 @@ class OfferteController {
             if (!$o['data_scadenza']) {
                 $set['data_scadenza'] = date('Y-m-d', strtotime($set['data_invio'] . ' +30 days'));
             }
+        }
+        if ($stato === 'lead') {
+            $set['data_followup'] = $this->data($data['data_followup'] ?? null) ?? $o['data_followup'];
         }
         if (in_array($stato, ['rifiutata', 'scaduta'], true)) {
             $set['data_esito'] = date('Y-m-d');
@@ -201,7 +210,7 @@ class OfferteController {
         $id = (int)($data['id'] ?? 0);
         $o = $this->load($id);
         if (!$o) Response::json(false, 'Offerta non trovata', null, 404);
-        if (!in_array($o['stato'], ['bozza', 'inviata'], true)) Response::json(false, 'Offerta già ' . $o['stato']);
+        if (!in_array($o['stato'], ['lead', 'bozza', 'inviata'], true)) Response::json(false, 'Offerta già ' . $o['stato']);
         if (!$o['cliente_id']) Response::json(false, 'Prima di accettarla collega l\'offerta a un cliente in anagrafica');
         if ((float)$o['imponibile'] <= 0) Response::json(false, 'L\'offerta non ha importo');
 
@@ -217,7 +226,7 @@ class OfferteController {
         $this->pdo->beginTransaction();
         // Transizione atomica: due accettazioni concorrenti non creano due incarichi
         $stmt = $this->pdo->prepare("UPDATE {$p}offerte SET stato = 'accettata', data_esito = ?
-            WHERE id = ? AND stato IN ('bozza', 'inviata') AND deleted_at IS NULL");
+            WHERE id = ? AND stato IN ('lead', 'bozza', 'inviata') AND deleted_at IS NULL");
         $stmt->execute([$dataAcc, $id]);
         if ($stmt->rowCount() !== 1) {
             $this->pdo->rollBack();
@@ -248,7 +257,7 @@ class OfferteController {
         $id = (int)($data['id'] ?? 0);
         $o = $this->load($id);
         if (!$o) Response::json(false, 'Offerta non trovata', null, 404);
-        if (!in_array($o['stato'], ['bozza', 'inviata', 'rifiutata', 'scaduta'], true)) Response::json(false, 'Offerta ' . $o['stato'] . ': non si può rivedere');
+        if (!in_array($o['stato'], ['lead', 'bozza', 'inviata', 'rifiutata', 'scaduta'], true)) Response::json(false, 'Offerta ' . $o['stato'] . ': non si può rivedere');
 
         $stmt = $this->pdo->prepare("SELECT MAX(versione) FROM {$p}offerte WHERE numero = ?");
         $stmt->execute([$o['numero']]);
@@ -418,9 +427,7 @@ class OfferteController {
     }
 
     private function nuovoNumero(int $anno): string {
-        $stmt = $this->pdo->prepare("SELECT MAX(CAST(SUBSTRING(numero, 10) AS UNSIGNED)) FROM {$this->prefix}offerte WHERE numero LIKE ?");
-        $stmt->execute(["OFF-$anno-%"]);
-        return sprintf('OFF-%d-%03d', $anno, (int)$stmt->fetchColumn() + 1);
+        return (new CommessaService($this->pdo, $this->prefix))->nuovoNumeroOfferta($anno);
     }
 
     private function data($v): ?string {

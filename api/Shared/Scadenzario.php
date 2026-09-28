@@ -37,10 +37,12 @@ class Scadenzario
 
     private function offerteDaRicontattare(string $oggi): array
     {
+        // Offerte inviate da ricontattare e lead con la prossima azione scaduta
         $stmt = $this->pdo->prepare("SELECT o.id, o.numero, o.versione, o.oggetto, o.imponibile, o.data_invio, o.data_followup,
+                o.stato, o.prossima_azione,
                 COALESCE(c.ragione_sociale, o.cliente_nome) AS cliente_nome, c.email AS cliente_email
             FROM {$this->p}offerte o LEFT JOIN {$this->p}clienti c ON c.id = o.cliente_id
-            WHERE o.deleted_at IS NULL AND o.stato = 'inviata' AND o.data_followup IS NOT NULL AND o.data_followup <= ?
+            WHERE o.deleted_at IS NULL AND o.stato IN ('lead', 'inviata') AND o.data_followup IS NOT NULL AND o.data_followup <= ?
             ORDER BY o.data_followup");
         $stmt->execute([$oggi]);
         return $stmt->fetchAll();
