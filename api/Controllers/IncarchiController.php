@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/../Shared/Documenti.php';
+require_once __DIR__ . '/../Shared/Indicatori.php';
 require_once __DIR__ . '/../Shared/DocumentAi.php';
 require_once __DIR__ . '/../Shared/AnagraficaMatcher.php';
 require_once __DIR__ . '/../Shared/IncaricoPdfParser.php';
@@ -185,21 +186,18 @@ class IncarchiController {
         $year = $_POST['year'] ?? $_GET['year'] ?? date('Y');
         $p = $this->prefix;
 
-        // KPI globali incarichi
-        $stmt = $this->pdo->prepare("SELECT 
-            COUNT(*) as num_incarichi,
-            COALESCE(SUM(importo_totale), 0) as totale_incarichi,
-            COALESCE(SUM(importo_fatturato), 0) as totale_fatturato,
-            COALESCE(SUM(importo_pagato), 0) as totale_pagato,
-            COALESCE(SUM(importo_totale - importo_fatturato), 0) as residuo_da_fatturare,
-            COALESCE(SUM(importo_fatturato - importo_pagato), 0) as fatturato_non_pagato,
-            COUNT(CASE WHEN stato = 'attivo' THEN 1 END) as num_attivi,
-            COUNT(CASE WHEN stato = 'parziale' THEN 1 END) as num_parziali,
-            COUNT(CASE WHEN stato = 'fatturato' THEN 1 END) as num_fatturati,
-            COUNT(CASE WHEN stato = 'pagato' THEN 1 END) as num_pagati
-            FROM {$p}incarichi WHERE YEAR(data_incarico) = ?");
-        $stmt->execute([$year]);
-        $kpis = $stmt->fetch();
+        // KPI: definizioni uniche in Indicatori (docs/indicatori.md) + conteggi per stato della commessa
+        $ind = new Indicatori($this->pdo, $p);
+        $kpis = $ind->commesse((int)$year);
+        $stmt = $this->pdo->prepare("SELECT stato, COUNT(*) AS n FROM {$p}incarichi
+            WHERE data_incarico BETWEEN ? AND ? GROUP BY stato");
+        $stmt->execute(["$year-01-01", "$year-12-31"]);
+        $chiavi = ['attivo' => 'num_attivi', 'parziale' => 'num_parziali', 'fatturato' => 'num_fatturati', 'pagato' => 'num_pagati'];
+        foreach ($chiavi as $k) $kpis[$k] = 0;
+        foreach ($stmt->fetchAll() as $r) {
+            if (isset($chiavi[$r['stato']])) $kpis[$chiavi[$r['stato']]] = (int)$r['n'];
+        }
+        $kpisFatture = $ind->fatture((int)$year, $ind->clientiEsclusi());
 
         // Per tipo commessa
         $stmt2 = $this->pdo->prepare("SELECT 
@@ -241,6 +239,7 @@ class IncarchiController {
 
         Response::json(true, '', [
             'kpis' => $kpis,
+            'kpis_fatture' => $kpisFatture,
             'per_tipo' => $perTipo,
             'per_cliente' => $perCliente,
             'fatture_non_pagate' => $fattureNonPagate,

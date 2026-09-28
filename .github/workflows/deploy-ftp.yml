@@ -5,12 +5,28 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Unico percorso verso la produzione: test → FTPS → controllo di salute.
+# Le migrazioni del DB restano manuali (vedi CLAUDE.md).
+
+concurrency:
+  group: deploy-produzione
+  cancel-in-progress: false
+
 jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
+      # Ogni deploy cambia il ?v= di CSS e JS in index.html: il browser e il proxy di Aruba
+      # non servono più la versione vecchia (prima andava aggiornato a mano).
+      - name: Versione degli script
+        run: sed -i -E "s/\?v=[0-9]+/?v=$(date +%s)/g" index.html && grep -c '?v=' index.html
+
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -62,3 +78,10 @@ jobs:
             deploy_manifest.json
             .deploy_cache.json
             .deploy_history.log
+
+      - name: Controllo di salute
+        run: |
+          sleep 5
+          body=$(curl -sS --max-time 30 https://www.mv-consulting.it/ERP/api/health.php || true)
+          echo "$body" | grep -q '"status":"ok"' || { echo "::error::Health check non ok: $body"; exit 1; }
+          echo "Produzione ok"

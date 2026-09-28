@@ -1,0 +1,26 @@
+name: Migrazione DB
+
+# Lancio manuale (Actions → Migrazione DB → Run workflow) dopo un deploy che aggiunge
+# migrazioni in api/migrate.php. Serve il secret DEPLOY_KEY, uguale a quello nel .env del server.
+# Il backup notturno copre la notte precedente: per migrazioni rischiose lancia prima «Backup notturno ERP».
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-produzione
+  cancel-in-progress: false
+
+jobs:
+  migra:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Esegui le migrazioni
+        env:
+          KEY: ${{ secrets.DEPLOY_KEY }}
+          URL: https://www.mv-consulting.it/ERP/api/router.php?module=admin&action=migrate
+        run: |
+          if [ -z "$KEY" ]; then echo "::error::Secret DEPLOY_KEY non impostato"; exit 1; fi
+          # Repository pubblico: nei log solo l'esito, non l'output completo
+          body=$(curl -sS --max-time 120 -X POST -H "X-Deploy-Key: $KEY" "$URL" || true)
+          echo "$body" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("message")); print("nuove:", (d.get("data") or {}).get("newly_applied")); sys.exit(0 if d.get("success") else 1)'

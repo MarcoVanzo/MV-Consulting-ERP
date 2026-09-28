@@ -4,44 +4,52 @@
 > valgono sempre; questo file specializza.
 
 ## Cos'è
-Applicativo gestionale MV Consulting: **PHP** + frontend statico (`index.html` + `js/` + `css/`),
-API in `api/`, gestione pagamenti/PDF (`PDF Pagamenti`, `tmp_pdf_parse`). Repo GitHub `MV-Consulting-ERP`.
+Gestionale MV Consulting (ibrido CRM/ERP): **PHP 8.2** + frontend statico (`index.html` + `js/` + `css/`),
+API in `api/`. Repo GitHub `MV-Consulting-ERP`, **pubblico**: niente dati reali di clienti nei file
+di test o di esempio, niente output delle API nei log dei workflow.
 
 ## Leggi prima di operare
-- `.agents/workflows/deploy.md` — workflow di deploy.
-- `.env.example` per le variabili attese; `deploy.config` per la configurazione di deploy.
+- `.env.example` per le variabili attese.
+- `docs/indicatori.md` — definizione unica dei numeri (fatturato, scaduto, da incassare…).
 
-## Deploy — attenzione: due meccanismi diversi coesistono
-
-**1. GitHub Actions (quello che va davvero in produzione).**
-`.github/workflows/deploy-ftp.yml` — **FTP push** con `SamKirkland/FTP-Deploy-Action`.
-Trigger: `push` su `main` **oppure** `workflow_dispatch`. Secret: `FTP_SERVER`, `FTP_USERNAME`,
-`FTP_PASSWORD`, `FTP_PATH`.
-
-> ⚠️ **Nessun gate**: niente test, niente lint, nessun health check, **nessun rollback e nessun
-> backup**. Un `git push origin main` è già la produzione.
-> ⚠️ Il workflow **ignora** `deploy_manifest.json`: i due meccanismi possono divergere.
+## Deploy — un solo percorso
+`.github/workflows/deploy-ftp.yml`, su `push` a `main` o `workflow_dispatch`:
+**test** (`test.yml`: `php -l` + `tests/*_cli.php`) → **FTPS** (`SamKirkland/FTP-Deploy-Action`) →
+**controllo di salute** su `api/health.php`. Se i test falliscono non si pubblica nulla.
+Secret: `FTP_SERVER`, `FTP_USERNAME`, `FTP_PASSWORD`, `FTP_PATH`. Nessun rollback automatico: si torna
+indietro con un revert su `main`.
 
 ```bash
-gh workflow run deploy-ftp.yml --ref main   # oppure git push origin main
 gh run list --workflow deploy-ftp.yml --limit 1 && gh run watch <id>
 ```
 
-**2. Pipeline locale pull-based** (alternativa, non usata dalle Actions).
-`./deploy` → `deploy.py` (FTP-TLS multi-worker, pre-flight, security scan, lock, health check su
-`APP_URL`, storico in `.deploy_history.log`) e `deploy_update.php` con manifest
-(`deploy_manifest.json`) e cache (`.deploy_cache.json`). Questo è l'unico percorso che ha
-backup e rollback.
+Test in locale (PHP non è installato sul Mac):
+```bash
+docker run --rm -v "$PWD":/app -w /app php:8.2-cli sh -c 'for t in tests/*_cli.php; do php $t || exit 1; done'
+```
+(`lista_fatture_cli.php` richiede l'estensione zip, assente nell'immagine base: in CI c'è.)
 
-> ⚠️ `./deploy` fa `git add .` + commit + push **automatici**: con il working tree sporco
-> pubblica tutto. Verifica `git status` prima di lanciarlo.
-
-Migrazioni DB: **mai automatiche**, si lanciano a mano via `api/migrate.php` (HTTP).
+Migrazioni DB: **mai automatiche**. Dopo il deploy, workflow manuale `migrazione.yml` (secret
+`DEPLOY_KEY`), oppure POST a `api/router.php?module=admin&action=migrate` con header `X-Deploy-Key`
+(`api/migrate.php` diretto è bloccato da `api/.htaccess`: 403). Si aggiungono query **solo in coda**
+all'array di `api/migrate.php`: la versione è la posizione.
+Backup: `.github/workflows/backup.yml` ogni notte; per migrazioni rischiose lancialo a mano prima.
 Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
 **Avvisami quando il deploy finisce** (`gh run watch`/`gh run list` in background).
 
 ## Note
 - Cartelle `tmp_*` (`tmp_pdf_parse`, `tmp_root_redirect`, `tmp_venv`) sono di lavoro: non versionare artefatti.
+- **Numeri di sintesi solo da `api/Shared/Indicatori.php`** (definizioni in `docs/indicatori.md`,
+  prova `php tests/indicatori_cli.php`). Endpoint per la dashboard: `indicatori/riepilogo`.
+- **File importati**: il router passa ogni import (azioni in `ArchivioImport::AZIONI`) ad
+  `api/Shared/ArchivioImport.php`, che salva l'originale in `storage/import/<sha256>.<ext>` e lo
+  registra in `import_file` (v077). Un import nuovo va aggiunto a `AZIONI` e il frontend manda il file
+  nel campo `originale` quando al server arriva solo il testo estratto con pdf.js.
+- **Cliente o prospect** è calcolato in `ClientiController::list` (ha commesse o fatture → cliente), non salvato.
+- **Ricerca P.IVA** nel frontend solo con `UI.cercaPiva()`: segnala anche chi è già in anagrafica.
+- **Allegati**: mai in `uploads/` (sull'hosting il server statico può ignorare `.htaccess`). Si salvano con
+  `Documenti::salvaUpload` in `storage/documenti/`; gli allegati storici delle manutenzioni vengono spostati
+  lì dal promemoria giornaliero (`Documenti::migraAllegatiStorici`).
 
 ## Modulo commerciale (offerte → incarico → rate → fatture, partner, margini)
 - Logica condivisa in `api/Shared/CommessaService.php` (margine, rate, abbinamento fattura↔rata) e

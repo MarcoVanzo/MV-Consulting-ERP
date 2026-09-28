@@ -6,6 +6,7 @@
 const ModClienti = (() => {
     let _clienti = [];
     let _sottoclientiCache = {};
+    let _tipo = '';
 
     async function load() {
         try {
@@ -26,11 +27,11 @@ const ModClienti = (() => {
         }
 
         tbody.innerHTML = _clienti.map(c => `
-            <tr data-id="${UI.esc(c.id)}">
+            <tr data-id="${UI.esc(c.id)}" data-tipo="${UI.esc(c.tipo || 'cliente')}">
                 <td>
                     ${parseInt(c.num_sottoclienti) > 0 ? `<button class="expand-btn" data-cliente-id="${UI.esc(c.id)}" title="Espandi sottoclienti"><i class="ph ph-caret-right"></i></button>` : ''}
                 </td>
-                <td class="td-primary">${UI.esc(c.ragione_sociale)}</td>
+                <td class="td-primary">${UI.esc(c.ragione_sociale)}${c.tipo === 'prospect' ? ' <span class="badge badge-gray" title="Nessuna commessa né fattura">Prospect</span>' : ''}</td>
                 <td class="td-mono">${UI.esc(c.partita_iva || '—')}</td>
                 <td>${UI.esc(c.citta || '')}${c.provincia ? ` (${UI.esc(c.provincia)})` : ''}</td>
                 <td>${UI.esc(c.email || c.pec || '—')}</td>
@@ -44,6 +45,8 @@ const ModClienti = (() => {
                 </td>
             </tr>
         `).join('');
+
+        applicaFiltri();
 
         // Expand buttons
         tbody.querySelectorAll('.expand-btn').forEach(btn => {
@@ -191,8 +194,11 @@ const ModClienti = (() => {
             statusEl.innerHTML = '<div class="vat-status loading"><i class="ph ph-circle-notch ph-spin"></i> Ricerca in corso...</div>';
 
             try {
-                const data = await Store.api('lookup-vat', 'clienti', { vat });
-                statusEl.innerHTML = '<div class="vat-status success"><i class="ph ph-check-circle"></i> Dati trovati e compilati!</div>';
+                const data = await UI.cercaPiva(vat);
+                const gia = UI.testoGiaPresenti(data);
+                statusEl.innerHTML = gia
+                    ? `<div class="vat-status error"><i class="ph ph-warning-circle"></i> ${UI.esc(gia)}. Dati compilati: controlla di non creare un doppione.</div>`
+                    : '<div class="vat-status success"><i class="ph ph-check-circle"></i> Dati trovati e compilati</div>';
 
                 // Populate form
                 if (data.ragione_sociale) {
@@ -375,15 +381,22 @@ const ModClienti = (() => {
 
     function getClienti() { return _clienti; }
 
-    function initSearch() {
-        document.getElementById('search-clienti').addEventListener('input', (e) => {
-            const q = e.target.value.toLowerCase();
-            const rows = document.querySelectorAll('#tbody-clienti tr[data-id]');
-            rows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(q) ? '' : 'none';
-            });
+    /** Ricerca testuale e filtro Clienti/Prospect insieme. */
+    function applicaFiltri() {
+        const q = (document.getElementById('search-clienti')?.value || '').toLowerCase();
+        document.querySelectorAll('#tbody-clienti tr[data-id]').forEach(row => {
+            const ok = row.textContent.toLowerCase().includes(q) && (!_tipo || row.dataset.tipo === _tipo);
+            row.style.display = ok ? '' : 'none';
         });
+    }
+
+    function initSearch() {
+        document.getElementById('search-clienti').addEventListener('input', applicaFiltri);
+        document.querySelectorAll('#clienti-tipo .filter-chip').forEach(b => b.addEventListener('click', () => {
+            _tipo = b.dataset.tipo;
+            document.querySelectorAll('#clienti-tipo .filter-chip').forEach(x => x.classList.toggle('active', x === b));
+            applicaFiltri();
+        }));
     }
 
     return { load, render, openNew, edit, remove, openSottoclienteModal, editSotto, removeSotto, getClienti, initSearch };

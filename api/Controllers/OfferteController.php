@@ -6,6 +6,7 @@
  */
 
 require_once __DIR__ . '/../Shared/CommessaService.php';
+require_once __DIR__ . '/../Shared/Indicatori.php';
 require_once __DIR__ . '/../Shared/Documenti.php';
 require_once __DIR__ . '/../Shared/DocumentAi.php';
 require_once __DIR__ . '/../Shared/AnagraficaMatcher.php';
@@ -48,19 +49,8 @@ class OfferteController {
         $stmt->execute($params);
         $rows = $stmt->fetchAll();
 
-        // KPI dell'anno: pipeline aperta e tasso di conversione
-        $stmt = $this->pdo->prepare("SELECT
-                COUNT(CASE WHEN stato <> 'sostituita' THEN 1 END) AS num_offerte,
-                COALESCE(SUM(CASE WHEN stato IN ('bozza','inviata') THEN imponibile END), 0) AS pipeline,
-                COUNT(CASE WHEN stato = 'inviata' THEN 1 END) AS num_inviate,
-                COALESCE(SUM(CASE WHEN stato = 'accettata' THEN imponibile END), 0) AS accettato,
-                COUNT(CASE WHEN stato = 'accettata' THEN 1 END) AS num_accettate,
-                COUNT(CASE WHEN stato IN ('rifiutata','scaduta') THEN 1 END) AS num_perse
-            FROM {$p}offerte WHERE deleted_at IS NULL AND YEAR(data_offerta) = ?");
-        $stmt->execute([(int)$year]);
-        $kpis = $stmt->fetch();
-        $chiuse = (int)$kpis['num_accettate'] + (int)$kpis['num_perse'];
-        $kpis['tasso_conversione'] = $chiuse > 0 ? round((int)$kpis['num_accettate'] / $chiuse * 100) : null;
+        // KPI dell'anno: definizioni uniche in Indicatori (docs/indicatori.md)
+        $kpis = (new Indicatori($this->pdo, $p))->offerte((int)$year);
 
         Response::json(true, '', ['offerte' => $rows, 'kpis' => $kpis]);
     }

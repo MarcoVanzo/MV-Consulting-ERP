@@ -120,7 +120,14 @@ const UI = (() => {
     // ── Formatting ──
     function formatCurrency(val) {
         const num = parseFloat(val) || 0;
-        return num.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
+        // useGrouping 'always': in italiano 6000 resterebbe senza punto, 12.000 no
+        return num.toLocaleString('it-IT', { style: 'currency', currency: 'EUR', useGrouping: 'always' });
+    }
+
+    /** "1 fattura" / "3 fatture" */
+    function plurale(n, uno, molti) {
+        n = parseInt(n) || 0;
+        return `${n} ${n === 1 ? uno : molti}`;
     }
 
     function formatDate(dateStr) {
@@ -211,6 +218,27 @@ const UI = (() => {
     const tipiCommessaOptions = scelto => Object.entries(TIPI_COMMESSA)
         .map(([v, l]) => `<option value="${v}" ${v === (scelto || 'assistenza') ? 'selected' : ''}>${esc(l)}</option>`).join('');
 
+    /**
+     * Ricerca unica della partita IVA (clienti, partner, nuovo partner da commessa).
+     * Accetta "IT" davanti e spazi; restituisce i dati dell'azienda e, in gia_presenti,
+     * le anagrafiche che hanno già quella P.IVA.
+     */
+    async function cercaPiva(valore) {
+        const piva = String(valore || '').toUpperCase().replace(/\s+/g, '').replace(/^IT/, '').replace(/\D/g, '');
+        if (!/^\d{11}$/.test(piva)) throw new Error('La partita IVA deve avere 11 cifre');
+        const d = await Store.api('lookup-vat', 'clienti', { vat: piva }) || {};
+        d.partita_iva = piva;
+        d.gia_presenti = d.gia_presenti || [];
+        return d;
+    }
+
+    /** "Già in anagrafica: …" per i risultati di cercaPiva, oppure stringa vuota. */
+    function testoGiaPresenti(d) {
+        const tipi = { cliente: 'cliente', partner: 'partner', fornitore: 'fornitore' };
+        const l = (d?.gia_presenti || []).map(x => `${x.nome} (${tipi[x.tipo] || x.tipo})`);
+        return l.length ? 'Già in anagrafica: ' + l.join(', ') : '';
+    }
+
     function isModalOpen() {
         return document.getElementById('modal-overlay').classList.contains('active');
     }
@@ -218,7 +246,8 @@ const UI = (() => {
     return {
         toast, openModal, closeModal, initModalEvents, copyText, isModalOpen,
         formatCurrency, formatDate, formatNumber,
-        statoBadge, populateYearSelect, esc, safeUrl, todayLocal, tipoCommessa, tipiCommessaOptions
+        statoBadge, populateYearSelect, esc, safeUrl, todayLocal, tipoCommessa, tipiCommessaOptions,
+        cercaPiva, testoGiaPresenti, plurale
     };
 })();
 

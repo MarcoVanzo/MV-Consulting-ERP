@@ -1,5 +1,6 @@
 # MV Consulting ERP — protezione della cartella /ERP
 # Online devono restare raggiungibili solo index.html, css/, js/, assets/ e api/router.php|health.php.
+# uploads/ contiene allegati storici delle manutenzioni: si aprono solo da mezzi/allegato.
 
 Options -Indexes
 
@@ -15,5 +16,5 @@ Options -Indexes
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteRule ^(\.agents|\.git|cron|scripts|storage|deploy_backup|deploy_tmp|tmp_[^/]*)(/|$) - [F,L]
+    RewriteRule ^(\.agents|\.git|cron|scripts|storage|uploads|deploy_backup|deploy_tmp|tmp_[^/]*)(/|$) - [F,L]
 </IfModule>

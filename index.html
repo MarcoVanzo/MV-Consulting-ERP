@@ -229,7 +229,12 @@
                     <div class="table-toolbar">
                         <div class="table-search">
                             <i class="ph ph-magnifying-glass"></i>
-                            <input type="text" id="search-clienti" placeholder="Cerca cliente...">
+                            <input type="text" id="search-clienti" placeholder="Cerca cliente..." aria-label="Cerca cliente">
+                        </div>
+                        <div class="filter-chips" id="clienti-tipo" role="group" aria-label="Mostra">
+                            <button type="button" class="filter-chip active" data-tipo="">Tutti</button>
+                            <button type="button" class="filter-chip" data-tipo="cliente">Clienti</button>
+                            <button type="button" class="filter-chip" data-tipo="prospect">Prospect</button>
                         </div>
                     </div>
                     <table class="data-table" id="table-clienti">

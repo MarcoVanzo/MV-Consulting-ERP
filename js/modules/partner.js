@@ -155,13 +155,13 @@ const ModPartner = (() => {
         });
         // Compila ragione sociale, CF e PEC dalla partita IVA (stesso servizio dei clienti)
         document.getElementById('fo-cerca').addEventListener('click', async () => {
-            const piva = document.getElementById('fo-piva').value.replace(/\D/g, '');
             try {
-                const d = await Store.api('lookup-vat', 'clienti', { vat: piva }) || {};
+                const d = await UI.cercaPiva(document.getElementById('fo-piva').value);
                 if (d.ragione_sociale) document.getElementById('fo-rs').value = d.ragione_sociale;
                 if (d.codice_fiscale) document.getElementById('fo-cf').value = d.codice_fiscale;
-                document.getElementById('fo-piva').value = piva;
-                UI.toast('Dati compilati dalla partita IVA');
+                document.getElementById('fo-piva').value = d.partita_iva;
+                const gia = UI.testoGiaPresenti({ gia_presenti: d.gia_presenti.filter(x => !(x.tipo !== 'cliente' && x.id === f.id)) });
+                UI.toast(gia || 'Dati compilati dalla partita IVA', gia ? 'error' : 'success');
             } catch (e) { UI.toast(e.message, 'error'); }
         });
         // Categorie di uscita (grafici "Andamento"): il campo compare solo se il modulo categorie è attivo
@@ -226,7 +226,7 @@ const ModPartner = (() => {
             for (let i = 0; i < files.length; i++) {
                 btn.innerHTML = `<i class="ph ph-spinner ph-spin"></i> ${i + 1}/${files.length}…`;
                 const f = files[i];
-                const payload = {};
+                const payload = { file_nome: f.name };
                 if (/\.p7m$/i.test(f.name)) {
                     // File firmato: si manda in base64, il server estrae l'XML
                     const buf = new Uint8Array(await f.arrayBuffer());
@@ -314,9 +314,10 @@ const ModPartner = (() => {
             if (gia) { scegli(gia.id); UI.toast(`${gia.ragione_sociale} è già tra i partner: selezionato`); return; }
             stato('Ricerca in corso...');
             try {
-                trovato = await Store.api('lookup-vat', 'clienti', { vat: piva }) || {};
+                trovato = await UI.cercaPiva(piva);
                 np('np-rs').value = trovato.ragione_sociale || '';
-                stato('Dati trovati: controlla e crea il partner.');
+                const gia = UI.testoGiaPresenti(trovato);
+                stato(gia ? gia + ' — controlla prima di creare il partner.' : 'Dati trovati: controlla e crea il partner.', !!gia);
             } catch (e) { trovato = {}; stato(e.message + ' — scrivi la ragione sociale a mano.', true); np('np-rs').focus(); }
         });
         np('np-crea').addEventListener('click', async () => {

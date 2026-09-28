@@ -65,10 +65,10 @@ const ModCommerciale = (() => {
                 <button class="btn btn-ghost btn-sm" id="scad-refresh"><i class="ph ph-arrows-clockwise"></i> Aggiorna</button>
             </div>
             <div class="kpi-grid">
-                <div class="kpi-card kpi-blue"><div class="kpi-label">Da fatturare</div><div class="kpi-value">${UI.formatCurrency(sumImp(s.rate_da_fatturare, 'importo'))}</div><div class="kpi-sub">${s.rate_da_fatturare.length} rate da emettere in Sistemi</div></div>
-                <div class="kpi-card kpi-red"><div class="kpi-label">Incassi scaduti</div><div class="kpi-value">${UI.formatCurrency(sumImp(s.incassi_scaduti, 'importo_totale'))}</div><div class="kpi-sub">${s.incassi_scaduti.length} fatture da sollecitare</div></div>
+                <div class="kpi-card kpi-blue"><div class="kpi-label">Da fatturare</div><div class="kpi-value">${UI.formatCurrency(sumImp(s.rate_da_fatturare, 'importo'))}</div><div class="kpi-sub">${UI.plurale(s.rate_da_fatturare.length, 'rata', 'rate')} da emettere in Sistemi</div></div>
+                <div class="kpi-card kpi-red"><div class="kpi-label">Incassi scaduti</div><div class="kpi-value">${UI.formatCurrency(sumImp(s.incassi_scaduti, 'importo_totale'))}</div><div class="kpi-sub">${UI.plurale(s.incassi_scaduti.length, 'fattura', 'fatture')} da sollecitare</div></div>
                 <div class="kpi-card kpi-green"><div class="kpi-label">Incassi in arrivo</div><div class="kpi-value">${UI.formatCurrency(sumImp(s.incassi_in_arrivo, 'importo_totale'))}</div><div class="kpi-sub">entro ${s.orizzonte_giorni} giorni</div></div>
-                <div class="kpi-card kpi-yellow"><div class="kpi-label">Partner da pagare</div><div class="kpi-value">${UI.formatCurrency(sumImp(s.pagamenti_partner, 'importo_totale'))}</div><div class="kpi-sub">${s.pagamenti_partner.length} fatture fornitori</div></div>
+                <div class="kpi-card kpi-yellow"><div class="kpi-label">Partner da pagare</div><div class="kpi-value">${UI.formatCurrency(sumImp(s.pagamenti_partner, 'importo_totale'))}</div><div class="kpi-sub">${UI.plurale(s.pagamenti_partner.length, 'fattura fornitore', 'fatture fornitori')}</div></div>
             </div>
             <div class="scad-grid">
                 ${card('ph-receipt', 'Rate da fatturare in Sistemi', s.rate_da_fatturare, itemRata, 'Nessuna rata da emettere')}

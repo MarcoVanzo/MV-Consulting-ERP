@@ -626,7 +626,25 @@ $queries = [
 
     // v076: estratti carta importati per errore come estratto conto → origine carta (si sommavano all'addebito mensile)
     "UPDATE {$prefix}movimenti_banca SET origine = 'estratto_carta', categoria_id = NULL, categoria_proposta_id = NULL
-        WHERE origine = 'estratto_conto' AND banca REGEXP '(numia|carta ?bcc)'"
+        WHERE origine = 'estratto_conto' AND banca REGEXP '(numia|carta ?bcc)'",
+
+    // v077: archivio dei file importati (originale in storage/import/<sha256>.<ext>, vedi ArchivioImport)
+    "CREATE TABLE IF NOT EXISTS {$prefix}import_file (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        sha256 CHAR(64) NOT NULL,
+        tipo VARCHAR(30) NOT NULL,
+        nome_file VARCHAR(255) NOT NULL,
+        estensione VARCHAR(5) NOT NULL,
+        dimensione INT UNSIGNED NOT NULL DEFAULT 0,
+        volte INT UNSIGNED NOT NULL DEFAULT 1,
+        user_id INT DEFAULT NULL,
+        prima_importazione DATETIME NOT NULL,
+        ultima_importazione DATETIME NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_import_file_sha (sha256),
+        KEY idx_import_file_tipo (tipo, ultima_importazione)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
 

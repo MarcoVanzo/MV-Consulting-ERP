@@ -373,6 +373,10 @@ const ModMezzi = (() => {
         `;
     }
 
+    function allegatoHref(id) {
+        return `api/router.php?module=mezzi&action=allegato&id=${encodeURIComponent(id)}`;
+    }
+
     function getMaintHtml() {
         const v = _currentVehicle;
         const maintTypes = { tagliando: 'Tagliando', gomme_estive: 'Gomme Estive', gomme_invernali: 'Gomme Invernali', riparazione: 'Riparazione', revisione: 'Revisione', altro: 'Altro' };
@@ -385,7 +389,7 @@ const ModMezzi = (() => {
                 <td>${UI.esc(m.descrizione || '—')}</td>
                 <td>${parseFloat(m.costo) > 0 ? UI.formatCurrency(m.costo) : '—'}</td>
                 <td>
-                    ${UI.safeUrl(m.allegato_url) ? `<a href="${UI.safeUrl(m.allegato_url)}" target="_blank" rel="noopener" class="btn btn-ghost" style="padding:4px; font-size:12px;" title="Vedi Allegato"><i class="ph ph-file-pdf"></i> Allegato</a>` : '—'}
+                    ${m.allegato_url ? `<a href="${allegatoHref(m.id)}" target="_blank" rel="noopener" class="btn btn-ghost" style="padding:4px; font-size:12px;" title="Vedi Allegato"><i class="ph ph-file-pdf"></i> Allegato</a>` : '—'}
                 </td>
                 <td>
                     ${m.prossima_scadenza_data ? UI.formatDate(m.prossima_scadenza_data) : ''}
@@ -534,7 +538,7 @@ const ModMezzi = (() => {
                 <div class="form-group full-width">
                     <label>Fattura o Allegato (PDF/Immagine)</label>
                     <input type="file" class="form-control" id="m-allegato" accept=".pdf,.png,.jpg,.jpeg">
-                    ${m && UI.safeUrl(m.allegato_url) ? `<small style="display:block; margin-top:4px;"><a href="${UI.safeUrl(m.allegato_url)}" target="_blank" rel="noopener">Vedi allegato attuale</a> (selezionando un nuovo file, verrà sovrascritto)</small>` : ''}
+                    ${m && m.allegato_url ? `<small style="display:block; margin-top:4px;"><a href="${allegatoHref(m.id)}" target="_blank" rel="noopener">Vedi allegato attuale</a> (selezionando un nuovo file, verrà sovrascritto)</small>` : ''}
                 </div>
                 <div class="form-group">
                     <label>Prossima Scadenza (Data)</label>
@@ -570,9 +574,6 @@ const ModMezzi = (() => {
             const allegatoFile = document.getElementById('m-allegato').files[0];
             if (allegatoFile) {
                 payload.allegato = allegatoFile;
-            }
-            if (m?.allegato_url) {
-                payload.existing_allegato = m.allegato_url;
             }
 
             await Store.api(m ? 'updateMaintenance' : 'addMaintenance', 'mezzi', payload);
