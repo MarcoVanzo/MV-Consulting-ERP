@@ -83,5 +83,5 @@ jobs:
         run: |
           sleep 5
           body=$(curl -sS --max-time 30 https://www.mv-consulting.it/ERP/api/health.php || true)
-          echo "$body" | grep -q '"status":"ok"' || { echo "::error::Health check non ok: $body"; exit 1; }
+          echo "$body" | grep -Eq '"status": *"ok"' || { echo "::error::Health check non ok: $body"; exit 1; }
           echo "Produzione ok"
