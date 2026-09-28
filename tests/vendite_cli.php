@@ -53,6 +53,13 @@ foreach ([
         data_scadenza TEXT, data_pagamento TEXT, imponibile REAL, importo_totale REAL, stato TEXT)",
 ] as $sql) $pdo->exec($sql);
 
+echo "Protocollo delle lettere d'incarico\n";
+$k = CommessaService::chiaviProtocollo('Prot. n. 820/2026 (SZ.DPS.F011.26)');
+check('due codici del protocollo', $k === ['820/2026', 'SZ.DPS.F011.26'], $k);
+check('stesso protocollo scritto a metà', (bool)array_intersect($k, CommessaService::chiaviProtocollo('0820 / 2026')));
+check('anno diverso non combacia', !array_intersect($k, CommessaService::chiaviProtocollo('Prot. n. 820/2025 (SZ.DPS.F011.25)')));
+check('protocollo vuoto', CommessaService::chiaviProtocollo(null) === []);
+
 echo "Numerazione e commessa sempre da offerta\n";
 $svc = new CommessaService($pdo, $p);
 check('prima offerta dell\'anno', $svc->nuovoNumeroOfferta(2026) === 'OFF-2026-001');
