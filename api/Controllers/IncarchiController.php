@@ -110,12 +110,25 @@ class IncarchiController {
             Response::json(false, 'Importo totale deve essere maggiore di zero');
         }
 
+        // Una lettera d'incarico si registra una volta sola: il protocollo la identifica
+        $doppia = (new CommessaService($this->pdo, $p))->commessaConProtocollo($fields['numero_protocollo'], $id);
+        if ($doppia) {
+            Response::json(false, 'Commessa già presente con il protocollo ' . $doppia['numero_protocollo']
+                . ($doppia['sottocliente'] ? ' (' . $doppia['sottocliente'] . ')' : ''), ['duplicato' => $doppia]);
+        }
+
         $this->pdo->beginTransaction();
-        // Sottocliente letto dal PDF ma non ancora in anagrafica
+        // Sottocliente letto dal PDF ma non ancora in anagrafica (se c'è già con lo stesso nome si riusa:
+        // nello stesso import più lettere possono proporre la stessa azienda)
         $nuovoSotto = trim((string)($data['sottocliente_nuovo'] ?? ''));
         if (!$fields['sottocliente_id'] && $nuovoSotto !== '') {
-            $this->pdo->prepare("INSERT INTO {$p}sottoclienti (cliente_id, nome) VALUES (?, ?)")->execute([$fields['cliente_id'], $nuovoSotto]);
-            $fields['sottocliente_id'] = (int)$this->pdo->lastInsertId();
+            $stmt = $this->pdo->prepare("SELECT id FROM {$p}sottoclienti WHERE cliente_id = ? AND LOWER(TRIM(nome)) = LOWER(?) LIMIT 1");
+            $stmt->execute([$fields['cliente_id'], $nuovoSotto]);
+            $fields['sottocliente_id'] = (int)$stmt->fetchColumn() ?: null;
+            if (!$fields['sottocliente_id']) {
+                $this->pdo->prepare("INSERT INTO {$p}sottoclienti (cliente_id, nome) VALUES (?, ?)")->execute([$fields['cliente_id'], $nuovoSotto]);
+                $fields['sottocliente_id'] = (int)$this->pdo->lastInsertId();
+            }
         }
 
         if ($id) {
@@ -289,6 +302,8 @@ class IncarchiController {
                     'sottocliente_id' => $sottoId,
                     // Sottocliente letto ma non in anagrafica: il form propone di crearlo
                     'sottocliente_nuovo' => ($clienteId && !$sottoId && $sottoNome !== '') ? $sottoNome : null,
+                    'sottocliente_nome' => $sottoNome !== '' ? $sottoNome : null,
+                    'cliente_nome' => $ai['cliente']['nome'] ?? null,
                     'data_incarico' => $ai['data_incarico'],
                     'importo_totale' => $ai['importo_totale'] !== null ? round((float)$ai['importo_totale'], 2) : 0,
                     'num_giornate' => $ai['num_giornate'] ?? 0,
@@ -325,6 +340,7 @@ class IncarchiController {
                 'numero_protocollo' => $x['numero_protocollo'],
             ];
         }
+        $extracted['duplicato'] = (new CommessaService($this->pdo, $p))->commessaConProtocollo($extracted['numero_protocollo'] ?? null);
         $extracted['pdf_path'] = $pdfPath ? $ref : null;
         $extracted['metodo'] = $metodo;
         $extracted['avvisi'] = $avvisi;

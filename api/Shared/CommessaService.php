@@ -27,6 +27,44 @@ class CommessaService
         $this->p = $prefix;
     }
 
+    /**
+     * Chiavi di confronto di un protocollo. Le lettere Unindustria riportano due codici
+     * («Prot. n. 820/2026 (SZ.DPS.F011.26)») e la lettura ne può restituire uno o entrambi:
+     * due protocolli sono lo stesso se hanno almeno una chiave in comune.
+     * @return string[]
+     */
+    public static function chiaviProtocollo(?string $protocollo): array
+    {
+        $s = mb_strtoupper(trim((string)$protocollo), 'UTF-8');
+        if ($s === '') return [];
+        $chiavi = [];
+        if (preg_match_all('/\b(\d{1,6})\s*\/\s*(\d{4})\b/', $s, $m, PREG_SET_ORDER)) {
+            foreach ($m as $x) $chiavi[] = (int)$x[1] . '/' . $x[2];
+        }
+        // Il codice alfanumerico si cerca senza la parte «Prot. n. 820/2026», che darebbe «PROT.N.820»
+        $resto = preg_replace(['/\bPROT\w*\.?\s*(N\w*\.?)?/', '/\b\d{1,6}\s*\/\s*\d{4}\b/'], ' ', $s);
+        if (preg_match_all('/\b[A-Z]{2,}(?:\s*\.\s*[A-Z0-9]+){2,}\b/', $resto, $m)) {
+            foreach ($m[0] as $x) $chiavi[] = preg_replace('/\s+/', '', $x);
+        }
+        if (!$chiavi) $chiavi[] = preg_replace('/[^A-Z0-9]/', '', $s);
+        return array_values(array_unique(array_filter($chiavi)));
+    }
+
+    /** Commessa già registrata con lo stesso protocollo (vedi chiaviProtocollo), o null. */
+    public function commessaConProtocollo(?string $protocollo, ?int $esclusa = null): ?array
+    {
+        $cerca = self::chiaviProtocollo($protocollo);
+        if (!$cerca) return null;
+        $stmt = $this->pdo->query("SELECT i.id, i.numero_protocollo, i.data_incarico, i.importo_totale, s.nome AS sottocliente
+            FROM {$this->p}incarichi i LEFT JOIN {$this->p}sottoclienti s ON s.id = i.sottocliente_id
+            WHERE i.numero_protocollo IS NOT NULL AND i.numero_protocollo <> ''");
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            if ($esclusa && (int)$r['id'] === $esclusa) continue;
+            if (array_intersect($cerca, self::chiaviProtocollo($r['numero_protocollo']))) return $r;
+        }
+        return null;
+    }
+
     /** Prossimo numero d'offerta dell'anno (OFF-AAAA-NNN). Calcolato in PHP: la stessa query vale su MySQL e SQLite. */
     public function nuovoNumeroOfferta(int $anno): string
     {

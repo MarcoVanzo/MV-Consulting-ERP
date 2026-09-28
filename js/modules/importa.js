@@ -100,7 +100,7 @@ const ModImporta = (() => {
         const t = v.pagine.join('\n').toLowerCase();
         if (/estratto conto carta|cartabcc|numia/.test(t) && /totale operazioni/.test(t)) return 'estratto_carta';
         if (/pagamento fornitore|avviso di pagamento|distinta di pagamento/.test(t)) return 'avviso';
-        if (/lettera d.incarico|conferimento (dell.)?incarico|incarico professionale/.test(t)) return 'incarico';
+        if (/lettera d.incarico|conferimento (dell.|d.)?incarico|incarico professionale/.test(t)) return 'incarico';
         if (/estratto conto|saldo iniziale|saldo finale|elenco movimenti|lista movimenti/.test(t)) return 'estratto';
         if (/fattura (n\.?|nr\.?|numero)|numero fattura|fattura elettronica|tipo documento/.test(t)) return 'fattura_pdf';
         if (/documento commerciale|scontrino|ricevuta fiscale|ricevuta di pagamento|pedaggio|biglietto/.test(t)) return 'scontrino';
@@ -192,28 +192,37 @@ const ModImporta = (() => {
         const pronte = _voci.filter(v => v.tipo && !['errore', 'lettura', 'importato'].includes(v.stato));
         if (!pronte.length) throw new Error('Aggiungi almeno un file e scegline il tipo');
         if (_fase === 'scelta') {
-            for (const v of pronte) await anteprima(v);
+            for (const v of pronte.filter(x => x.tipo !== 'incarico')) await anteprima(v);
+            // Le lettere d'incarico si leggono (con l'AI) quattro alla volta
+            await aGruppi(pronte.filter(x => x.tipo === 'incarico'), 4, anteprima);
+            segnaDoppioni();
             _fase = 'anteprima';
         } else {
-            const daFare = pronte.filter(v => v.stato === 'ok' && v.tipo !== 'incarico');
+            const daFare = pronte.filter(daSalvare);
             for (const v of daFare) await importa(v);
             _fase = 'fatto';
             // La vista sotto si aggiorna subito, anche se poi si chiude la finestra con la X
             ricarica();
-            const incarico = pronte.find(v => v.tipo === 'incarico' && v.stato === 'ok');
-            if (incarico) { UI.closeModal(); ModIncarichi.importPdf(incarico.file); return; }
+            // Una lettera non salvata (cliente mancante, errore) si corregge in tabella e si riprova
+            if (_voci.some(v => v.inc && !v.inc.salta && ['ok', 'errore'].includes(v.stato))) _fase = 'anteprima';
         }
         aggiorna();
         // La modale rimette l'etichetta del pulsante a fine azione: si ridisegna subito dopo
         setTimeout(aggiorna, 0);
     }
 
+    /** Voce pronta per l'import: le lettere senza cliente aspettano che lo si scelga in tabella. */
+    const daSalvare = v => v.stato === 'ok' && !(v.inc && (v.inc.salta || !v.inc.cliente_id));
+
+    async function aGruppi(voci, n, fn) {
+        const coda = [...voci];
+        await Promise.all(Array.from({ length: Math.min(n, coda.length) }, async () => {
+            while (coda.length) await fn(coda.shift());
+        }));
+    }
+
     async function anteprima(v) {
-        if (v.tipo === 'incarico') {
-            v.stato = 'ok';
-            v.riassunto = { righe: ['Si apre la scheda del nuovo incarico con i dati letti dal PDF: controllali e salva.'], avvisi: [] };
-            return;
-        }
+        if (v.tipo === 'incarico') return leggiIncarico(v);
         v.stato = 'analisi'; aggiorna();
         try {
             const r = await richiesta(v, true);
@@ -227,7 +236,118 @@ const ModImporta = (() => {
         aggiorna();
     }
 
+    // ── Lettere d'incarico: lette tutte, riviste in tabella, salvate insieme ──
+
+    /** Legge la lettera (AI o regole) senza salvare: i dati finiscono in v.inc, modificabili in tabella. */
+    async function leggiIncarico(v) {
+        if (v.inc) { v.stato = 'ok'; return; }
+        v.stato = 'analisi'; aggiorna();
+        try {
+            const fd = Store.formDataFromArray('pages', (v.pagine || await pagine(v.file)).map(p => p.replace(/\n/g, ' ')));
+            fd.append('file', v.file);
+            fd.append('file_nome', v.file.name);
+            const r = await Store.upload('import_pdf', 'incarichi', fd);
+            v.inc = {
+                ...r,
+                importo_totale: r.importo_totale || 0,
+                giorni_pagamento: r.giorni_pagamento ?? 30,
+                // Un doppione non si salva, salvo che l'utente lo rimetta
+                salta: !!r.duplicato,
+            };
+            v.stato = 'ok';
+        } catch (err) { v.stato = 'errore'; v.errore = err.message; }
+        aggiorna();
+    }
+
+    /** Due file dello stesso import con lo stesso protocollo: si tiene il primo. */
+    function segnaDoppioni() {
+        const visti = new Map();
+        _voci.filter(v => v.inc && !v.inc.duplicato).forEach(v => {
+            const k = chiaveProtocollo(v.inc.numero_protocollo);
+            if (!k) return;
+            if (visti.has(k)) { v.inc.doppioneDi = visti.get(k).file.name; v.inc.salta = true; }
+            else visti.set(k, v);
+        });
+    }
+    const chiaveProtocollo = s => ((String(s || '').match(/\d{1,6}\s*\/\s*\d{4}/) || [String(s || '')])[0]).replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+
+    async function salvaIncarico(v) {
+        const d = v.inc;
+        if (!d.cliente_id) throw new Error('Scegli il cliente');
+        if (!(parseFloat(d.importo_totale) > 0)) throw new Error('Importo mancante');
+        // Cliente cambiato a mano: il sottocliente letto si cerca (o si crea) per nome sotto il nuovo cliente
+        const sottoId = d.cliente_id == d.cliente_id_letto ? d.sottocliente_id : null;
+        const r = await Store.api('save', 'incarichi', {
+            cliente_id: d.cliente_id, sottocliente_id: sottoId || '',
+            sottocliente_nuovo: sottoId ? '' : (d.sottocliente_nome || d.sottocliente_nuovo || ''),
+            data_incarico: d.data_incarico || '', tipo_commessa: d.tipo_commessa || '', numero_protocollo: d.numero_protocollo || '',
+            descrizione: d.descrizione || '', num_giornate: d.num_giornate || 0, importo_totale: d.importo_totale,
+            giorni_pagamento: d.giorni_pagamento, condizioni_pagamento: d.condizioni_pagamento || '', pdf_path: d.pdf_path || '',
+        });
+        return r;
+    }
+
+    function tabellaIncarichi(voci) {
+        const clienti = window.ModClienti ? ModClienti.getClienti() : [];
+        const bloccato = _fase === 'fatto';
+        const righe = voci.map(v => {
+            const d = v.inc;
+            if (d.cliente_id_letto === undefined) d.cliente_id_letto = d.cliente_id;
+            const cOpts = `<option value="">— scegli —</option>` + clienti.map(c => `<option value="${UI.esc(c.id)}" ${c.id == d.cliente_id ? 'selected' : ''}>${UI.esc(c.ragione_sociale)}</option>`).join('');
+            const stato = v.stato === 'importato' ? ['badge-green', 'Salvata']
+                : v.stato === 'errore' ? ['badge-red', 'Errore']
+                : d.duplicato ? ['badge-gray', 'Già presente']
+                : d.doppioneDi ? ['badge-gray', 'Doppione']
+                : !d.cliente_id ? ['badge-yellow', 'Manca il cliente'] : ['badge-blue', 'Nuova'];
+            const nota = v.stato === 'errore' ? v.errore
+                : d.duplicato ? `Già registrata: protocollo ${d.duplicato.numero_protocollo}${d.duplicato.sottocliente ? ' · ' + d.duplicato.sottocliente : ''}`
+                : d.doppioneDi ? `Stesso protocollo di ${d.doppioneDi}`
+                : !d.cliente_id && d.cliente_nome ? `Letto: ${d.cliente_nome}` : (d.avvisi || []).join(' · ');
+            const off = bloccato || v.stato === 'importato';
+            return `<tr data-id="${v.id}" class="${d.salta ? 'imp-inc-saltata' : ''}">
+                <td><input type="checkbox" class="imp-inc-si" ${d.salta ? '' : 'checked'} ${off ? 'disabled' : ''} aria-label="Importa ${UI.esc(v.file.name)}"></td>
+                <td><div class="imp-inc-nome">${UI.esc(d.sottocliente_nome || d.sottocliente_nuovo || v.file.name)}</div>
+                    <div class="imp-inc-file">${UI.esc(v.file.name)}</div></td>
+                <td><select class="form-control imp-inc-cliente" ${off ? 'disabled' : ''}>${cOpts}</select></td>
+                <td><input class="form-control imp-inc-prot" value="${UI.esc(d.numero_protocollo || '')}" ${off ? 'disabled' : ''}></td>
+                <td><input type="number" step="0.01" class="form-control imp-inc-importo" value="${UI.esc(d.importo_totale)}" ${off ? 'disabled' : ''}></td>
+                <td>${UI.esc(d.data_incarico ? UI.formatDate(d.data_incarico) : '—')}<div class="imp-inc-file">${UI.esc(UI.tipoCommessa(d.tipo_commessa || ''))}</div></td>
+                <td><span class="badge ${stato[0]}">${stato[1]}</span>${nota ? `<div class="imp-inc-nota">${UI.esc(nota)}</div>` : ''}</td>
+            </tr>`;
+        }).join('');
+        const conta = f => voci.filter(f).length;
+        const nuove = conta(v => !v.inc.salta && v.inc.cliente_id && v.stato !== 'importato');
+        const senza = conta(v => !v.inc.salta && !v.inc.cliente_id);
+        const salvate = conta(v => v.stato === 'importato');
+        return `<div class="imp-inc">
+            <div class="imp-inc-titolo"><strong>${UI.plurale(voci.length, "lettera d'incarico", "lettere d'incarico")}</strong>
+                <span>${[salvate && UI.plurale(salvate, 'salvata', 'salvate'), nuove && `${nuove} da salvare`, senza && `${senza} senza cliente`,
+                    conta(v => v.inc.duplicato) && UI.plurale(conta(v => v.inc.duplicato), 'già presente', 'già presenti'),
+                    conta(v => v.inc.doppioneDi) && UI.plurale(conta(v => v.inc.doppioneDi), 'doppione', 'doppioni')].filter(Boolean).join(' · ')}</span></div>
+            <div class="table-container"><table class="data-table imp-inc-tab"><thead><tr><th></th><th>Azienda</th><th>Cliente</th><th>Protocollo</th><th>Importo €</th><th>Data</th><th>Stato</th></tr></thead>
+            <tbody>${righe}</tbody></table></div></div>`;
+    }
+
+    function collegaTabella(box) {
+        box.querySelectorAll('.imp-inc-tab tr[data-id]').forEach(tr => {
+            const v = _voci.find(x => x.id === +tr.dataset.id);
+            if (!v?.inc) return;
+            const riprova = () => { if (v.stato === 'errore') { v.stato = 'ok'; v.errore = null; } };
+            tr.querySelector('.imp-inc-si')?.addEventListener('change', e => { riprova(); v.inc.salta = !e.target.checked; aggiorna(); });
+            tr.querySelector('.imp-inc-cliente')?.addEventListener('change', e => { riprova(); v.inc.cliente_id = e.target.value || null; aggiorna(); });
+            tr.querySelector('.imp-inc-prot')?.addEventListener('change', e => { riprova(); v.inc.numero_protocollo = e.target.value.trim(); });
+            tr.querySelector('.imp-inc-importo')?.addEventListener('change', e => { riprova(); v.inc.importo_totale = e.target.value; });
+        });
+    }
+
     async function importa(v) {
+        if (v.tipo === 'incarico') {
+            v.stato = 'analisi';
+            try { await salvaIncarico(v); v.stato = 'importato'; }
+            catch (err) { v.stato = 'errore'; v.errore = err.message; }
+            aggiorna();
+            return;
+        }
         v.stato = 'analisi'; aggiorna();
         try {
             const r = await richiesta(v, false);
@@ -295,7 +415,9 @@ const ModImporta = (() => {
     function aggiorna() {
         const box = document.getElementById('imp-lista');
         if (!box) return;
-        box.innerHTML = _voci.map(v => {
+        // Le lettere già lette stanno in una tabella sola, le altre voci restano schede
+        const inTabella = _voci.filter(v => v.tipo === 'incarico' && v.inc);
+        box.innerHTML = (inTabella.length ? tabellaIncarichi(inTabella) : '') + _voci.filter(v => !inTabella.includes(v)).map(v => {
             const [cls, label] = STATI[v.stato] || STATI.pronto;
             const opzioni = (PER_ESTENSIONE[v.ext] || []).map(t => `<option value="${t}" ${t === v.tipo ? 'selected' : ''}>${UI.esc(TIPI[t].nome)}</option>`).join('');
             const bloccato = ['analisi', 'lettura', 'importato'].includes(v.stato) || _fase === 'fatto';
@@ -314,6 +436,7 @@ const ModImporta = (() => {
                     ${v.riassunto.avvisi.length ? `<details class="imp-avvisi"><summary>${UI.plurale(v.riassunto.avvisi.length, 'nota', 'note')}</summary><ul>${v.riassunto.avvisi.map(a => `<li>${UI.esc(a)}</li>`).join('')}</ul></details>` : ''}` : ''}
             </div>`;
         }).join('') || '';
+        collegaTabella(box);
         box.querySelectorAll('.imp-voce').forEach(el => {
             const v = _voci.find(x => x.id === +el.dataset.id);
             el.querySelector('.imp-togli')?.addEventListener('click', () => { _voci = _voci.filter(x => x !== v); aggiorna(); });
@@ -327,7 +450,10 @@ const ModImporta = (() => {
         });
         const btn = document.getElementById('modal-save');
         if (btn) {
-            const nOk = _voci.filter(x => x.stato === 'ok').length;
+            const nOk = _voci.filter(daSalvare).length;
+            // Tutto già in anteprima (es. scelto in tabella il cliente mancante): si importa senza rileggere
+            const attive = _voci.filter(x => x.tipo && !['errore', 'lettura', 'importato'].includes(x.stato));
+            if (_fase === 'scelta' && nOk && attive.every(x => x.stato === 'ok')) _fase = 'anteprima';
             btn.innerHTML = _fase === 'fatto' ? 'Chiudi' : _fase === 'anteprima' && nOk
                 ? `<i class="ph ph-check"></i> Importa ${UI.plurale(nOk, 'file', 'file')}` : '<i class="ph ph-eye"></i> Mostra anteprima';
             if (_fase === 'anteprima' && !nOk) _fase = 'scelta';

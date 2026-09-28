@@ -1077,6 +1077,15 @@ button.nav-importa { width: 100%; background: none; border: 0; font: inherit; co
 .imp-mappa-griglia { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .imp-mappa-griglia label { display: grid; gap: 4px; }
 .imp-esempio { color: var(--text-muted); overflow-wrap: anywhere; }
+.imp-inc { display: grid; gap: 8px; }
+.imp-inc-titolo { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-size: 0.9rem; }
+.imp-inc-titolo span { color: var(--text-muted); }
+.imp-inc-tab td { vertical-align: top; }
+.imp-inc-tab select, .imp-inc-tab input.form-control { min-width: 9rem; }
+.imp-inc-tab .imp-inc-importo { min-width: 7rem; }
+.imp-inc-nome { font-weight: 500; overflow-wrap: anywhere; min-width: 9rem; }
+.imp-inc-file, .imp-inc-nota { font-size: 0.78rem; color: var(--text-muted); overflow-wrap: anywhere; margin-top: 2px; }
+.imp-inc-saltata td { opacity: 0.55; }
 body.trascina-file::after {
   content: 'Rilascia i file per importarli'; position: fixed; inset: 12px; z-index: 3000;
   display: flex; align-items: center; justify-content: center; font-size: 1.3rem; font-weight: 600;

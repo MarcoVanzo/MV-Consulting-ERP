@@ -78,6 +78,9 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   Fatture XML/p7m entrano da `importa/fattura` (`ImportaController`: emessa o ricevuta da `AZIENDA_PARTITA_IVA`).
   Estratti CSV/Excel: `EstrattoTabellare` (colonne scelte dall'utente salvate in settings per intestazione).
   Le risposte AI sono in cache 7 giorni in `storage/cache/ai/`. Prova: `php tests/importa_cli.php`.
+  Lettere d'incarico: lette quattro alla volta (`incarichi/import_pdf`, non salva) e riviste in **una tabella**,
+  poi salvate con `incarichi/save`. Doppioni per protocollo (`CommessaService::chiaviProtocollo`: «820/2026» e
+  «SZ.DPS.F011.26» sono chiavi della stessa lettera): esclusi in tabella e rifiutati dal `save`.
 - **Rate**: una fattura che non combacia con nessuna rata non si aggancia più alla prima libera: `Avvisi` lo segnala
   e l'utente la collega a mano.
 - **Cliente o prospect** è calcolato in `ClientiController::list` (ha commesse o fatture → cliente), non salvato.
