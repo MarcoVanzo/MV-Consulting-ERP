@@ -759,6 +759,6 @@ return [
         ADD COLUMN segno_incerto TINYINT(1) NOT NULL DEFAULT 0,
         ADD COLUMN abbinamento_annullato TINYINT(1) NOT NULL DEFAULT 0",
     "UPDATE {$prefix}movimenti_banca SET abbinamento_annullato = 1
-        WHERE CAST(id AS CHAR) IN (SELECT record_id FROM {$prefix}audit_logs WHERE action = 'ANNULLA' AND table_name = 'movimenti_banca')"
+        WHERE id IN (SELECT CAST(record_id AS UNSIGNED) FROM {$prefix}audit_logs WHERE action = 'ANNULLA' AND table_name = 'movimenti_banca')"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
