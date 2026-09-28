@@ -3,6 +3,8 @@
  * Contabilità Controller — Fatture CRUD + Overview finanziaria
  */
 
+require_once __DIR__ . '/../Shared/Indicatori.php';
+
 class ContabilitaController {
     private const STATI_FATTURA = ['emessa', 'inviata', 'pagata', 'scaduta'];
     private $pdo;
@@ -146,25 +148,14 @@ class ContabilitaController {
         // Id già interi (clientiEsclusi): scritti nella query, come numeri
         $filtro = $esclusi ? ' AND COALESCE(cliente_id, 0) NOT IN (' . implode(',', $esclusi) . ')' : '';
 
-        // Fatturato totale
-        $stmt = $this->pdo->prepare("SELECT 
-            COALESCE(SUM(importo_totale), 0) as fatturato_totale,
-            COALESCE(SUM(CASE WHEN stato = 'pagata' THEN importo_totale ELSE 0 END), 0) as totale_pagato,
-            COALESCE(SUM(CASE WHEN stato IN ('emessa','inviata') THEN importo_totale ELSE 0 END), 0) as in_attesa,
-            COALESCE(SUM(CASE WHEN stato = 'scaduta' THEN importo_totale ELSE 0 END), 0) as scaduto,
-            COUNT(*) as num_fatture,
-            COUNT(CASE WHEN stato = 'pagata' THEN 1 END) as num_pagate,
-            COUNT(CASE WHEN stato IN ('emessa','inviata') THEN 1 END) as num_attesa,
-            COUNT(CASE WHEN stato = 'scaduta' THEN 1 END) as num_scadute
-            FROM {$p}fatture WHERE YEAR(data_emissione) = ?$filtro");
-        $stmt->execute([$year]);
-        $kpis = $stmt->fetch();
+        // KPI: definizioni uniche in Indicatori (docs/indicatori.md)
+        $kpis = (new Indicatori($this->pdo, $p))->fatture((int)$year, $esclusi);
 
         // Fatturato mensile (per grafico)
         $stmt2 = $this->pdo->prepare("SELECT 
             MONTH(data_emissione) as mese,
-            COALESCE(SUM(importo_totale), 0) as fatturato,
-            COALESCE(SUM(CASE WHEN stato = 'pagata' THEN importo_totale ELSE 0 END), 0) as pagato,
+            COALESCE(SUM(imponibile), 0) as fatturato,
+            COALESCE(SUM(CASE WHEN stato = 'pagata' THEN imponibile ELSE 0 END), 0) as pagato,
             COUNT(id) as num_fatture
             FROM {$p}fatture WHERE YEAR(data_emissione) = ?$filtro
             GROUP BY MONTH(data_emissione) ORDER BY mese ASC");
@@ -174,7 +165,7 @@ class ContabilitaController {
         // Top clienti per fatturato
         $stmt3 = $this->pdo->prepare("SELECT 
             c.ragione_sociale,
-            COALESCE(SUM(f.importo_totale), 0) as fatturato
+            COALESCE(SUM(f.imponibile), 0) as fatturato
             FROM {$p}fatture f
             LEFT JOIN {$p}clienti c ON c.id = f.cliente_id
             WHERE YEAR(f.data_emissione) = ?" . str_replace('cliente_id', 'f.cliente_id', $filtro) . "
@@ -184,7 +175,7 @@ class ContabilitaController {
 
         // Clienti con fatture nell'anno, per la scelta di chi contare
         $stmt4 = $this->pdo->prepare("SELECT COALESCE(f.cliente_id, 0) AS id, COALESCE(c.ragione_sociale, 'Senza cliente') AS nome,
-                COALESCE(SUM(f.importo_totale), 0) AS fatturato, COUNT(*) AS num_fatture
+                COALESCE(SUM(f.imponibile), 0) AS fatturato, COUNT(*) AS num_fatture
             FROM {$p}fatture f LEFT JOIN {$p}clienti c ON c.id = f.cliente_id
             WHERE YEAR(f.data_emissione) = ?
             GROUP BY COALESCE(f.cliente_id, 0), c.ragione_sociale ORDER BY nome");
@@ -213,18 +204,11 @@ class ContabilitaController {
 
     /** Una scelta per utente: chi entra nel conteggio è una preferenza di visualizzazione. */
     private function chiaveFiltroClienti(): string {
-        return 'fatture_clienti_esclusi_u' . (int)($GLOBALS['userContext']['id'] ?? 0);
+        return Indicatori::chiaveClientiEsclusi();
     }
 
     private function clientiEsclusi(): array {
-        try {
-            $stmt = $this->pdo->prepare("SELECT setting_value FROM {$this->prefix}settings WHERE setting_key = ?");
-            $stmt->execute([$this->chiaveFiltroClienti()]);
-            $v = json_decode((string)$stmt->fetchColumn(), true);
-            return is_array($v) ? array_values(array_map('intval', $v)) : [];
-        } catch (PDOException $e) {
-            return [];
-        }
+        return (new Indicatori($this->pdo, $this->prefix))->clientiEsclusi();
     }
 
     /**

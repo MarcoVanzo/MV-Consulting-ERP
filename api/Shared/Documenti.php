@@ -116,6 +116,29 @@ class Documenti
         return $n;
     }
 
+    /**
+     * Sposta in storage/documenti gli allegati delle manutenzioni salvati in passato in uploads/.
+     * Sull'hosting il web server statico non applica sempre .htaccess: i file in uploads/ vanno tolti
+     * da lì, non solo bloccati. Idempotente; i riferimenti a file mancanti restano come sono.
+     * @return int allegati spostati
+     */
+    public static function migraAllegatiStorici(PDO $pdo, string $prefix): int
+    {
+        $rows = $pdo->query("SELECT id, allegato_url FROM {$prefix}mezzi_manutenzioni WHERE allegato_url LIKE 'uploads/%'")->fetchAll(PDO::FETCH_ASSOC);
+        $dir = self::dir();
+        $n = 0;
+        foreach ($rows as $r) {
+            $da = self::percorso($r['allegato_url']);
+            if (!$da) continue;
+            if (!is_dir($dir)) mkdir($dir, 0750, true);
+            $ref = 'documenti/' . bin2hex(random_bytes(16)) . '.' . strtolower(pathinfo($da, PATHINFO_EXTENSION));
+            if (!@rename($da, dirname(__DIR__, 2) . '/storage/' . $ref)) continue;
+            $pdo->prepare("UPDATE {$prefix}mezzi_manutenzioni SET allegato_url = ? WHERE id = ?")->execute([$ref, $r['id']]);
+            $n++;
+        }
+        return $n;
+    }
+
     public static function elimina(?string $ref): void
     {
         $path = self::percorso($ref);

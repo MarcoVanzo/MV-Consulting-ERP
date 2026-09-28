@@ -21,7 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
+      # Ogni deploy cambia il ?v= di CSS e JS in index.html: il browser e il proxy di Aruba
+      # non servono più la versione vecchia (prima andava aggiornato a mano).
+      - name: Versione degli script
+        run: sed -i -E "s/\?v=[0-9]+/?v=$(date +%s)/g" index.html && grep -c '?v=' index.html
+
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:

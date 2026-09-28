@@ -27,10 +27,10 @@ const ModContabilita = (() => {
 
     function renderKpis() {
         document.getElementById('contabilita-kpis').innerHTML = `
-            <div class="kpi-card kpi-blue"><div class="kpi-label">Fatturato Totale</div><div class="kpi-value">${UI.formatCurrency(_kpis.fatturato_totale)}</div><div class="kpi-sub">${_kpis.num_fatture||0} fatture emesse</div></div>
-            <div class="kpi-card kpi-green"><div class="kpi-label">Incassato</div><div class="kpi-value">${UI.formatCurrency(_kpis.totale_pagato)}</div><div class="kpi-sub">${_kpis.num_pagate||0} fatture pagate</div></div>
-            <div class="kpi-card kpi-yellow"><div class="kpi-label">In Attesa</div><div class="kpi-value">${UI.formatCurrency(_kpis.in_attesa)}</div><div class="kpi-sub">${_kpis.num_attesa||0} in attesa</div></div>
-            <div class="kpi-card kpi-red"><div class="kpi-label">Scaduto</div><div class="kpi-value">${UI.formatCurrency(_kpis.scaduto)}</div><div class="kpi-sub">${_kpis.num_scadute||0} fatture scadute</div></div>`;
+            <div class="kpi-card kpi-blue"><div class="kpi-label">Fatturato</div><div class="kpi-value">${UI.formatCurrency(_kpis.fatturato)}</div><div class="kpi-sub">imponibile · ${UI.plurale(_kpis.num_documenti,'fattura','fatture')}</div></div>
+            <div class="kpi-card kpi-green"><div class="kpi-label">Incassato</div><div class="kpi-value">${UI.formatCurrency(_kpis.incassato)}</div><div class="kpi-sub">IVA inclusa · ${UI.plurale(_kpis.num_incassati,'fattura saldata','fatture saldate')}</div></div>
+            <div class="kpi-card kpi-yellow"><div class="kpi-label">Da incassare</div><div class="kpi-value">${UI.formatCurrency(_kpis.da_incassare)}</div><div class="kpi-sub">IVA inclusa · ${UI.plurale(_kpis.num_da_incassare,'fattura','fatture')}</div></div>
+            <div class="kpi-card kpi-red"><div class="kpi-label">Scaduto</div><div class="kpi-value">${UI.formatCurrency(_kpis.scaduto)}</div><div class="kpi-sub">${UI.plurale(_kpis.num_scaduti,'fattura','fatture')} oltre la scadenza</div></div>`;
     }
 
     // ── Clienti nel conteggio (KPI e grafico): la scelta è salvata sul server ──
@@ -174,13 +174,13 @@ const ModContabilita = (() => {
         const year = document.getElementById('contabilita-year').value;
         try {
             const ov = await Store.api('overview','incarichi',{year});
-            const k = ov?.kpis||{};
+            const k = ov?.kpis||{}, kf = ov?.kpis_fatture||{};
             const nonPagate = ov?.fatture_non_pagate||[];
             document.getElementById('verifica-kpis').innerHTML = `
-                <div class="kpi-card kpi-green"><div class="kpi-label">Totale Pagato</div><div class="kpi-value">${UI.formatCurrency(k.totale_pagato)}</div><div class="kpi-sub">${k.num_pagati||0} incarichi chiusi</div></div>
-                <div class="kpi-card kpi-yellow"><div class="kpi-label">Fatturato Non Pagato</div><div class="kpi-value">${UI.formatCurrency(k.fatturato_non_pagato)}</div><div class="kpi-sub">da incassare</div></div>
-                <div class="kpi-card kpi-red"><div class="kpi-label">Da Fatturare</div><div class="kpi-value">${UI.formatCurrency(k.residuo_da_fatturare)}</div><div class="kpi-sub">${k.num_attivi||0} incarichi attivi</div></div>
-                <div class="kpi-card kpi-blue"><div class="kpi-label">% Incasso</div><div class="kpi-value">${k.totale_incarichi>0?((parseFloat(k.totale_pagato)/parseFloat(k.totale_incarichi))*100).toFixed(0):'0'}%</div><div class="kpi-sub">sul totale incarichi</div></div>`;
+                <div class="kpi-card kpi-yellow"><div class="kpi-label">Da incassare</div><div class="kpi-value">${UI.formatCurrency(kf.da_incassare)}</div><div class="kpi-sub">IVA inclusa · ${UI.plurale(kf.num_da_incassare,'fattura','fatture')}</div></div>
+                <div class="kpi-card kpi-red"><div class="kpi-label">Scaduto</div><div class="kpi-value">${UI.formatCurrency(kf.scaduto)}</div><div class="kpi-sub">${UI.plurale(kf.num_scaduti,'fattura','fatture')} oltre la scadenza</div></div>
+                <div class="kpi-card kpi-blue"><div class="kpi-label">Da fatturare</div><div class="kpi-value">${UI.formatCurrency(k.da_fatturare)}</div><div class="kpi-sub">imponibile · ${UI.plurale(k.num_da_fatturare,'commessa','commesse')}</div></div>
+                <div class="kpi-card kpi-green"><div class="kpi-label">% incassato</div><div class="kpi-value">${kf.totale>0?Math.round(kf.incassato/kf.totale*100):0}%</div><div class="kpi-sub">sul fatturato dell'anno</div></div>`;
 
             const tbody = document.getElementById('tbody-verifica');
             if (!nonPagate.length) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><i class="ph ph-check-square"></i><h3>Tutto regolare</h3><p>Nessuna fattura in sospeso</p></div></td></tr>'; return; }
@@ -237,7 +237,8 @@ const ModContabilita = (() => {
             for(let i=1;i<=pdf.numPages;i++){const pg=await pdf.getPage(i);const tc=await pg.getTextContent();pages.push(tc.items.map(x=>x.str).join(' '));}
             btn.innerHTML='<i class="ph ph-spinner ph-spin"></i> Analisi...';
             // pages[] come array: FormData con CSRF tramite Store.upload
-            const req=await Store.upload('import_pdf','contabilita',Store.formDataFromArray('pages',pages));
+            const fd=Store.formDataFromArray('pages',pages); fd.append('originale',file);
+            const req=await Store.upload('import_pdf','contabilita',fd);
             if(req){UI.toast(`Importazione: ${req.num_imported} fatture.`); if(req.errors?.length)UI.toast(`${req.errors.length} errori (console)`,'error'); load();}
         }catch(e){UI.toast('Errore importazione PDF: '+e.message,'error');}
         finally{btn.innerHTML=prev;btn.disabled=false;}
@@ -255,7 +256,7 @@ const ModContabilita = (() => {
                 const text=await valid[i].text();
                 // Store.api restituisce già result.data: {num_imported, errors}
                 try {
-                    const req=await Store.api('import_xml','contabilita',{xml:text});
+                    const req=await Store.api('import_xml','contabilita',{xml:text,file_nome:valid[i].name});
                     tot+=req?.num_imported||0; if(req?.errors?.length)errs+=req.errors.length;
                 } catch(err) { errs++; }
             }
@@ -300,7 +301,7 @@ const ModContabilita = (() => {
                 btn.innerHTML=`<i class="ph ph-spinner ph-spin"></i> Analisi (${i+1}/${valid.length})...`;
                 // msgs: {html} per le intestazioni già escapate, stringhe semplici per il resto
                 try {
-                    const fd=Store.formDataFromArray('pages',pages); fd.append('file_nome',file.name);
+                    const fd=Store.formDataFromArray('pages',pages); fd.append('file_nome',file.name); fd.append('originale',file);
                     const req=await Store.upload('import_payment_pdf','contabilita',fd)||{};
                     totalM+=req.num_matched||0;totalAP+=req.num_already_paid||0;totalNF+=req.num_not_found||0;
                     if(req.messages?.length){msgs.push({html:`<strong>${UI.esc(file.name)}</strong>`});msgs.push(...req.messages);msgs.push('');}

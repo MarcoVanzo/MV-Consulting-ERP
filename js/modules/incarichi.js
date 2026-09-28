@@ -17,10 +17,10 @@ const ModIncarichi = (() => {
     function renderKpis(ov) {
         const k = _kpis;
         document.getElementById('incarichi-kpis').innerHTML = `
-            <div class="kpi-card kpi-blue"><div class="kpi-label">Valore Incarichi</div><div class="kpi-value">${UI.formatCurrency(k.totale_incarichi)}</div><div class="kpi-sub">${k.num_incarichi||0} incarichi</div></div>
-            <div class="kpi-card kpi-green"><div class="kpi-label">Fatturato</div><div class="kpi-value">${UI.formatCurrency(k.totale_fatturato)}</div><div class="kpi-sub">${k.num_fatturati||0} completati</div></div>
-            <div class="kpi-card kpi-yellow"><div class="kpi-label">Da Fatturare</div><div class="kpi-value">${UI.formatCurrency(k.residuo_da_fatturare)}</div><div class="kpi-sub">${k.num_attivi||0} attivi</div></div>
-            <div class="kpi-card kpi-red"><div class="kpi-label">Non Pagato</div><div class="kpi-value">${UI.formatCurrency(k.fatturato_non_pagato)}</div><div class="kpi-sub">fatturato non incassato</div></div>`;
+            <div class="kpi-card kpi-blue"><div class="kpi-label">Valore commesse</div><div class="kpi-value">${UI.formatCurrency(k.valore)}</div><div class="kpi-sub">imponibile · ${UI.plurale(k.num_commesse,'commessa','commesse')}</div></div>
+            <div class="kpi-card kpi-green"><div class="kpi-label">Fatturato</div><div class="kpi-value">${UI.formatCurrency(k.fatturato)}</div><div class="kpi-sub">${UI.plurale(k.num_fatturati,'completamente fatturata','completamente fatturate')}</div></div>
+            <div class="kpi-card kpi-yellow"><div class="kpi-label">Da fatturare</div><div class="kpi-value">${UI.formatCurrency(k.da_fatturare)}</div><div class="kpi-sub">${UI.plurale(k.num_da_fatturare,'commessa','commesse')}</div></div>
+            <div class="kpi-card kpi-red"><div class="kpi-label">Incassato</div><div class="kpi-value">${UI.formatCurrency(k.incassato_netto)}</div><div class="kpi-sub">imponibile delle fatture pagate</div></div>`;
     }
 
     function renderTable() {

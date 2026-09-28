@@ -40,6 +40,28 @@ class AnagraficaMatcher
         return self::trova($rows, 'ragione_sociale', $piva, $cf, $nome, false);
     }
 
+    /**
+     * Anagrafiche (clienti e fornitori/partner) che hanno già questa partita IVA: evita i doppioni
+     * quando si crea un soggetto nuovo. @return array<array{tipo:string, id:int, nome:string}>
+     */
+    public static function conPartitaIva(PDO $pdo, string $prefix, string $piva): array
+    {
+        $piva = self::normalizzaCodice($piva);
+        if ($piva === '') return [];
+        $out = [];
+        $fonti = [['cliente', "SELECT id, partita_iva, ragione_sociale FROM {$prefix}clienti WHERE partita_iva LIKE ?"],
+            ['fornitore', "SELECT id, partita_iva, ragione_sociale, tipo FROM {$prefix}fornitori WHERE deleted_at IS NULL AND partita_iva LIKE ?"]];
+        foreach ($fonti as [$tipo, $sql]) {
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute(['%' . $piva . '%']);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                if (self::normalizzaCodice($r['partita_iva']) !== $piva) continue;
+                $out[] = ['tipo' => $tipo === 'fornitore' ? ($r['tipo'] ?? 'fornitore') : 'cliente', 'id' => (int)$r['id'], 'nome' => $r['ragione_sociale']];
+            }
+        }
+        return $out;
+    }
+
     /** Sottocliente del cliente dato, riconosciuto per nome. */
     public static function trovaSottocliente(PDO $pdo, string $prefix, int $clienteId, string $testo): ?int
     {

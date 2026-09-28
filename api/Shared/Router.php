@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/Response.php';
 require_once __DIR__ . '/Auth.php';
 require_once __DIR__ . '/Security.php';
+require_once __DIR__ . '/ArchivioImport.php';
 require_once __DIR__ . '/../Controllers/ClientiController.php';
 require_once __DIR__ . '/../Controllers/SottoclientiController.php';
 require_once __DIR__ . '/../Controllers/TrasferteController.php';
@@ -46,6 +47,7 @@ class ApiRouter {
         'fornitori'    => ['list', 'costi_fornitore', 'documento_costo'],
         'passive'      => ['list'],
         'commesse'     => ['get', 'margini', 'scadenzario', 'fatture_libere'],
+        'indicatori'   => ['riepilogo'],
         'riconciliazione' => ['movimenti', 'proposte', 'documenti_aperti'],
         'movimenti'    => ['categorie', 'conteggio', 'elenco', 'statistiche', 'regole'],
         'admin'        => ['listUsers', 'listBackups', 'downloadBackup', 'listLogs'],
@@ -95,6 +97,11 @@ class ApiRouter {
      * Dispatch della richiesta al controller appropriato.
      */
     public static function dispatch(string $module, string $action, array $data, bool $isDeployKeyAuth = false): void {
+        // Importazioni: il file originale si conserva prima di elaborarlo (non blocca mai l'import)
+        if (isset(ArchivioImport::AZIONI[$module][$action])) {
+            require_once __DIR__ . '/Database.php';
+            ArchivioImport::daRichiesta(Database::getConnection(), getenv('DB_PREFIX') ?: 'mv_', $module, $action, $data);
+        }
         switch ($module) {
             case 'auth':
                 self::handleAuth($action, $data);
@@ -131,6 +138,9 @@ class ApiRouter {
                 break;
             case 'commesse':
                 self::handleCommesse($action, $data);
+                break;
+            case 'indicatori':
+                self::handleIndicatori($action, $data);
                 break;
             case 'riconciliazione':
                 self::handleRiconciliazione($action, $data);
@@ -401,6 +411,20 @@ class ApiRouter {
             case 'set_pagata':  $ctrl->setPagata($data); break;
             case 'import_xml':  $ctrl->importXml($data); break;
             default:            Response::json(false, "Azione fatture fornitori non supportata: $action");
+        }
+    }
+
+    /** Numeri di sintesi (docs/indicatori.md): la dashboard legge solo da qui. */
+    private static function handleIndicatori(string $action, array $data): void {
+        require_once __DIR__ . '/Indicatori.php';
+        require_once __DIR__ . '/Database.php';
+        $ind = new Indicatori(Database::getConnection(), getenv('DB_PREFIX') ?: 'mv_');
+        switch ($action) {
+            case 'riepilogo':
+                $giorni = max(1, min(365, (int)($data['giorni'] ?? $_GET['giorni'] ?? 30)));
+                Response::json(true, '', $ind->riepilogo($giorni));
+                break;
+            default: Response::json(false, "Azione indicatori non supportata: $action");
         }
     }
 

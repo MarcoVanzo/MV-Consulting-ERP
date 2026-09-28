@@ -39,6 +39,17 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
 
 ## Note
 - Cartelle `tmp_*` (`tmp_pdf_parse`, `tmp_root_redirect`, `tmp_venv`) sono di lavoro: non versionare artefatti.
+- **Numeri di sintesi solo da `api/Shared/Indicatori.php`** (definizioni in `docs/indicatori.md`,
+  prova `php tests/indicatori_cli.php`). Endpoint per la dashboard: `indicatori/riepilogo`.
+- **File importati**: il router passa ogni import (azioni in `ArchivioImport::AZIONI`) ad
+  `api/Shared/ArchivioImport.php`, che salva l'originale in `storage/import/<sha256>.<ext>` e lo
+  registra in `import_file` (v077). Un import nuovo va aggiunto a `AZIONI` e il frontend manda il file
+  nel campo `originale` quando al server arriva solo il testo estratto con pdf.js.
+- **Cliente o prospect** è calcolato in `ClientiController::list` (ha commesse o fatture → cliente), non salvato.
+- **Ricerca P.IVA** nel frontend solo con `UI.cercaPiva()`: segnala anche chi è già in anagrafica.
+- **Allegati**: mai in `uploads/` (sull'hosting il server statico può ignorare `.htaccess`). Si salvano con
+  `Documenti::salvaUpload` in `storage/documenti/`; gli allegati storici delle manutenzioni vengono spostati
+  lì dal promemoria giornaliero (`Documenti::migraAllegatiStorici`).
 
 ## Modulo commerciale (offerte → incarico → rate → fatture, partner, margini)
 - Logica condivisa in `api/Shared/CommessaService.php` (margine, rate, abbinamento fattura↔rata) e

@@ -207,6 +207,7 @@ const ModRiconciliazione = (() => {
                 fd.append('xml', await file.text());
             } else {
                 fd = Store.formDataFromArray('pages', await pagineConRighe(file));
+                fd.append('originale', file);
             }
             fd.append('file_nome', file.name);
             btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Abbinamento...';
@@ -230,7 +231,7 @@ const ModRiconciliazione = (() => {
                 btn.innerHTML = `<i class="ph ph-spinner ph-spin"></i> PDF ${i + 1}/${pdf.length}...`;
                 try {
                     const fd = Store.formDataFromArray('pages', await pagineConRighe(pdf[i]));
-                    fd.append('tipo', 'carta'); fd.append('file_nome', pdf[i].name);
+                    fd.append('tipo', 'carta'); fd.append('file_nome', pdf[i].name); fd.append('originale', pdf[i]);
                     const r = await Store.upload('import_estratto', 'riconciliazione', fd) || {};
                     ['letti', 'nuovi', 'abbinati', 'da_verificare', 'gia_presenti', 'senza_aggancio'].forEach(k => { tot[k] += r[k] || 0; });
                     tot.movimenti.push(...(r.movimenti || []));

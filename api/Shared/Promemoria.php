@@ -30,6 +30,7 @@ class Promemoria
         $stmt->execute();
         $marcate = $stmt->rowCount();
         require_once __DIR__ . '/Documenti.php';
+        Documenti::migraAllegatiStorici($this->pdo, $this->p);
         Documenti::pulisciOrfani($this->pdo, $this->p);
 
         $s = (new Scadenzario($this->pdo, $this->p))->calcola(7);

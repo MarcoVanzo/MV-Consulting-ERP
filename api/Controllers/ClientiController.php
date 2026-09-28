@@ -13,9 +13,14 @@ class ClientiController {
     }
 
     public function list() {
-        $stmt = $this->pdo->query("SELECT c.*, 
-            (SELECT COUNT(*) FROM {$this->prefix}sottoclienti WHERE cliente_id = c.id) as num_sottoclienti
-            FROM {$this->prefix}clienti c ORDER BY c.ragione_sociale ASC");
+        // tipo: "cliente" se ha almeno una commessa o una fattura, altrimenti "prospect" (calcolato, non salvato)
+        $p = $this->prefix;
+        $stmt = $this->pdo->query("SELECT c.*,
+            (SELECT COUNT(*) FROM {$p}sottoclienti WHERE cliente_id = c.id) as num_sottoclienti,
+            CASE WHEN EXISTS (SELECT 1 FROM {$p}incarichi i WHERE i.cliente_id = c.id)
+                   OR EXISTS (SELECT 1 FROM {$p}fatture f WHERE f.cliente_id = c.id)
+                 THEN 'cliente' ELSE 'prospect' END AS tipo
+            FROM {$p}clienti c ORDER BY c.ragione_sociale ASC");
         $clienti = $stmt->fetchAll();
         Response::json(true, '', $clienti);
     }
@@ -192,6 +197,8 @@ class ClientiController {
         if ($result['ragione_sociale'] === '') {
             Response::json(false, 'Partita IVA ' . $vatCode . ' valida, ma il servizio non ha la ragione sociale: scrivila a mano.');
         }
+        require_once __DIR__ . '/../Shared/AnagraficaMatcher.php';
+        $result['gia_presenti'] = AnagraficaMatcher::conPartitaIva($this->pdo, $this->prefix, $vatCode);
         Response::json(true, 'Dati azienda trovati', $result);
     }
 }
