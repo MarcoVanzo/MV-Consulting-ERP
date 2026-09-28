@@ -4,39 +4,36 @@
 > valgono sempre; questo file specializza.
 
 ## Cos'è
-Applicativo gestionale MV Consulting: **PHP** + frontend statico (`index.html` + `js/` + `css/`),
-API in `api/`, gestione pagamenti/PDF (`PDF Pagamenti`, `tmp_pdf_parse`). Repo GitHub `MV-Consulting-ERP`.
+Gestionale MV Consulting (ibrido CRM/ERP): **PHP 8.2** + frontend statico (`index.html` + `js/` + `css/`),
+API in `api/`. Repo GitHub `MV-Consulting-ERP`, **pubblico**: niente dati reali di clienti nei file
+di test o di esempio, niente output delle API nei log dei workflow.
 
 ## Leggi prima di operare
-- `.agents/workflows/deploy.md` — workflow di deploy.
-- `.env.example` per le variabili attese; `deploy.config` per la configurazione di deploy.
+- `.env.example` per le variabili attese.
+- `docs/indicatori.md` — definizione unica dei numeri (fatturato, scaduto, da incassare…).
 
-## Deploy — attenzione: due meccanismi diversi coesistono
-
-**1. GitHub Actions (quello che va davvero in produzione).**
-`.github/workflows/deploy-ftp.yml` — **FTP push** con `SamKirkland/FTP-Deploy-Action`.
-Trigger: `push` su `main` **oppure** `workflow_dispatch`. Secret: `FTP_SERVER`, `FTP_USERNAME`,
-`FTP_PASSWORD`, `FTP_PATH`.
-
-> ⚠️ **Nessun gate**: niente test, niente lint, nessun health check, **nessun rollback e nessun
-> backup**. Un `git push origin main` è già la produzione.
-> ⚠️ Il workflow **ignora** `deploy_manifest.json`: i due meccanismi possono divergere.
+## Deploy — un solo percorso
+`.github/workflows/deploy-ftp.yml`, su `push` a `main` o `workflow_dispatch`:
+**test** (`test.yml`: `php -l` + `tests/*_cli.php`) → **FTPS** (`SamKirkland/FTP-Deploy-Action`) →
+**controllo di salute** su `api/health.php`. Se i test falliscono non si pubblica nulla.
+Secret: `FTP_SERVER`, `FTP_USERNAME`, `FTP_PASSWORD`, `FTP_PATH`. Nessun rollback automatico: si torna
+indietro con un revert su `main`.
 
 ```bash
-gh workflow run deploy-ftp.yml --ref main   # oppure git push origin main
 gh run list --workflow deploy-ftp.yml --limit 1 && gh run watch <id>
 ```
 
-**2. Pipeline locale pull-based** (alternativa, non usata dalle Actions).
-`./deploy` → `deploy.py` (FTP-TLS multi-worker, pre-flight, security scan, lock, health check su
-`APP_URL`, storico in `.deploy_history.log`) e `deploy_update.php` con manifest
-(`deploy_manifest.json`) e cache (`.deploy_cache.json`). Questo è l'unico percorso che ha
-backup e rollback.
+Test in locale (PHP non è installato sul Mac):
+```bash
+docker run --rm -v "$PWD":/app -w /app php:8.2-cli sh -c 'for t in tests/*_cli.php; do php $t || exit 1; done'
+```
+(`lista_fatture_cli.php` richiede l'estensione zip, assente nell'immagine base: in CI c'è.)
 
-> ⚠️ `./deploy` fa `git add .` + commit + push **automatici**: con il working tree sporco
-> pubblica tutto. Verifica `git status` prima di lanciarlo.
-
-Migrazioni DB: **mai automatiche**, si lanciano a mano via `api/migrate.php` (HTTP).
+Migrazioni DB: **mai automatiche**. Dopo il deploy, workflow manuale `migrazione.yml` (secret
+`DEPLOY_KEY`), oppure POST a `api/router.php?module=admin&action=migrate` con header `X-Deploy-Key`
+(`api/migrate.php` diretto è bloccato da `api/.htaccess`: 403). Si aggiungono query **solo in coda**
+all'array di `api/migrate.php`: la versione è la posizione.
+Backup: `.github/workflows/backup.yml` ogni notte; per migrazioni rischiose lancialo a mano prima.
 Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
 **Avvisami quando il deploy finisce** (`gh run watch`/`gh run list` in background).
 

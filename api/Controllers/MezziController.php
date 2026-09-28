@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../Shared/Database.php';
 require_once __DIR__ . '/../Shared/Response.php';
+require_once __DIR__ . '/../Shared/Documenti.php';
 
 class MezziController {
     private $pdo;
@@ -17,33 +18,24 @@ class MezziController {
     }
 
     /**
-     * Gestisce upload allegato manutenzione. Restituisce URL relativo o null.
+     * Salva l'allegato della manutenzione in storage/documenti (privata) e restituisce il riferimento,
+     * oppure $existing se non è stato caricato nulla.
      */
-    private function handleFileUpload(?string $existingUrl = null): ?string {
-        $allegatoUrl = $existingUrl;
-        if (!isset($_FILES['allegato']) || $_FILES['allegato']['error'] !== UPLOAD_ERR_OK) {
-            return $allegatoUrl;
+    private function handleFileUpload(?string $existing = null): ?string {
+        try {
+            return Documenti::salvaUpload('allegato') ?? $existing;
+        } catch (RuntimeException $e) {
+            Response::json(false, $e->getMessage());
         }
+        return $existing;
+    }
 
-        $allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'];
-        $ext = strtolower(pathinfo($_FILES['allegato']['name'], PATHINFO_EXTENSION));
-        if (!in_array($ext, $allowedExtensions)) {
-            Response::json(false, "Tipo di file non consentito. Formati accettati: " . implode(', ', $allowedExtensions));
-        }
-
-        $maxSize = (int)(getenv('MAX_UPLOAD_SIZE') ?: 10485760);
-        if ($_FILES['allegato']['size'] > $maxSize) {
-            Response::json(false, "File troppo grande. Dimensione massima: " . round($maxSize / 1048576) . "MB");
-        }
-
-        $uploadDir = __DIR__ . '/../../uploads/manutenzioni/';
-        if (!is_dir($uploadDir)) mkdir($uploadDir, 0750, true);
-
-        $filename = 'maint_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-        if (move_uploaded_file($_FILES['allegato']['tmp_name'], $uploadDir . $filename)) {
-            return 'uploads/manutenzioni/' . $filename;
-        }
-        return $allegatoUrl;
+    /** Apre l'allegato di una manutenzione: solo da API autenticata, mai da URL pubblico. */
+    public function allegato($id): void {
+        $stmt = $this->pdo->prepare("SELECT allegato_url, data_manutenzione FROM {$this->prefix}mezzi_manutenzioni WHERE id = ?");
+        $stmt->execute([(int)$id]);
+        $row = $stmt->fetch();
+        Documenti::invia($row['allegato_url'] ?? null, 'manutenzione_' . ($row['data_manutenzione'] ?? ''));
     }
 
     public function getAllVehicles($data = []) {
@@ -261,11 +253,10 @@ class MezziController {
             Response::json(false, "Dati manutenzione mancanti");
         }
 
-        // Allegato esistente dal client: accettato solo se è un percorso interno a uploads/
-        $existing = $data['existing_allegato'] ?? null;
-        if (!is_string($existing) || strpos($existing, 'uploads/') !== 0 || strpos($existing, '..') !== false) {
-            $existing = null;
-        }
+        // L'allegato esistente si legge dal DB: il client non può indicare un percorso
+        $stmtA = $this->pdo->prepare("SELECT allegato_url FROM {$this->prefix}mezzi_manutenzioni WHERE id = ?");
+        $stmtA->execute([(int)$data['id']]);
+        $existing = $stmtA->fetchColumn() ?: null;
         $allegatoUrl = $this->handleFileUpload($existing);
 
         try {

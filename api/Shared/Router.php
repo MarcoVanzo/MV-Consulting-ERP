@@ -39,7 +39,7 @@ class ApiRouter {
         'clienti'      => ['list', 'get', 'lookup-vat'],
         'sottoclienti' => ['list'],
         'trasferte'    => ['list', 'rendiconto', 'impostazioni'],
-        'mezzi'        => ['getAllVehicles', 'getVehicleById'],
+        'mezzi'        => ['getAllVehicles', 'getVehicleById', 'allegato'],
         'incarichi'    => ['list', 'overview', 'get_by_cliente', 'documento'],
         'contabilita'  => ['list', 'overview'],
         'offerte'      => ['list', 'get', 'prossimo_numero', 'documento'],
@@ -305,6 +305,7 @@ class ApiRouter {
         switch ($action) {
             case 'getAllVehicles':      $ctrl->getAllVehicles($data); break;
             case 'getVehicleById':      $ctrl->getVehicleById($data); break;
+            case 'allegato':            $ctrl->allegato($data['id'] ?? $_GET['id'] ?? 0); break;
             case 'createVehicle':       $ctrl->createVehicle($data); break;
             case 'updateVehicle':       $ctrl->updateVehicle($data); break;
             case 'deleteVehicle':       Auth::richiediAdmin(); $ctrl->deleteVehicle($data); break;

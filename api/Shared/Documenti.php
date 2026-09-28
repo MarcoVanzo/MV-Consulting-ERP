@@ -55,11 +55,19 @@ class Documenti
         return 'documenti/' . $name;
     }
 
-    /** Percorso assoluto di un riferimento, o null se il riferimento non è valido o il file manca. */
+    /**
+     * Percorso assoluto di un riferimento, o null se il riferimento non è valido o il file manca.
+     * Accetta anche gli allegati delle manutenzioni salvati prima in uploads/ (ora non più pubblica).
+     */
     public static function percorso(?string $ref): ?string
     {
-        if (!$ref || !preg_match('#^documenti/[a-f0-9]{32}\.([a-z]{2,4})$#', $ref)) return null;
-        $path = dirname(__DIR__, 2) . '/storage/' . $ref;
+        if ($ref && preg_match('#^documenti/[a-f0-9]{32}\.([a-z]{2,4})$#', $ref)) {
+            $path = dirname(__DIR__, 2) . '/storage/' . $ref;
+        } elseif ($ref && preg_match('#^uploads/manutenzioni/maint_\d+_[a-f0-9]{8}\.(pdf|jpe?g|png|docx?)$#', $ref)) {
+            $path = dirname(__DIR__, 2) . '/' . $ref;
+        } else {
+            return null;
+        }
         return is_file($path) ? $path : null;
     }
 
@@ -92,7 +100,7 @@ class Documenti
         $dir = self::dir();
         if (!is_dir($dir)) return 0;
         $usati = [];
-        foreach ([["offerte", "file_path"], ["incarichi", "pdf_path"], ["commessa_costi", "offerta_fornitore_file"]] as [$t, $c]) {
+        foreach ([["offerte", "file_path"], ["incarichi", "pdf_path"], ["commessa_costi", "offerta_fornitore_file"], ["mezzi_manutenzioni", "allegato_url"]] as [$t, $c]) {
             foreach ($pdo->query("SELECT $c FROM {$prefix}$t WHERE $c LIKE 'documenti/%'")->fetchAll(PDO::FETCH_COLUMN) as $ref) {
                 $usati[$ref] = true;
             }

@@ -4,6 +4,7 @@
  */
 
 class ContabilitaController {
+    private const STATI_FATTURA = ['emessa', 'inviata', 'pagata', 'scaduta'];
     private $pdo;
     private $prefix;
 
@@ -55,7 +56,7 @@ class ContabilitaController {
             'iva_percentuale'   => $ivaPerc,
             'importo_iva'       => $importoIva,
             'importo_totale'    => $importoTotale,
-            'stato'             => $data['stato'] ?? 'emessa',
+            'stato'             => in_array($data['stato'] ?? '', self::STATI_FATTURA, true) ? $data['stato'] : 'emessa',
             'data_scadenza'     => !empty($data['data_scadenza']) ? $data['data_scadenza'] : null,
             'data_pagamento'    => !empty($data['data_pagamento']) ? $data['data_pagamento'] : null,
             'metodo_pagamento'  => trim($data['metodo_pagamento'] ?? ''),
@@ -352,8 +353,13 @@ class ContabilitaController {
         $xmlContent = preg_replace('/\sxmlns=[\'"].*?[\'"]/i', '', $xmlContent); // Removes default namespaces
         $xmlContent = preg_replace('/\sxmlns:[a-zA-Z0-9_-]+=[\'"].*?[\'"]/i', '', $xmlContent); // Removes prefixed namespaces
 
+        // Una FatturaPA non ha DOCTYPE: se c'è, il file non è una fattura (e le entità non vanno espanse)
+        if (stripos($xmlContent, '<!DOCTYPE') !== false) {
+            Response::json(false, 'File XML non valido: contiene una dichiarazione DOCTYPE');
+            return;
+        }
         libxml_use_internal_errors(true);
-        $xml = simplexml_load_string($xmlContent);
+        $xml = simplexml_load_string($xmlContent, 'SimpleXMLElement', LIBXML_NONET);
         if ($xml === false) {
             $errors = [];
             foreach(libxml_get_errors() as $err) {
