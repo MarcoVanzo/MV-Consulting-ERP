@@ -89,37 +89,59 @@ function initApplication(userData) {
     // ── Init core UI ──
     UI.initModalEvents();
 
-    // ── Navigation ──
-    const navItems = document.querySelectorAll('.nav-item[data-view]');
-    const views = document.querySelectorAll('.view-section');
+    // ── Navigazione: sei viste, ognuna con le sue schede; indirizzo nell'URL (#vista/scheda) ──
+    const CARICA = {
+        oggi:        () => ModOggi.load(),
+        vendite:     { 'comm-offerte': () => ModOfferte.load(), 'tab-incarichi': () => ModIncarichi.load(), 'comm-margini': () => ModCommessa.loadMargini() },
+        incassi:     { 'tab-fatture': () => ModContabilita.load(), 'inc-ricevute': () => ModPartner.loadPassive() },
+        banca:       { 'tab-riconciliazione': () => ModRiconciliazione.load(), 'tab-classificare': () => ModMovimenti.loadCoda(), 'tab-andamento': () => ModAndamento.load() },
+        trasferte:   { 'trasferte-viaggi': () => ModTrasferte.load({ refreshMezzi: true }), 'trasferte-mezzi': () => ModMezzi.init() },
+        anagrafiche: { 'anag-clienti': () => ModClienti.load(), 'anag-fornitori': () => ModPartner.loadFornitori() },
+        utenti:      () => ModAdmin.loadUsers(),
+        backup:      () => ModAdmin.loadBackups(),
+        logs:        () => ModAdmin.loadLogs(),
+    };
+    const paneAttivo = view => document.querySelector(`#view-${view} > .vpane.active`)?.id;
 
-    navItems.forEach(item => {
-        item.addEventListener('click', () => {
-            const viewId = item.dataset.view;
-            
-            navItems.forEach(n => n.classList.remove('active'));
-            item.classList.add('active');
+    function carica(view, pane) {
+        const c = CARICA[view];
+        const f = typeof c === 'function' ? c : c?.[pane || paneAttivo(view)];
+        try { f?.(); } catch (e) { console.error('[Vista]', view, e); }
+        if (window.ModMovimenti) ModMovimenti.aggiornaBadge();
+    }
 
-            views.forEach(v => v.classList.remove('active'));
-            const target = document.getElementById('view-' + viewId);
-            if (target) target.classList.add('active');
-
-            // Lazy-load modules
-            switch (viewId) {
-                case 'clienti':     ModClienti.load(); break;
-                case 'trasferte':   ModTrasferte.load({ refreshMezzi: true }); break;
-                case 'commerciale': ModCommerciale.load(); break;
-                case 'contabilita': ModContabilita.load(); break;
-                case 'utenti':      ModAdmin.loadUsers(); break;
-                case 'backup':      ModAdmin.loadBackups(); break;
-                case 'logs':        ModAdmin.loadLogs(); break;
-            }
-
-            // Close dropdown if it was a dropdown item
-            if (item.classList.contains('dropdown-item')) {
-                document.getElementById('user-dropdown').classList.add('hidden');
-            }
+    function apriVista(view, pane, { storia = true } = {}) {
+        if (!document.getElementById('view-' + view)) view = 'oggi';
+        document.querySelectorAll('.nav-item[data-view]').forEach(n => {
+            const on = n.dataset.view === view;
+            n.classList.toggle('active', on);
+            if (on) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current');
         });
+        document.querySelectorAll('.view-section').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
+        if (pane && document.getElementById(pane)) UI.mostraPane(pane, () => {});
+        const p = paneAttivo(view);
+        if (storia) history.pushState(null, '', '#' + view + (p ? '/' + p : ''));
+        carica(view, p);
+        document.getElementById('user-dropdown')?.classList.add('hidden');
+        window.scrollTo(0, 0);
+    }
+    window.apriVista = apriVista;
+
+    document.querySelectorAll('.nav-item[data-view]').forEach(item => {
+        item.addEventListener('click', () => apriVista(item.dataset.view));
+    });
+    UI.initVtabs((view, pane) => {
+        history.replaceState(null, '', '#' + view + '/' + pane);
+        carica(view, pane);
+    });
+    // Anno condiviso: cambiarlo ricarica la scheda aperta
+    UI.initAnno(() => {
+        const v = document.querySelector('.view-section.active')?.id.replace('view-', '');
+        if (v) carica(v);
+    });
+    window.addEventListener('popstate', () => {
+        const [v, p] = location.hash.slice(1).split('/');
+        apriVista(v || 'oggi', p, { storia: false });
     });
 
     // ── User Dropdown ──
@@ -168,8 +190,9 @@ function initApplication(userData) {
     ModTrasferte.initFilters();
     ModContabilita.initFilters();
     ModClienti.initSearch();
-    ModCommerciale.init();
 
-    // ── Load first view ──
-    ModClienti.load();
+    // ── Prima vista: quella dell'indirizzo (#vista/scheda) o la dashboard ──
+    const [v0, p0] = location.hash.slice(1).split('/');
+    apriVista(v0 || 'oggi', p0, { storia: false });
+    history.replaceState(null, '', location.hash || '#oggi');
 }

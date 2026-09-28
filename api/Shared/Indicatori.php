@@ -154,6 +154,108 @@ class Indicatori
         return $this->numeri($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
     }
 
+    /**
+     * Cose da fare oggi (conteggi e importi), ognuna con la vista dove si risolve.
+     * $giorni: orizzonte per rate da fatturare e partner da pagare.
+     */
+    public function daFare(int $giorni = 7): array
+    {
+        $limite = date('Y-m-d', strtotime($this->oggi . " +$giorni days"));
+        $uno = function (string $sql, array $par) {
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($par);
+            return $this->numeri($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
+        };
+        $p = $this->p;
+        return [
+            // Per documento: una fattura divisa tra sottoclienti conta una volta
+            'incassi_scaduti' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(t), 0) AS importo FROM (SELECT SUM(importo_totale) AS t
+                FROM {$p}fatture WHERE stato <> 'pagata' AND importo_totale > 0 AND data_scadenza IS NOT NULL AND data_scadenza < ?
+                GROUP BY numero_fattura, COALESCE(cliente_id, 0), SUBSTR(data_emissione, 1, 4)) d", [$this->oggi]),
+            'rate_da_fatturare' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(importo), 0) AS importo FROM {$p}incarichi_rate
+                WHERE fattura_id IS NULL AND (data_prevista IS NULL OR data_prevista <= ?)", [$limite]),
+            'partner_da_pagare' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(importo_totale), 0) AS importo FROM {$p}fatture_passive
+                WHERE stato = 'da_pagare' AND (data_scadenza IS NULL OR data_scadenza <= ?)", [$limite]),
+            'offerte_da_ricontattare' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(imponibile), 0) AS importo FROM {$p}offerte
+                WHERE deleted_at IS NULL AND stato = 'inviata' AND data_followup IS NOT NULL AND data_followup <= ?", [$this->oggi]),
+            'movimenti_da_abbinare' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(importo), 0) AS importo FROM {$p}movimenti_banca
+                WHERE stato = 'da_riconciliare' AND abbinabile = 1 AND origine = 'estratto_conto'", []),
+            // Movimenti del conto che chiedono un intervento (da abbinare o da classificare), contati una volta
+            'movimenti_da_sistemare' => $uno("SELECT COUNT(*) AS num FROM {$p}movimenti_banca WHERE origine = 'estratto_conto'
+                AND ((stato = 'da_riconciliare' AND abbinabile = 1) OR classificazione = 'da_classificare')", []),
+            'giorni' => $giorni,
+        ];
+    }
+
+    /**
+     * Incassi attesi per settimana (lunedì-domenica) nelle prossime $settimane, più quanto è già scaduto.
+     * fatturate = fatture aperte per data di scadenza (IVA inclusa);
+     * da_fatturare = rate senza fattura alla data prevista + giorni di pagamento (imponibile + IVA dell'offerta, 22% se manca).
+     */
+    public function incassiAttesi(int $settimane = 12): array
+    {
+        $lunedi = date('Y-m-d', strtotime($this->oggi . ' -' . ((int)date('N', strtotime($this->oggi)) - 1) . ' days'));
+        $fine = date('Y-m-d', strtotime($lunedi . ' +' . ($settimane * 7 - 1) . ' days'));
+        $out = ['scaduto' => ['fatturate' => 0.0, 'da_fatturare' => 0.0], 'settimane' => []];
+        for ($i = 0; $i < $settimane; $i++) {
+            $out['settimane'][] = ['dal' => date('Y-m-d', strtotime("$lunedi +" . ($i * 7) . ' days')), 'fatturate' => 0.0, 'da_fatturare' => 0.0];
+        }
+        $metti = function (string $data, float $importo, string $tipo) use (&$out, $lunedi, $fine) {
+            if ($data < $this->oggi) { $out['scaduto'][$tipo] += $importo; return; }
+            if ($data > $fine) return;
+            $i = intdiv((int)((strtotime($data) - strtotime($lunedi)) / 86400), 7);
+            if (isset($out['settimane'][$i])) $out['settimane'][$i][$tipo] += $importo;
+        };
+        $stmt = $this->pdo->prepare("SELECT data_scadenza, importo_totale FROM {$this->p}fatture
+            WHERE stato <> 'pagata' AND importo_totale > 0 AND data_scadenza IS NOT NULL AND data_scadenza <= ?");
+        $stmt->execute([$fine]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) $metti((string)$r['data_scadenza'], (float)$r['importo_totale'], 'fatturate');
+        $stmt = $this->pdo->prepare("SELECT r.data_prevista, r.importo, r.giorni_pagamento, o.iva_percentuale
+            FROM {$this->p}incarichi_rate r JOIN {$this->p}incarichi i ON i.id = r.incarico_id
+            LEFT JOIN {$this->p}offerte o ON o.id = i.offerta_id
+            WHERE r.fattura_id IS NULL AND r.data_prevista IS NOT NULL");
+        $stmt->execute();
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $incasso = date('Y-m-d', strtotime($r['data_prevista'] . ' +' . (int)($r['giorni_pagamento'] ?? 30) . ' days'));
+            $iva = $r['iva_percentuale'] === null ? 22.0 : (float)$r['iva_percentuale'];
+            // Una rata non fatturata non è mai "scaduta" come incasso: se la data è passata, va nella settimana corrente
+            $metti(max($incasso, $this->oggi), (float)$r['importo'] * (1 + $iva / 100), 'da_fatturare');
+        }
+        $arr = fn(array $x) => array_map(fn($v) => is_float($v) ? round($v, 2) : $v, $x);
+        $out['scaduto'] = $arr($out['scaduto']);
+        $out['settimane'] = array_map($arr, $out['settimane']);
+        return $out;
+    }
+
+    /**
+     * Trasferte del periodo: km, rimborso chilometrico al costo/km impostato, indennità (TrasferteRegole),
+     * vitto e alloggio; giornate senza cliente = da assegnare.
+     */
+    public function trasferte(string $dal, string $al, ?float $costoKm): array
+    {
+        require_once __DIR__ . '/TrasferteRegole.php';
+        $stmt = $this->pdo->prepare("SELECT data_trasferta, cliente_id, sottocliente_id, km_andata, km_ritorno, vitto, alloggio
+            FROM {$this->p}trasferte WHERE data_trasferta BETWEEN ? AND ?");
+        $stmt->execute([$dal, $al]);
+        $righe = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $km = array_sum(array_map(fn($r) => (float)$r['km_andata'] + (float)$r['km_ritorno'], $righe));
+        $spese = array_sum(array_map(fn($r) => (float)$r['vitto'] + (float)$r['alloggio'], $righe));
+        $giornate = TrasferteRegole::giornate($righe);
+        $indennita = array_sum(array_column($giornate, 'indennita'));
+        $rimborsoKm = $costoKm === null ? null : round($km * $costoKm, 2);
+        return [
+            'dal' => $dal, 'al' => $al,
+            'num_giornate' => count($giornate),
+            'num_senza_cliente' => count(array_filter($giornate, fn($g) => !$g['con_cliente'])),
+            'km' => round($km, 1),
+            'costo_km' => $costoKm,
+            'rimborso_km' => $rimborsoKm,
+            'indennita' => round($indennita, 2),
+            'spese' => round($spese, 2),
+            'da_rimborsare' => round(($rimborsoKm ?? 0) + $indennita + $spese, 2),
+        ];
+    }
+
     /** Situazione di oggi, per la dashboard. */
     public function riepilogo(int $giorniFatturare = 30): array
     {
@@ -179,7 +281,7 @@ class Indicatori
     {
         foreach ($r as $k => $v) {
             if ($v === null) continue;
-            $r[$k] = (strpos((string)$k, 'num_') === 0 || $k === 'giorni') ? (int)$v : round((float)$v, 2);
+            $r[$k] = (strpos((string)$k, 'num') === 0 || $k === 'giorni') ? (int)$v : round((float)$v, 2);
         }
         return $r;
     }

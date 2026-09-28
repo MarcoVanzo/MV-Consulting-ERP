@@ -95,5 +95,41 @@ $pp = $ind->partnerDaPagare();
 check('partner da pagare = netto a pagare', uguale($pp['da_pagare'], 1300) && $pp['num_da_pagare'] === 2, $pp);
 check('partner scaduti', uguale($pp['scaduto'], 800) && $pp['num_scaduti'] === 1, $pp);
 
+echo "Dashboard Oggi\n";
+foreach ([
+    "ALTER TABLE {$p}incarichi ADD COLUMN offerta_id INT",
+    "ALTER TABLE {$p}incarichi_rate ADD COLUMN giorni_pagamento INT DEFAULT 30",
+    "ALTER TABLE {$p}offerte ADD COLUMN data_followup TEXT",
+    "ALTER TABLE {$p}offerte ADD COLUMN iva_percentuale REAL",
+    "CREATE TABLE {$p}movimenti_banca (id INTEGER PRIMARY KEY, stato TEXT, abbinabile INT DEFAULT 1, origine TEXT, importo REAL, classificazione TEXT DEFAULT 'classificato')",
+    "CREATE TABLE {$p}trasferte (id INTEGER PRIMARY KEY, data_trasferta TEXT, cliente_id INT, sottocliente_id INT,
+        km_andata REAL DEFAULT 0, km_ritorno REAL DEFAULT 0, vitto REAL DEFAULT 0, alloggio REAL DEFAULT 0)",
+] as $sql) $pdo->exec($sql);
+$pdo->exec("UPDATE {$p}offerte SET data_followup = '2026-09-20' WHERE stato = 'inviata'");
+$pdo->exec("INSERT INTO {$p}movimenti_banca (stato, abbinabile, origine, importo) VALUES
+    ('da_riconciliare', 1, 'estratto_conto', 500), ('da_riconciliare', 0, 'estratto_conto', -3), ('da_riconciliare', 1, 'estratto_carta', -20), ('riconciliato', 1, 'estratto_conto', 90)");
+$pdo->exec("UPDATE {$p}movimenti_banca SET classificazione = 'da_classificare' WHERE importo IN (500, -3, -20)");
+$df = $ind->daFare(7);
+check('scaduti per documento (fattura divisa contata una volta)', $df['incassi_scaduti']['num'] === 2 && abs($df['incassi_scaduti']['importo'] - (2440 + 122)) < 0.01, $df['incassi_scaduti']);
+check('offerte da ricontattare (non eliminate)', $df['offerte_da_ricontattare']['num'] === 1, $df['offerte_da_ricontattare']);
+check('movimenti da abbinare: solo conto e abbinabili', $df['movimenti_da_abbinare']['num'] === 1, $df['movimenti_da_abbinare']);
+check('movimenti da sistemare contati una volta (abbinare o classificare)', $df['movimenti_da_sistemare']['num'] === 2, $df['movimenti_da_sistemare']);
+check('partner da pagare entro 7 giorni (e scaduti)', $df['partner_da_pagare']['num'] === 1, $df['partner_da_pagare']);
+$ia = $ind->incassiAttesi(12);
+check('dodici settimane da lunedì', count($ia['settimane']) === 12 && $ia['settimane'][0]['dal'] === '2026-09-28', $ia['settimane'][0]);
+check('scaduto separato', abs($ia['scaduto']['fatturate'] - (2440 + 122)) < 0.01, $ia['scaduto']);
+$tot = array_sum(array_column($ia['settimane'], 'fatturate'));
+check('fattura in scadenza il 31/10 nella sua settimana', abs($tot - 3660) < 0.01 && abs($ia['settimane'][4]['fatturate'] - 3660) < 0.01, $ia['settimane']);
+// rata 4000 prevista 15/10 + 30 gg = 14/11, IVA 22% → settimana del 9/11 (indice 6)
+check('rata da fatturare alla data di incasso con IVA', abs($ia['settimane'][6]['da_fatturare'] - 4880) < 0.01, $ia['settimane'][6]);
+$pdo->exec("INSERT INTO {$p}trasferte (data_trasferta, cliente_id, km_andata, km_ritorno, vitto) VALUES
+    ('2026-09-02', 1, 50, 50, 0), ('2026-09-03', 2, 30, 30, 15), ('2026-09-04', NULL, 10, 10, 0), ('2026-08-30', 1, 99, 99, 0)");
+$tr = $ind->trasferte('2026-09-01', '2026-09-30', 0.5);
+check('km e rimborso al costo/km', abs($tr['km'] - 180) < 0.01 && abs($tr['rimborso_km'] - 90) < 0.01, $tr);
+check('indennità dalle regole (piena + ridotta)', abs($tr['indennita'] - (46.48 + 30.99)) < 0.01, $tr);
+check('giornate senza cliente', $tr['num_giornate'] === 3 && $tr['num_senza_cliente'] === 1, $tr);
+check('totale da rimborsare', abs($tr['da_rimborsare'] - (90 + 46.48 + 30.99 + 15)) < 0.01, $tr);
+check('senza costo/km: rimborso km non calcolato', $ind->trasferte('2026-09-01', '2026-09-30', null)['rimborso_km'] === null);
+
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);

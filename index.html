@@ -17,6 +17,7 @@
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/vendor/pdfjs/pdf.worker.min.js';</script>
     <link rel="stylesheet" href="css/style.css?v=1790537823">
     <link rel="stylesheet" href="css/commerciale.css?v=1790537823">
+    <link rel="stylesheet" href="css/viste.css?v=1">
 
     <style>
         /* ── Auth Screen (inline for instant render) ── */
@@ -159,28 +160,14 @@
                 <img src="assets/logo.png" alt="MV Consulting" class="sidebar-logo">
             </div>
             <div class="sidebar-nav">
-                <div class="nav-section-label">Gestione</div>
-                <div class="nav-item active" data-view="clienti" id="nav-clienti">
-                    <i class="ph ph-buildings"></i>
-                    <span>Clienti</span>
-                </div>
-                <div class="nav-item" data-view="commerciale" id="nav-commerciale">
-                    <i class="ph ph-handshake"></i>
-                    <span>Commerciale</span>
-                </div>
-                <div class="nav-item" data-view="trasferte" id="nav-trasferte">
-                    <i class="ph ph-car-profile"></i>
-                    <span>Trasferte</span>
-                </div>
-                <button type="button" class="nav-item nav-importa" data-importa title="Importa file" aria-label="Importa file">
-                    <i class="ph ph-upload-simple"></i>
-                    <span>Importa file</span>
-                </button>
-                <div class="nav-item" data-view="contabilita" id="nav-contabilita">
-                    <i class="ph ph-chart-line-up"></i>
-                    <span>Contabilità</span>
-                    <span class="badge badge-yellow" id="nav-badge-classificare" style="display:none;margin-left:auto" title="Movimenti da classificare"></span>
-                </div>
+                <button type="button" class="nav-item active" data-view="oggi" id="nav-oggi"><i class="ph ph-sun-horizon" aria-hidden="true"></i><span>Oggi</span></button>
+                <button type="button" class="nav-item" data-view="vendite" id="nav-vendite"><i class="ph ph-handshake" aria-hidden="true"></i><span>Vendite</span></button>
+                <button type="button" class="nav-item" data-view="incassi" id="nav-incassi"><i class="ph ph-receipt" aria-hidden="true"></i><span>Incassi</span></button>
+                <button type="button" class="nav-item" data-view="banca" id="nav-banca"><i class="ph ph-bank" aria-hidden="true"></i><span>Banca</span>
+                    <span class="badge badge-yellow nav-badge" id="nav-badge-classificare" style="display:none" title="Movimenti da classificare"></span></button>
+                <button type="button" class="nav-item" data-view="trasferte" id="nav-trasferte"><i class="ph ph-car-profile" aria-hidden="true"></i><span>Trasferte</span></button>
+                <button type="button" class="nav-item" data-view="anagrafiche" id="nav-anagrafiche"><i class="ph ph-address-book" aria-hidden="true"></i><span data-breve="Anagr.">Anagrafiche</span></button>
+                <button type="button" class="nav-item nav-importa" data-importa title="Importa file"><i class="ph ph-upload-simple" aria-hidden="true"></i><span>Importa file</span></button>
             </div>
             <div class="sidebar-footer">
                 <div class="sidebar-user" id="user-menu-btn" style="cursor: pointer; position: relative;">
@@ -219,60 +206,234 @@
         <!-- MAIN CONTENT -->
         <div class="main-content">
 
-            <!-- ═══ VIEW: CLIENTI ═══ -->
-            <section class="view-section active" id="view-clienti">
+            <!-- ═══ VIEW: OGGI (dashboard) ═══ -->
+            <section class="view-section active" id="view-oggi">
                 <div class="page-header">
-                    <h1 class="page-title"><i class="ph ph-buildings"></i> Clienti</h1>
+                    <h1 class="page-title"><i class="ph ph-sun-horizon" aria-hidden="true"></i> Oggi</h1>
                     <div class="page-actions">
-                        <button class="btn btn-primary" id="btn-add-cliente">
-                            <i class="ph ph-plus"></i> Nuovo Cliente
-                        </button>
+                        <button class="btn btn-primary" data-importa type="button"><i class="ph ph-upload-simple"></i> Importa file</button>
                     </div>
                 </div>
-                <div class="table-container">
-                    <div class="table-toolbar">
-                        <div class="table-search">
-                            <i class="ph ph-magnifying-glass"></i>
-                            <input type="text" id="search-clienti" placeholder="Cerca cliente..." aria-label="Cerca cliente">
-                        </div>
-                        <div class="filter-chips" id="clienti-tipo" role="group" aria-label="Mostra">
-                            <button type="button" class="filter-chip active" data-tipo="">Tutti</button>
-                            <button type="button" class="filter-chip" data-tipo="cliente">Clienti</button>
-                            <button type="button" class="filter-chip" data-tipo="prospect">Prospect</button>
-                        </div>
-                    </div>
-                    <table class="data-table" id="table-clienti">
-                        <thead>
-                            <tr>
-                                <th style="width:30px"></th>
-                                <th>Ragione Sociale</th>
-                                <th>P. IVA</th>
-                                <th>Città</th>
-                                <th>Email / PEC</th>
-                                <th>Sotto.</th>
-                                <th style="width:100px"></th>
-                            </tr>
-                        </thead>
-                        <tbody id="tbody-clienti">
-                            <tr><td colspan="7" class="empty-state"><i class="ph ph-buildings"></i><h3>Nessun cliente</h3><p>Aggiungi il primo cliente con il pulsante sopra</p></td></tr>
-                        </tbody>
-                    </table>
+                <div id="oggi-contenuto" class="oggi" aria-live="polite"></div>
+                <div class="oggi-dettaglio">
+                    <h2 class="oggi-titolo">Scadenze nel dettaglio</h2>
+                    <div id="comm-scadenzario"></div>
                 </div>
             </section>
 
-            <!-- ═══ VIEW: TRASFERTE ═══ -->
+            <!-- ═══ VIEW: VENDITE (offerte → commesse → margini) ═══ -->
+            <section class="view-section" id="view-vendite">
+                <div class="page-header">
+                    <h1 class="page-title"><i class="ph ph-handshake" aria-hidden="true"></i> Vendite</h1>
+                    <div class="page-actions">
+                        <select class="form-control sel-anno" style="width: auto;" aria-label="Anno"></select>
+                    </div>
+                </div>
+                <div class="vtabs" role="tablist" aria-label="Vendite">
+                    <button class="vtab active" role="tab" type="button" data-pane="comm-offerte" aria-selected="true"><i class="ph ph-file-text" aria-hidden="true"></i> Offerte</button>
+                    <button class="vtab" role="tab" type="button" data-pane="tab-incarichi" aria-selected="false"><i class="ph ph-briefcase" aria-hidden="true"></i> Commesse</button>
+                    <button class="vtab" role="tab" type="button" data-pane="comm-margini" aria-selected="false"><i class="ph ph-chart-pie-slice" aria-hidden="true"></i> Margini</button>
+                </div>
+                <div class="vpane active" id="comm-offerte" role="tabpanel"></div>
+                <div class="vpane" id="tab-incarichi" role="tabpanel">
+                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn btn-secondary" data-importa type="button"><i class="ph ph-upload-simple"></i> Importa file</button>
+                        <button class="btn btn-primary" id="btn-add-incarico">
+                            <i class="ph ph-plus"></i> Nuova commessa
+                        </button>
+                    </div>
+                    <div class="kpi-grid" id="incarichi-kpis"></div>
+                    <div class="table-container">
+                        <div class="table-toolbar">
+                            <div class="filters-row" style="margin-bottom:0">
+                                <span class="filter-chip active" data-inc-stato="">Tutti</span>
+                                <span class="filter-chip" data-inc-stato="attivo">Attivi</span>
+                                <span class="filter-chip" data-inc-stato="parziale">Parziali</span>
+                                <span class="filter-chip" data-inc-stato="fatturato">Fatturati</span>
+                                <span class="filter-chip" data-inc-stato="pagato">Pagati</span>
+                            </div>
+                        </div>
+                        <table class="data-table" id="table-incarichi">
+                            <thead>
+                                <tr>
+                                    <th style="width:30px"></th>
+                                    <th>Cliente</th>
+                                    <th>Tipo</th>
+                                    <th>Data</th>
+                                    <th class="text-right">GG</th>
+                                    <th class="text-right">Importo</th>
+                                    <th>Progresso</th>
+                                    <th>Stato</th>
+                                    <th style="width:80px"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-incarichi">
+                                <tr><td colspan="9"><div class="empty-state"><i class="ph ph-clipboard-text"></i><h3>Nessun incarico</h3><p>Carica il primo incarico con il pulsante sopra</p></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="vpane" id="comm-margini" role="tabpanel"></div>
+            </section>
+
+            <!-- ═══ VIEW: INCASSI (fatture emesse e ricevute) ═══ -->
+            <section class="view-section" id="view-incassi">
+                <div class="page-header">
+                    <h1 class="page-title"><i class="ph ph-receipt" aria-hidden="true"></i> Incassi e pagamenti</h1>
+                    <div class="page-actions">
+                        <select class="form-control sel-anno" style="width: auto;" aria-label="Anno"></select>
+                    </div>
+                </div>
+                <div class="vtabs" role="tablist" aria-label="Incassi">
+                    <button class="vtab active" role="tab" type="button" data-pane="tab-fatture" aria-selected="true"><i class="ph ph-arrow-down-left" aria-hidden="true"></i> Fatture emesse</button>
+                    <button class="vtab" role="tab" type="button" data-pane="inc-ricevute" aria-selected="false"><i class="ph ph-arrow-up-right" aria-hidden="true"></i> Fatture ricevute</button>
+                </div>
+                <div class="vpane active" id="tab-fatture" role="tabpanel">
+                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn btn-secondary" data-importa type="button"><i class="ph ph-upload-simple"></i> Importa file</button>
+                        <button class="btn btn-primary" id="btn-add-fattura">
+                            <i class="ph ph-plus"></i> Nuova Fattura
+                        </button>
+                    </div>
+                    <div class="kpi-grid" id="contabilita-kpis"></div>
+                    <div class="chart-card" id="contabilita-chart-card">
+                        <div class="chart-card-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span>Andamento Mensile</span>
+                            <button class="btn btn-sm btn-secondary" id="btn-filtro-clienti"><i class="ph ph-funnel"></i> <span>Clienti nel conteggio</span></button>
+                        </div>
+                        <div class="chart-bars" id="contabilita-chart"></div>
+                    </div>
+                    <div class="table-container">
+                        <div class="table-toolbar">
+                            <div class="filters-row" style="margin-bottom:0">
+                                <span class="filter-chip active" data-stato="">Tutte</span>
+                                <span class="filter-chip" data-stato="da_incassare">Da incassare</span>
+                                <span class="filter-chip" data-stato="scaduta">Scadute</span>
+                                <span class="filter-chip" data-stato="pagata">Pagate</span>
+                            </div>
+                        </div>
+                        <table class="data-table" id="table-fatture">
+                            <thead>
+                                <tr>
+                                    <th>N. Fattura</th>
+                                    <th>Data</th>
+                                    <th>Cliente</th>
+                                    <th>Incarico</th>
+                                    <th class="text-right">Imponibile</th>
+                                    <th class="text-right">Totale</th>
+                                    <th>Stato</th>
+                                    <th>Scadenza</th>
+                                    <th style="width:80px"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-fatture">
+                                <tr><td colspan="9" class="empty-state"><i class="ph ph-chart-line-up"></i><h3>Nessuna fattura</h3></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="vpane" id="inc-ricevute" role="tabpanel"></div>
+            </section>
+
+            <!-- ═══ VIEW: BANCA (movimenti, categorie, andamento) ═══ -->
+            <section class="view-section" id="view-banca">
+                <div class="page-header">
+                    <h1 class="page-title"><i class="ph ph-bank" aria-hidden="true"></i> Banca</h1>
+                    <div class="page-actions">
+                        <select class="form-control sel-anno" style="width: auto;" aria-label="Anno"></select>
+                    </div>
+                </div>
+                <div class="vtabs" role="tablist" aria-label="Banca">
+                    <button class="vtab active" role="tab" type="button" data-pane="tab-riconciliazione" aria-selected="true"><i class="ph ph-arrows-left-right" aria-hidden="true"></i> Movimenti</button>
+                    <button class="vtab" role="tab" type="button" data-pane="tab-classificare" aria-selected="false"><i class="ph ph-tag" aria-hidden="true"></i> Da classificare</button>
+                    <button class="vtab" role="tab" type="button" data-pane="tab-andamento" aria-selected="false"><i class="ph ph-chart-line-up" aria-hidden="true"></i> Andamento</button>
+                </div>
+                <div class="vpane active" id="tab-riconciliazione" role="tabpanel">
+                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn btn-primary" data-importa type="button"><i class="ph ph-upload-simple"></i> Importa estratti, avvisi e fatture</button>
+                    </div>
+                    <div class="table-container">
+                        <div class="table-toolbar">
+                            <div class="filters-row" style="margin-bottom:0">
+                                <span class="filter-chip active" data-ric-stato="da_riconciliare">Da riconciliare</span>
+                                <span class="filter-chip" data-ric-stato="riconciliato">Riconciliati</span>
+                                <span class="filter-chip" data-ric-stato="ignorato">Ignorati</span>
+                                <span class="filter-chip" data-ric-stato="">Tutti</span>
+                            </div>
+                        </div>
+                        <table class="data-table" id="table-riconciliazione">
+                            <thead>
+                                <tr>
+                                    <th>Valuta</th>
+                                    <th>Movimento</th>
+                                    <th class="text-right">Importo</th>
+                                    <th>Stato</th>
+                                    <th>Abbinato a</th>
+                                    <th style="width:150px"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-riconciliazione">
+                                <tr><td colspan="6"><div class="empty-state"><i class="ph ph-bank"></i><h3>Nessun movimento</h3></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="vpane" id="tab-classificare" role="tabpanel">
+                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn btn-secondary" id="btn-mov-riclassifica"><i class="ph ph-arrows-clockwise"></i> Classifica automaticamente</button>
+                        <button class="btn btn-secondary" id="btn-mov-ai" style="display:none"><i class="ph ph-sparkle"></i> Proposte AI</button>
+                        <button class="btn btn-ghost" id="btn-mov-regole"><i class="ph ph-list-checks"></i> Regole</button>
+                        <button class="btn btn-ghost" id="btn-mov-categorie" style="display:none"><i class="ph ph-palette"></i> Categorie</button>
+                    </div>
+                    <div class="table-container">
+                        <h3 style="padding: 16px 20px 8px; color: var(--text-muted); font-size: 0.9rem; font-weight: 600;">
+                            <i class="ph ph-question"></i> Movimenti che il sistema non ha riconosciuto: scegli la categoria
+                        </h3>
+                        <table class="data-table" id="table-classificare">
+                            <thead>
+                                <tr>
+                                    <th>Valuta</th>
+                                    <th>Movimento</th>
+                                    <th class="text-right">Importo</th>
+                                    <th>Proposta</th>
+                                    <th style="width:100px"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-classificare">
+                                <tr><td colspan="5"><div class="empty-state"><i class="ph ph-tag"></i><h3>Nessun movimento</h3></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="vpane" id="tab-andamento" role="tabpanel">
+                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                        <label for="andamento-periodo" style="color: var(--text-muted); font-size: 0.85rem;">Periodo</label>
+                        <select class="form-control" id="andamento-periodo" style="width: auto;">
+                            <option value="anno">Anno intero</option>
+                            <option value="s1">1° semestre</option>
+                            <option value="s2">2° semestre</option>
+                            <option value="t1">1° trimestre</option>
+                            <option value="t2">2° trimestre</option>
+                            <option value="t3">3° trimestre</option>
+                            <option value="t4">4° trimestre</option>
+                        </select>
+                    </div>
+                    <div id="andamento-contenuto"></div>
+                </div>
+            </section>
+
             <section class="view-section" id="view-trasferte">
                 <div class="page-header">
-                    <h1 class="page-title"><i class="ph ph-car-profile"></i> Trasferte e Mezzi</h1>
+                    <h1 class="page-title"><i class="ph ph-car-profile"></i> Trasferte</h1>
                 </div>
 
-                <div class="tabs-container" style="margin: 0 32px 24px 32px; border-bottom: 1px solid var(--border-subtle); display: flex; gap: 24px;">
-                    <div class="tab active" data-target="trasferte-viaggi" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--accent-secondary); border-bottom: 2px solid var(--accent-secondary); transition: var(--transition);">Viaggi</div>
-                    <div class="tab" data-target="trasferte-mezzi" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">Gestione Mezzi</div>
+                <div class="vtabs" role="tablist" aria-label="Trasferte">
+                    <button class="vtab active" role="tab" type="button" data-pane="trasferte-viaggi" aria-selected="true"><i class="ph ph-path" aria-hidden="true"></i> Viaggi</button>
+                    <button class="vtab" role="tab" type="button" data-pane="trasferte-mezzi" aria-selected="false"><i class="ph ph-car" aria-hidden="true"></i> Mezzi</button>
                 </div>
 
                 <!-- ══ SOTTO-VISTA: VIAGGI ══ -->
-                <div id="trasferte-viaggi" class="tab-content active">
+                <div id="trasferte-viaggi" class="vpane active" role="tabpanel">
                     <div class="page-actions" style="padding: 0 32px 24px 32px;">
                         <select class="form-control" id="trasferte-year" style="width: auto;"></select>
                         <select class="form-control" id="trasferte-month" style="width: auto;">
@@ -329,252 +490,56 @@
                 </div>
 
                 <!-- ══ SOTTO-VISTA: MEZZI ══ -->
-                <div id="trasferte-mezzi" class="tab-content hidden" style="display: none; width: 100%;">
+                <div id="trasferte-mezzi" class="vpane" role="tabpanel">
                     <!-- Il modulo Mezzi renderizzerà qui la sua UI -->
                 </div>
             </section>
 
-            <!-- ═══ VIEW: COMMERCIALE ═══ -->
-            <section class="view-section" id="view-commerciale">
+            <!-- ═══ VIEW: ANAGRAFICHE (clienti, prospect, partner, fornitori) ═══ -->
+            <section class="view-section" id="view-anagrafiche">
                 <div class="page-header">
-                    <h1 class="page-title"><i class="ph ph-handshake"></i> Commerciale</h1>
-                    <div class="page-actions">
-                        <select class="form-control" id="commerciale-year" style="width: auto;" aria-label="Anno"></select>
-                    </div>
+                    <h1 class="page-title"><i class="ph ph-address-book" aria-hidden="true"></i> Anagrafiche</h1>
+                    <div class="page-actions"></div>
                 </div>
-                <div class="comm-tabs" id="commerciale-tabs" role="tablist">
-                    <button class="comm-tab active" data-tab="scadenzario" type="button"><i class="ph ph-bell-ringing"></i> Scadenzario <span class="comm-count hidden" id="comm-scad-count"></span></button>
-                    <button class="comm-tab" data-tab="offerte" type="button"><i class="ph ph-file-text"></i> Offerte</button>
-                    <button class="comm-tab" data-tab="partner" type="button"><i class="ph ph-users-three"></i> Partner</button>
-                    <button class="comm-tab" data-tab="margini" type="button"><i class="ph ph-chart-pie-slice"></i> Margini</button>
+                <div class="vtabs" role="tablist" aria-label="Anagrafiche">
+                    <button class="vtab active" role="tab" type="button" data-pane="anag-clienti" aria-selected="true"><i class="ph ph-buildings" aria-hidden="true"></i> Clienti e prospect</button>
+                    <button class="vtab" role="tab" type="button" data-pane="anag-fornitori" aria-selected="false"><i class="ph ph-users-three" aria-hidden="true"></i> Partner e fornitori</button>
                 </div>
-                <div class="comm-pane active" id="comm-scadenzario"></div>
-                <div class="comm-pane" id="comm-offerte"></div>
-                <div class="comm-pane" id="comm-partner"></div>
-                <div class="comm-pane" id="comm-margini"></div>
-            </section>
-
-            <!-- ═══ VIEW: CONTABILITÀ ═══ -->
-            <section class="view-section" id="view-contabilita">
-                <div class="page-header">
-                    <h1 class="page-title"><i class="ph ph-chart-line-up"></i> Contabilità</h1>
-                    <div class="page-actions">
-                        <select class="form-control" id="contabilita-year" style="width: auto;"></select>
+                <div class="vpane active" id="anag-clienti" role="tabpanel">
+                    <div class="page-actions" style="padding: 0 32px 16px 32px;">
+                        <button class="btn btn-primary" id="btn-add-cliente"><i class="ph ph-plus"></i> Nuovo cliente</button>
                     </div>
-                </div>
-
-                <!-- TAB NAVIGATION -->
-                <div class="tabs-container" id="contabilita-tabs" style="margin: 0 32px 24px 32px; border-bottom: 1px solid var(--border-subtle); display: flex; gap: 24px;">
-                    <div class="tab active" data-target="tab-incarichi" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--accent-secondary); border-bottom: 2px solid var(--accent-secondary); transition: var(--transition);">
-                        <i class="ph ph-clipboard-text"></i> Incarichi
-                    </div>
-                    <div class="tab" data-target="tab-fatture" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">
-                        <i class="ph ph-receipt"></i> Fatture
-                    </div>
-                    <div class="tab" data-target="tab-verifica" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">
-                        <i class="ph ph-check-square"></i> Verifica Pagamenti
-                    </div>
-                    <div class="tab" data-target="tab-riconciliazione" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">
-                        <i class="ph ph-bank"></i> Riconciliazione
-                    </div>
-                    <div class="tab" data-target="tab-classificare" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">
-                        <i class="ph ph-tag"></i> Da classificare <span class="badge badge-yellow" id="badge-da-classificare" style="display:none"></span>
-                    </div>
-                    <div class="tab" data-target="tab-andamento" style="padding: 12px 0; font-weight: 600; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: var(--transition);">
-                        <i class="ph ph-chart-bar"></i> Andamento
-                    </div>
-                </div>
-
-                <!-- ══ TAB: INCARICHI ══ -->
-                <div id="tab-incarichi" class="tab-content active">
-                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
-                        <button class="btn btn-secondary" data-importa type="button"><i class="ph ph-upload-simple"></i> Importa file</button>
-                        <button class="btn btn-primary" id="btn-add-incarico">
-                            <i class="ph ph-plus"></i> Nuovo Incarico
-                        </button>
-                    </div>
-                    <div class="kpi-grid" id="incarichi-kpis"></div>
-                    <div class="table-container">
-                        <div class="table-toolbar">
-                            <div class="filters-row" style="margin-bottom:0">
-                                <span class="filter-chip active" data-inc-stato="">Tutti</span>
-                                <span class="filter-chip" data-inc-stato="attivo">Attivi</span>
-                                <span class="filter-chip" data-inc-stato="parziale">Parziali</span>
-                                <span class="filter-chip" data-inc-stato="fatturato">Fatturati</span>
-                                <span class="filter-chip" data-inc-stato="pagato">Pagati</span>
-                            </div>
+                <div class="table-container">
+                    <div class="table-toolbar">
+                        <div class="table-search">
+                            <i class="ph ph-magnifying-glass"></i>
+                            <input type="text" id="search-clienti" placeholder="Cerca cliente..." aria-label="Cerca cliente">
                         </div>
-                        <table class="data-table" id="table-incarichi">
-                            <thead>
-                                <tr>
-                                    <th style="width:30px"></th>
-                                    <th>Cliente</th>
-                                    <th>Tipo</th>
-                                    <th>Data</th>
-                                    <th class="text-right">GG</th>
-                                    <th class="text-right">Importo</th>
-                                    <th>Progresso</th>
-                                    <th>Stato</th>
-                                    <th style="width:80px"></th>
-                                </tr>
-                            </thead>
-                            <tbody id="tbody-incarichi">
-                                <tr><td colspan="9"><div class="empty-state"><i class="ph ph-clipboard-text"></i><h3>Nessun incarico</h3><p>Carica il primo incarico con il pulsante sopra</p></div></td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- ══ TAB: FATTURE ══ -->
-                <div id="tab-fatture" class="tab-content" style="display: none;">
-                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
-                        <button class="btn btn-secondary" data-importa type="button"><i class="ph ph-upload-simple"></i> Importa file</button>
-                        <button class="btn btn-primary" id="btn-add-fattura">
-                            <i class="ph ph-plus"></i> Nuova Fattura
-                        </button>
-                    </div>
-                    <div class="kpi-grid" id="contabilita-kpis"></div>
-                    <div class="chart-card" id="contabilita-chart-card">
-                        <div class="chart-card-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-                            <span>Andamento Mensile</span>
-                            <button class="btn btn-sm btn-secondary" id="btn-filtro-clienti"><i class="ph ph-funnel"></i> <span>Clienti nel conteggio</span></button>
+                        <div class="filter-chips" id="clienti-tipo" role="group" aria-label="Mostra">
+                            <button type="button" class="filter-chip active" data-tipo="">Tutti</button>
+                            <button type="button" class="filter-chip" data-tipo="cliente">Clienti</button>
+                            <button type="button" class="filter-chip" data-tipo="prospect">Prospect</button>
                         </div>
-                        <div class="chart-bars" id="contabilita-chart"></div>
                     </div>
-                    <div class="table-container">
-                        <div class="table-toolbar">
-                            <div class="filters-row" style="margin-bottom:0">
-                                <span class="filter-chip active" data-stato="">Tutte</span>
-                                <span class="filter-chip" data-stato="emessa">Emesse</span>
-                                <span class="filter-chip" data-stato="inviata">Inviate</span>
-                                <span class="filter-chip" data-stato="pagata">Pagate</span>
-                                <span class="filter-chip" data-stato="scaduta">Scadute</span>
-                            </div>
-                        </div>
-                        <table class="data-table" id="table-fatture">
-                            <thead>
-                                <tr>
-                                    <th>N. Fattura</th>
-                                    <th>Data</th>
-                                    <th>Cliente</th>
-                                    <th>Incarico</th>
-                                    <th class="text-right">Imponibile</th>
-                                    <th class="text-right">Totale</th>
-                                    <th>Stato</th>
-                                    <th>Scadenza</th>
-                                    <th style="width:80px"></th>
-                                </tr>
-                            </thead>
-                            <tbody id="tbody-fatture">
-                                <tr><td colspan="9" class="empty-state"><i class="ph ph-chart-line-up"></i><h3>Nessuna fattura</h3></td></tr>
-                            </tbody>
-                        </table>
-                    </div>
+                    <table class="data-table" id="table-clienti">
+                        <thead>
+                            <tr>
+                                <th style="width:30px"></th>
+                                <th>Ragione Sociale</th>
+                                <th>P. IVA</th>
+                                <th>Città</th>
+                                <th>Email / PEC</th>
+                                <th>Sotto.</th>
+                                <th style="width:100px"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-clienti">
+                            <tr><td colspan="7" class="empty-state"><i class="ph ph-buildings"></i><h3>Nessun cliente</h3><p>Aggiungi il primo cliente con il pulsante sopra</p></td></tr>
+                        </tbody>
+                    </table>
                 </div>
-
-                <!-- ══ TAB: VERIFICA PAGAMENTI ══ -->
-                <div id="tab-verifica" class="tab-content" style="display: none;">
-                    <div class="kpi-grid" id="verifica-kpis"></div>
-                    <div class="table-container">
-                        <h3 style="padding: 16px 20px 8px; color: var(--text-muted); font-size: 0.9rem; font-weight: 600;">
-                            <i class="ph ph-warning-circle"></i> Fatture emesse non ancora pagate
-                        </h3>
-                        <table class="data-table" id="table-verifica">
-                            <thead>
-                                <tr>
-                                    <th>N. Fattura</th>
-                                    <th>Data Emissione</th>
-                                    <th>Cliente</th>
-                                    <th class="text-right">Importo</th>
-                                    <th>Stato</th>
-                                    <th>Scadenza</th>
-                                    <th>Giorni</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tbody-verifica">
-                                <tr><td colspan="7"><div class="empty-state"><i class="ph ph-check-square"></i><h3>Tutto regolare</h3><p>Nessuna fattura in sospeso</p></div></td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- ══ TAB: RICONCILIAZIONE ══ -->
-                <div id="tab-riconciliazione" class="tab-content" style="display: none;">
-                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
-                        <button class="btn btn-primary" data-importa type="button"><i class="ph ph-upload-simple"></i> Importa estratti, avvisi e fatture</button>
-                    </div>
-                    <div class="table-container">
-                        <div class="table-toolbar">
-                            <div class="filters-row" style="margin-bottom:0">
-                                <span class="filter-chip active" data-ric-stato="da_riconciliare">Da riconciliare</span>
-                                <span class="filter-chip" data-ric-stato="riconciliato">Riconciliati</span>
-                                <span class="filter-chip" data-ric-stato="ignorato">Ignorati</span>
-                                <span class="filter-chip" data-ric-stato="">Tutti</span>
-                            </div>
-                        </div>
-                        <table class="data-table" id="table-riconciliazione">
-                            <thead>
-                                <tr>
-                                    <th>Valuta</th>
-                                    <th>Movimento</th>
-                                    <th class="text-right">Importo</th>
-                                    <th>Stato</th>
-                                    <th>Abbinato a</th>
-                                    <th style="width:150px"></th>
-                                </tr>
-                            </thead>
-                            <tbody id="tbody-riconciliazione">
-                                <tr><td colspan="6"><div class="empty-state"><i class="ph ph-bank"></i><h3>Nessun movimento</h3></div></td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- ══ TAB: DA CLASSIFICARE ══ -->
-                <div id="tab-classificare" class="tab-content" style="display: none;">
-                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
-                        <button class="btn btn-secondary" id="btn-mov-riclassifica"><i class="ph ph-arrows-clockwise"></i> Classifica automaticamente</button>
-                        <button class="btn btn-secondary" id="btn-mov-ai" style="display:none"><i class="ph ph-sparkle"></i> Proposte AI</button>
-                        <button class="btn btn-ghost" id="btn-mov-regole"><i class="ph ph-list-checks"></i> Regole</button>
-                        <button class="btn btn-ghost" id="btn-mov-categorie" style="display:none"><i class="ph ph-palette"></i> Categorie</button>
-                    </div>
-                    <div class="table-container">
-                        <h3 style="padding: 16px 20px 8px; color: var(--text-muted); font-size: 0.9rem; font-weight: 600;">
-                            <i class="ph ph-question"></i> Movimenti che il sistema non ha riconosciuto: scegli la categoria
-                        </h3>
-                        <table class="data-table" id="table-classificare">
-                            <thead>
-                                <tr>
-                                    <th>Valuta</th>
-                                    <th>Movimento</th>
-                                    <th class="text-right">Importo</th>
-                                    <th>Proposta</th>
-                                    <th style="width:100px"></th>
-                                </tr>
-                            </thead>
-                            <tbody id="tbody-classificare">
-                                <tr><td colspan="5"><div class="empty-state"><i class="ph ph-tag"></i><h3>Nessun movimento</h3></div></td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- ══ TAB: ANDAMENTO ══ -->
-                <div id="tab-andamento" class="tab-content" style="display: none;">
-                    <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                        <label for="andamento-periodo" style="color: var(--text-muted); font-size: 0.85rem;">Periodo</label>
-                        <select class="form-control" id="andamento-periodo" style="width: auto;">
-                            <option value="anno">Anno intero</option>
-                            <option value="s1">1° semestre</option>
-                            <option value="s2">2° semestre</option>
-                            <option value="t1">1° trimestre</option>
-                            <option value="t2">2° trimestre</option>
-                            <option value="t3">3° trimestre</option>
-                            <option value="t4">4° trimestre</option>
-                        </select>
-                    </div>
-                    <div id="andamento-contenuto"></div>
-                </div>
+            </div>
+                <div class="vpane" id="anag-fornitori" role="tabpanel"></div>
             </section>
 
             <!-- ═══ VIEW: UTENTI ═══ -->
@@ -631,6 +596,7 @@
     <script src="js/modules/partner.js?v=1790544327" defer></script>
     <script src="js/modules/commessa.js?v=1790543384" defer></script>
     <script src="js/modules/importa.js?v=1" defer></script>
+    <script src="js/modules/oggi.js?v=1" defer></script>
     <script src="js/app.js?v=1790544043" defer></script>
 
 </body>

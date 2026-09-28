@@ -364,7 +364,7 @@ const ModOfferte = (() => {
                 }
                 case 'accetta': if (o) openAccetta(o); break;
                 case 'rifiuta': {
-                    const motivo = prompt('Motivo (facoltativo): prezzo, tempi, concorrente…', '');
+                    const motivo = await UI.chiedi({ titolo: 'Offerta rifiutata', etichetta: 'Motivo (facoltativo): prezzo, tempi, concorrente…', tipo: 'text', conferma: 'Segna rifiutata' });
                     if (motivo === null) return;
                     await Store.api('set_stato', 'offerte', { id, stato: 'rifiutata', motivo_esito: motivo });
                     load();

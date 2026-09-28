@@ -1,39 +1,20 @@
 'use strict';
 /**
- * Modulo Commerciale — contenitore della vista (tab) e Scadenzario:
+ * Scadenzario — le scadenze nel dettaglio, sotto la dashboard «Oggi»:
  * cosa fatturare in Sistemi, chi sollecitare, quali partner pagare, quali offerte ricontattare.
+ * I numeri di sintesi stanno nella dashboard (ModOggi): qui solo gli elenchi con le azioni.
  */
 const ModCommerciale = (() => {
-    let _tab = 'scadenzario';
     let _giorni = 7;
     let _scad = null;
 
+    /** Anno di lavoro (condiviso da tutte le viste). */
     function year() {
-        return document.getElementById('commerciale-year').value;
-    }
-
-    function init() {
-        UI.populateYearSelect('commerciale-year');
-        document.getElementById('commerciale-year').addEventListener('change', load);
-        document.querySelectorAll('#commerciale-tabs .comm-tab').forEach(t => {
-            t.addEventListener('click', () => showTab(t.dataset.tab));
-        });
-    }
-
-    function showTab(tab) {
-        _tab = tab;
-        document.querySelectorAll('#commerciale-tabs .comm-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-        document.querySelectorAll('#view-commerciale .comm-pane').forEach(p => p.classList.toggle('active', p.id === 'comm-' + tab));
-        load();
+        return UI.anno();
     }
 
     function load() {
-        switch (_tab) {
-            case 'scadenzario': loadScadenzario(); break;
-            case 'offerte':     ModOfferte.load(); break;
-            case 'partner':     ModPartner.load(); break;
-            case 'margini':     ModCommessa.loadMargini(); break;
-        }
+        return loadScadenzario();
     }
 
     // ── Scadenzario ─────────────────────────────────────
@@ -50,11 +31,6 @@ const ModCommerciale = (() => {
 
     function renderScadenzario(box) {
         const s = _scad;
-        const tot = s.rate_da_fatturare.length + s.incassi_scaduti.length + s.pagamenti_partner.length + s.offerte_da_ricontattare.length;
-        const badge = document.getElementById('comm-scad-count');
-        if (badge) { badge.textContent = tot; badge.classList.toggle('hidden', tot === 0); }
-
-        const sumImp = (arr, k) => arr.reduce((a, r) => a + (parseFloat(r[k]) || 0), 0);
         const opts = [7, 15, 30].map(g => `<option value="${g}" ${g === _giorni ? 'selected' : ''}>${g} giorni</option>`).join('');
 
         box.innerHTML = `
@@ -63,12 +39,6 @@ const ModCommerciale = (() => {
                 <select class="form-control" id="scad-giorni" style="width:auto">${opts}</select>
                 <span class="spacer"></span>
                 <button class="btn btn-ghost btn-sm" id="scad-refresh"><i class="ph ph-arrows-clockwise"></i> Aggiorna</button>
-            </div>
-            <div class="kpi-grid">
-                <div class="kpi-card kpi-blue"><div class="kpi-label">Da fatturare</div><div class="kpi-value">${UI.formatCurrency(sumImp(s.rate_da_fatturare, 'importo'))}</div><div class="kpi-sub">${UI.plurale(s.rate_da_fatturare.length, 'rata', 'rate')} da emettere in Sistemi</div></div>
-                <div class="kpi-card kpi-red"><div class="kpi-label">Incassi scaduti</div><div class="kpi-value">${UI.formatCurrency(sumImp(s.incassi_scaduti, 'importo_totale'))}</div><div class="kpi-sub">${UI.plurale(s.incassi_scaduti.length, 'fattura', 'fatture')} da sollecitare</div></div>
-                <div class="kpi-card kpi-green"><div class="kpi-label">Incassi in arrivo</div><div class="kpi-value">${UI.formatCurrency(sumImp(s.incassi_in_arrivo, 'importo_totale'))}</div><div class="kpi-sub">entro ${s.orizzonte_giorni} giorni</div></div>
-                <div class="kpi-card kpi-yellow"><div class="kpi-label">Partner da pagare</div><div class="kpi-value">${UI.formatCurrency(sumImp(s.pagamenti_partner, 'importo_totale'))}</div><div class="kpi-sub">${UI.plurale(s.pagamenti_partner.length, 'fattura fornitore', 'fatture fornitori')}</div></div>
             </div>
             <div class="scad-grid">
                 ${card('ph-receipt', 'Rate da fatturare in Sistemi', s.rate_da_fatturare, itemRata, 'Nessuna rata da emettere')}
@@ -183,42 +153,47 @@ const ModCommerciale = (() => {
         window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(oggetto)}&body=${encodeURIComponent(corpo)}`;
     }
 
+    /** Dopo un'azione si aggiornano anche i numeri della dashboard. */
+    function aggiorna() {
+        return window.ModOggi ? ModOggi.load() : loadScadenzario();
+    }
+
     async function azione(act, i) {
         i = parseInt(i, 10);
         try {
             switch (act) {
                 case 'copia-rata': await UI.copyText(testoSistemi(_scad.rate_da_fatturare[i])); break;
-                case 'apri-commessa-rata': ModCommessa.open(_scad.rate_da_fatturare[i].incarico_id, loadScadenzario); break;
+                case 'apri-commessa-rata': ModCommessa.open(_scad.rate_da_fatturare[i].incarico_id, aggiorna); break;
                 case 'sollecito': mailSollecito(_scad.incassi_scaduti[i]); break;
                 case 'incassata': {
                     const f = _scad.incassi_scaduti[i];
-                    const d = prompt(`Data incasso della fattura ${f.numero_fattura} (AAAA-MM-GG)`, UI.todayLocal());
+                    const d = await UI.chiedi({ titolo: `Incasso della fattura ${f.numero_fattura}`, etichetta: 'Data dell\'incasso', valore: UI.todayLocal(), conferma: 'Registra incasso' });
                     if (!d) return;
                     await Store.api('segna_incassata', 'commesse', { fattura_id: f.id, data_pagamento: d });
                     UI.toast('Incasso registrato');
-                    loadScadenzario();
+                    aggiorna();
                     break;
                 }
                 case 'iban': await UI.copyText(_scad.pagamenti_partner[i].fornitore_iban); break;
                 case 'pagata': {
                     const f = _scad.pagamenti_partner[i];
-                    const d = prompt(`Data del pagamento a ${f.fornitore_nome} (AAAA-MM-GG)`, UI.todayLocal());
+                    const d = await UI.chiedi({ titolo: `Pagamento a ${f.fornitore_nome}`, etichetta: 'Data del pagamento', valore: UI.todayLocal(), conferma: 'Registra pagamento' });
                     if (!d) return;
                     await Store.api('set_pagata', 'passive', { id: f.id, data_pagamento: d });
                     UI.toast('Pagamento registrato');
-                    loadScadenzario();
+                    aggiorna();
                     break;
                 }
                 case 'ricontattato': {
                     const o = _scad.offerte_da_ricontattare[i];
-                    const g = prompt('Tra quanti giorni ricontattare?', '7');
+                    const g = await UI.chiedi({ titolo: 'Ricontattare più avanti', etichetta: 'Tra quanti giorni', tipo: 'number', valore: '7', conferma: 'Sposta promemoria' });
                     if (!g) return;
                     const d = new Date();
                     d.setDate(d.getDate() + (parseInt(g, 10) || 7));
                     const pad = n => String(n).padStart(2, '0');
                     await Store.api('set_stato', 'offerte', { id: o.id, stato: 'inviata', data_followup: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` });
                     UI.toast('Promemoria spostato');
-                    loadScadenzario();
+                    aggiorna();
                     break;
                 }
                 case 'apri-offerta': ModOfferte.edit(_scad.offerte_da_ricontattare[i].id); break;
@@ -228,6 +203,6 @@ const ModCommerciale = (() => {
         }
     }
 
-    return { init, load, showTab, year, loadScadenzario };
+    return { load, year, loadScadenzario };
 })();
 window.ModCommerciale = ModCommerciale;

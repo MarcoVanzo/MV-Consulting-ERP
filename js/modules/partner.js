@@ -13,44 +13,65 @@ const ModPartner = (() => {
         return _fornitori;
     }
 
+    /** Ricarica le due schede: fatture ricevute (Incassi) e anagrafica partner/fornitori (Anagrafiche). */
     async function load() {
-        const box = document.getElementById('comm-partner');
+        await Promise.all([loadPassive(), loadFornitori()]);
+    }
+
+    async function loadPassive() {
+        const box = document.getElementById('inc-ricevute');
+        if (!box) return;
         try {
             await fornitori(true);
-            _passive = (await Store.api('list', 'passive', { year: ModCommerciale.year(), stato: _filtro })) || [];
-            render(box);
+            _passive = (await Store.api('list', 'passive', { year: UI.anno(), stato: _filtro })) || [];
+            const chips = [['da_pagare', 'Da pagare'], ['pagata', 'Pagate'], ['', 'Tutte']]
+                .map(([v, l]) => `<button type="button" class="filter-chip ${_filtro === v ? 'active' : ''}" data-f="${v}">${l}</button>`).join('');
+            const daPagare = _passive.filter(f => f.stato === 'da_pagare').reduce((a, f) => a + num(f.importo_totale), 0);
+            box.innerHTML = `
+                <div class="comm-toolbar">
+                    <button class="btn btn-ghost" data-importa type="button"><i class="ph ph-upload-simple"></i> Importa file</button>
+                    <button class="btn btn-primary" id="pa-new-fatt" type="button"><i class="ph ph-plus"></i> Fattura fornitore</button>
+                </div>
+                <div class="table-container">
+                    <div class="table-toolbar"><div class="filters-row" style="margin-bottom:0">${chips}</div>
+                        <span style="color:var(--text-muted);font-size:0.85rem">Da pagare: ${UI.formatCurrency(daPagare)}</span></div>
+                    <table class="data-table"><thead><tr>
+                        <th>Numero</th><th>Data</th><th>Fornitore</th><th>Commessa</th><th class="text-right">Imponibile</th>
+                        <th class="text-right">Netto a pagare</th><th>Scadenza</th><th>Stato</th><th></th></tr></thead>
+                    <tbody>${rowsPassive()}</tbody></table>
+                </div>`;
+            box.querySelectorAll('.filter-chip').forEach(c => c.addEventListener('click', () => { _filtro = c.dataset.f; loadPassive(); }));
+            document.getElementById('pa-new-fatt').addEventListener('click', () => openPassiva({}));
+            bindAzioni(box);
         } catch (e) {
             box.innerHTML = `<div class="empty-state"><h3>Errore</h3><p>${UI.esc(e.message)}</p></div>`;
         }
     }
 
-    function render(box) {
-        const daPagare = _fornitori.reduce((a, f) => a + num(f.da_pagare), 0);
-        const chips = [['da_pagare', 'Da pagare'], ['pagata', 'Pagate'], ['', 'Tutte']]
-            .map(([v, l]) => `<span class="filter-chip ${_filtro === v ? 'active' : ''}" data-f="${v}">${l}</span>`).join('');
-        box.innerHTML = `
-            <div class="comm-toolbar">
-                <button class="btn btn-ghost" data-importa><i class="ph ph-upload-simple"></i> Importa file</button>
-                <button class="btn btn-ghost" id="pa-new-fatt"><i class="ph ph-plus"></i> Fattura fornitore</button>
-                <button class="btn btn-primary" id="pa-new"><i class="ph ph-plus"></i> Nuovo partner</button>
-            </div>
-            <div class="table-container" style="margin-bottom:20px">
-                <div class="table-toolbar"><b>Fatture ricevute</b><div class="filters-row" style="margin-bottom:0">${chips}</div></div>
-                <table class="data-table"><thead><tr>
-                    <th>Numero</th><th>Data</th><th>Fornitore</th><th>Commessa</th><th class="text-right">Imponibile</th>
-                    <th class="text-right">Netto a pagare</th><th>Scadenza</th><th>Stato</th><th></th></tr></thead>
-                <tbody>${rowsPassive()}</tbody></table>
-            </div>
-            <div class="table-container">
-                <div class="table-toolbar"><b>Partner e fornitori</b><span style="color:var(--text-muted);font-size:0.85rem">Da pagare in totale: ${UI.formatCurrency(daPagare)}</span></div>
-                <table class="data-table"><thead><tr>
-                    <th>Ragione sociale</th><th>Tipo</th><th>P.IVA</th><th>IBAN</th><th class="text-right">Commesse</th><th class="text-right">Da pagare</th><th></th></tr></thead>
-                <tbody>${rowsFornitori()}</tbody></table>
-            </div>`;
+    async function loadFornitori() {
+        const box = document.getElementById('anag-fornitori');
+        if (!box) return;
+        try {
+            await fornitori(true);
+            const daPagare = _fornitori.reduce((a, f) => a + num(f.da_pagare), 0);
+            box.innerHTML = `
+                <div class="comm-toolbar">
+                    <button class="btn btn-primary" id="pa-new" type="button"><i class="ph ph-plus"></i> Nuovo partner o fornitore</button>
+                </div>
+                <div class="table-container">
+                    <div class="table-toolbar"><b>Partner e fornitori</b><span style="color:var(--text-muted);font-size:0.85rem">Da pagare in totale: ${UI.formatCurrency(daPagare)}</span></div>
+                    <table class="data-table"><thead><tr>
+                        <th>Ragione sociale</th><th>Tipo</th><th>P.IVA</th><th>IBAN</th><th class="text-right">Commesse</th><th class="text-right">Da pagare</th><th></th></tr></thead>
+                    <tbody>${rowsFornitori()}</tbody></table>
+                </div>`;
+            document.getElementById('pa-new').addEventListener('click', () => openFornitore({}));
+            bindAzioni(box);
+        } catch (e) {
+            box.innerHTML = `<div class="empty-state"><h3>Errore</h3><p>${UI.esc(e.message)}</p></div>`;
+        }
+    }
 
-        box.querySelectorAll('.filter-chip').forEach(c => c.addEventListener('click', () => { _filtro = c.dataset.f; load(); }));
-        document.getElementById('pa-new').addEventListener('click', () => openFornitore({}));
-        document.getElementById('pa-new-fatt').addEventListener('click', () => openPassiva({}));
+    function bindAzioni(box) {
         box.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', e => {
             e.preventDefault(); // i link hanno href="#": senza, cambierebbe l'hash e la pagina salterebbe in cima
             azione(b.dataset.act, parseInt(b.dataset.id, 10));
@@ -110,7 +131,7 @@ const ModPartner = (() => {
                     load();
                     break;
                 case 'paga': {
-                    const d = prompt('Data del pagamento (AAAA-MM-GG)', UI.todayLocal());
+                    const d = await UI.chiedi({ titolo: 'Pagamento della fattura', etichetta: 'Data del pagamento', valore: UI.todayLocal(), conferma: 'Registra pagamento' });
                     if (!d) return;
                     await Store.api('set_pagata', 'passive', { id, data_pagamento: d });
                     UI.toast('Pagamento registrato');
@@ -330,6 +351,6 @@ const ModPartner = (() => {
         });
     }
 
-    return { load, renderCosti, fornitori };
+    return { load, loadPassive, loadFornitori, renderCosti, fornitori };
 })();
 window.ModPartner = ModPartner;

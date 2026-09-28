@@ -47,7 +47,7 @@ class ApiRouter {
         'fornitori'    => ['list', 'costi_fornitore', 'documento_costo'],
         'passive'      => ['list'],
         'commesse'     => ['get', 'margini', 'scadenzario', 'fatture_libere'],
-        'indicatori'   => ['riepilogo'],
+        'indicatori'   => ['riepilogo', 'oggi'],
         'riconciliazione' => ['movimenti', 'proposte', 'documenti_aperti'],
         'movimenti'    => ['categorie', 'conteggio', 'elenco', 'statistiche', 'regole'],
         'admin'        => ['listUsers', 'listBackups', 'downloadBackup', 'listLogs'],
@@ -441,6 +441,22 @@ class ApiRouter {
             case 'riepilogo':
                 $giorni = max(1, min(365, (int)($data['giorni'] ?? $_GET['giorni'] ?? 30)));
                 Response::json(true, '', $ind->riepilogo($giorni));
+                break;
+            case 'oggi':
+                // Dashboard «Oggi»: sintesi + cose da fare + incassi attesi + trasferte del mese
+                $pdo = Database::getConnection();
+                $prefix = getenv('DB_PREFIX') ?: 'mv_';
+                $stmt = $pdo->prepare("SELECT setting_value FROM {$prefix}settings WHERE setting_key = 'trasferte_costo_km'");
+                $stmt->execute();
+                $costo = $stmt->fetchColumn();
+                require_once __DIR__ . '/Classificatore.php';
+                $daClassificare = 0;
+                try { $daClassificare = (int)(new Classificatore($pdo, $prefix))->contaDaClassificare(); } catch (Throwable $e) { /* tabelle non migrate */ }
+                Response::json(true, '', $ind->riepilogo(30) + [
+                    'da_fare' => $ind->daFare(7) + ['movimenti_da_classificare' => ['num' => $daClassificare]],
+                    'incassi_attesi' => $ind->incassiAttesi(12),
+                    'trasferte' => $ind->trasferte(date('Y-m-01'), date('Y-m-t'), $costo === false || $costo === null ? null : (float)$costo),
+                ]);
                 break;
             default: Response::json(false, "Azione indicatori non supportata: $action");
         }

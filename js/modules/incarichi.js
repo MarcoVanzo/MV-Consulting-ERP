@@ -3,7 +3,7 @@ const ModIncarichi = (() => {
     let _incarichi = [], _kpis = {}, _filter = '';
 
     async function load() {
-        const year = document.getElementById('contabilita-year').value;
+        const year = UI.anno();
         try {
             const ov = await Store.api('overview', 'incarichi', { year });
             _kpis = ov?.kpis || {};
@@ -102,13 +102,13 @@ const ModIncarichi = (() => {
     }
 
     function openNew() {
-        UI.openModal('Nuovo Incarico', getFormHtml(), saveForm);
+        UI.openModal('Nuova commessa', getFormHtml(), saveForm);
         setTimeout(initClienteWatch, 100);
     }
     function edit(id) {
         const i = _incarichi.find(x => x.id==id);
         if (!i) return;
-        UI.openModal('Modifica Incarico', getFormHtml(i), saveForm);
+        UI.openModal('Modifica commessa', getFormHtml(i), saveForm);
         setTimeout(() => { initClienteWatch(); if (i.cliente_id) loadSotto(i.cliente_id, i.sottocliente_id); }, 100);
     }
     function initClienteWatch() {
@@ -163,14 +163,10 @@ const ModIncarichi = (() => {
         try {
             await Store.api('save','incarichi',p);
             UI.closeModal();
-            UI.toast(p.id?'Incarico aggiornato':'Incarico creato');
+            UI.toast(p.id?'Commessa aggiornata':'Commessa creata');
             // Se l'anno dell'incarico è diverso da quello selezionato, cambia il selettore
             if (p.data_incarico) {
-                const incYear = p.data_incarico.substring(0, 4);
-                const yearSel = document.getElementById('contabilita-year');
-                if (yearSel && yearSel.value !== incYear) {
-                    yearSel.value = incYear;
-                }
+                UI.impostaAnno(p.data_incarico.substring(0, 4));
             }
             load();
         }
@@ -197,7 +193,7 @@ const ModIncarichi = (() => {
             if (res) {
                 const avvisi = res.avvisi || [];
                 const intro = `<div class="notice">${res.metodo === 'ai' ? 'Dati letti dall\'AI dal PDF.' : 'Dati letti con il metodo a regole.'} Verificali prima di salvare.${avvisi.length ? '\n• ' + avvisi.map(UI.esc).join('\n• ') : ''}</div>`;
-                UI.openModal('Nuovo Incarico (da PDF)', intro + getFormHtml({
+                UI.openModal('Nuova commessa (da PDF)', intro + getFormHtml({
                     cliente_id: res.cliente_id, sottocliente_id: res.sottocliente_id,
                     data_incarico: res.data_incarico, importo_totale: res.importo_totale,
                     num_giornate: res.num_giornate, tipo_commessa: res.tipo_commessa,

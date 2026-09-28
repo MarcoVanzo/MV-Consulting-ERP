@@ -1,20 +1,13 @@
 'use strict';
 /**
- * Modulo Contabilità — Fatture, KPI, grafico, tab system, verifica pagamenti
- * Delega la gestione incarichi a ModIncarichi
+ * Fatture emesse (vista Incassi): KPI dagli Indicatori, grafico mensile, elenco con filtri.
+ * Le fatture non pagate si vedono col filtro «Scadute»/«Da incassare»: non c'è più una scheda a parte.
  */
 const ModContabilita = (() => {
-    let _fatture = [], _kpis = {}, _mensile = [], _clienti = [], _esclusi = [], _statoFilter = '', _activeTab = 'tab-incarichi';
+    let _fatture = [], _kpis = {}, _mensile = [], _clienti = [], _esclusi = [], _statoFilter = '';
 
     async function load() {
-        // Badge "Da classificare" aggiornato qualunque tab si apra
-        if (window.ModMovimenti) ModMovimenti.aggiornaBadge();
-        if (_activeTab === 'tab-incarichi') { ModIncarichi.load(); return; }
-        if (_activeTab === 'tab-verifica') { loadVerifica(); return; }
-        if (_activeTab === 'tab-riconciliazione') { ModRiconciliazione.load(); return; }
-        if (_activeTab === 'tab-classificare') { ModMovimenti.loadCoda(); return; }
-        if (_activeTab === 'tab-andamento') { ModAndamento.load(); return; }
-        const year = document.getElementById('contabilita-year').value;
+        const year = UI.anno();
         try {
             const ov = await Store.api('overview','contabilita',{year});
             _kpis = ov?.kpis||{}; _mensile = ov?.mensile||[]; _clienti = ov?.clienti||[]; _esclusi = (ov?.esclusi||[]).map(Number);
@@ -169,50 +162,7 @@ const ModContabilita = (() => {
 
     async function remove(id) { if(!confirm('Eliminare questa fattura?'))return; try{ await Store.api('delete','contabilita',{id}); UI.toast('Fattura eliminata'); load(); }catch(e){ UI.toast(e.message,'error'); } }
 
-    // ── Verifica Pagamenti ──
-    async function loadVerifica() {
-        const year = document.getElementById('contabilita-year').value;
-        try {
-            const ov = await Store.api('overview','incarichi',{year});
-            const k = ov?.kpis||{}, kf = ov?.kpis_fatture||{};
-            const nonPagate = ov?.fatture_non_pagate||[];
-            document.getElementById('verifica-kpis').innerHTML = `
-                <div class="kpi-card kpi-yellow"><div class="kpi-label">Da incassare</div><div class="kpi-value">${UI.formatCurrency(kf.da_incassare)}</div><div class="kpi-sub">IVA inclusa · ${UI.plurale(kf.num_da_incassare,'fattura','fatture')}</div></div>
-                <div class="kpi-card kpi-red"><div class="kpi-label">Scaduto</div><div class="kpi-value">${UI.formatCurrency(kf.scaduto)}</div><div class="kpi-sub">${UI.plurale(kf.num_scaduti,'fattura','fatture')} oltre la scadenza</div></div>
-                <div class="kpi-card kpi-blue"><div class="kpi-label">Da fatturare</div><div class="kpi-value">${UI.formatCurrency(k.da_fatturare)}</div><div class="kpi-sub">imponibile · ${UI.plurale(k.num_da_fatturare,'commessa','commesse')}</div></div>
-                <div class="kpi-card kpi-green"><div class="kpi-label">% incassato</div><div class="kpi-value">${kf.totale>0?Math.round(kf.incassato/kf.totale*100):0}%</div><div class="kpi-sub">sul fatturato dell'anno</div></div>`;
-
-            const tbody = document.getElementById('tbody-verifica');
-            if (!nonPagate.length) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><i class="ph ph-check-square"></i><h3>Tutto regolare</h3><p>Nessuna fattura in sospeso</p></div></td></tr>'; return; }
-            const today = new Date();
-            tbody.innerHTML = nonPagate.map(f => {
-                const scad = f.data_scadenza ? new Date(f.data_scadenza) : null;
-                const gg = scad ? Math.floor((today-scad)/(1000*60*60*24)) : null;
-                const ggStyle = gg>0 ? 'color:#ef4444;font-weight:600' : 'color:var(--text-muted)';
-                return `<tr><td class="td-mono">${UI.esc(f.numero_fattura)}</td><td>${UI.formatDate(f.data_emissione)}</td><td class="td-primary">${UI.esc(f.cliente_nome||'—')}${f.sottocliente_nome?` <span style="color:var(--text-muted)">/ ${UI.esc(f.sottocliente_nome)}</span>`:''}</td><td class="text-right td-primary">${UI.formatCurrency(f.importo_totale)}</td><td>${UI.statoBadge(f.stato)}</td><td>${f.data_scadenza?UI.formatDate(f.data_scadenza):'—'}</td><td style="${ggStyle}">${gg!==null?(gg>0?'+'+gg+'gg':gg+'gg'):'—'}</td></tr>`;
-            }).join('');
-        } catch(e) { console.error('[Verifica]',e); }
-    }
-
-    // ── Tab System ──
-    function initTabs() {
-        document.querySelectorAll('#contabilita-tabs .tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                document.querySelectorAll('#contabilita-tabs .tab').forEach(t => { t.style.color='var(--text-muted)'; t.style.borderBottomColor='transparent'; });
-                tab.style.color='var(--accent-secondary)'; tab.style.borderBottomColor='var(--accent-secondary)';
-                const target = tab.dataset.target;
-                document.querySelectorAll('#view-contabilita .tab-content').forEach(c => { c.style.display='none'; c.classList.remove('active'); });
-                const el = document.getElementById(target);
-                if (el) { el.style.display=''; el.classList.add('active'); }
-                _activeTab = target;
-                load();
-            });
-        });
-    }
-
     function initFilters() {
-        UI.populateYearSelect('contabilita-year');
-        document.getElementById('contabilita-year').addEventListener('change', load);
         // Fatture status filter
         document.querySelectorAll('#tab-fatture .filter-chip').forEach(chip => {
             chip.addEventListener('click', () => {
@@ -220,7 +170,6 @@ const ModContabilita = (() => {
                 chip.classList.add('active'); _statoFilter = chip.dataset.stato||''; load();
             });
         });
-        initTabs();
         ModIncarichi.initFilters();
         if (window.ModRiconciliazione) ModRiconciliazione.init();
         if (window.ModMovimenti) ModMovimenti.init();

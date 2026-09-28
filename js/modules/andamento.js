@@ -14,7 +14,7 @@ const ModAndamento = (() => {
     };
 
     function periodo() {
-        const y = document.getElementById('contabilita-year')?.value || new Date().getFullYear();
+        const y = UI.anno();
         const p = document.getElementById('andamento-periodo')?.value || 'anno';
         const r = { anno: ['01-01', '12-31'], s1: ['01-01', '06-30'], s2: ['07-01', '12-31'],
             t1: ['01-01', '03-31'], t2: ['04-01', '06-30'], t3: ['07-01', '09-30'], t4: ['10-01', '12-31'] }[p] || ['01-01', '12-31'];
@@ -134,7 +134,7 @@ const ModAndamento = (() => {
     }
 
     function vaiCoda() {
-        document.querySelector('#contabilita-tabs .tab[data-target="tab-classificare"]')?.click();
+        UI.mostraPane('tab-classificare');
     }
 
     function init() {

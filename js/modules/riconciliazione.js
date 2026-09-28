@@ -13,7 +13,7 @@ const ModRiconciliazione = (() => {
     };
 
     function periodo() {
-        const y = document.getElementById('contabilita-year')?.value || new Date().getFullYear();
+        const y = UI.anno();
         return { dal: `${y}-01-01`, al: `${y}-12-31` };
     }
 
