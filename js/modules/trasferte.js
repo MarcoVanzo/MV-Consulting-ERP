@@ -86,6 +86,14 @@ const ModTrasferte = (() => {
         }, 700);
     }
 
+    /** Rimborso km di una trasferta: costo ACI del mezzo se c'è, altrimenti il costo al km generale. */
+    function rimborsoKmDi(t) {
+        const km = parseFloat(t.km_andata || 0) + parseFloat(t.km_ritorno || 0);
+        const costo = t.mezzo_costo_km !== null && t.mezzo_costo_km !== undefined && t.mezzo_costo_km !== ''
+            ? parseFloat(t.mezzo_costo_km) : (parseFloat(document.getElementById('trasferte-costo-km').value) || 0);
+        return km * costo;
+    }
+
     /** Indennità di una giornata: la calcola il server (TrasferteRegole), qui si legge soltanto */
     function indennitaDi(data) {
         return parseFloat(_giornate[data]?.indennita) || 0;
@@ -100,7 +108,7 @@ const ModTrasferte = (() => {
         _trasferte.forEach(t => {
             const g = grouped[t.data_trasferta] ??= {
                 data: t.data_trasferta, mattina: [], pomeriggio: [], km_totali: 0,
-                vitto: 0, alloggio: 0, pernottamento: false, destinazioni: []
+                vitto: 0, alloggio: 0, altre: 0, rimborso_km: 0, pernottamento: false, destinazioni: []
             };
             if (t.pernottamento == 1 || t.pernottamento == true) g.pernottamento = true;
             const entry = { nome: t.sottocliente_nome || t.cliente_nome || '', id: t.id };
@@ -113,15 +121,16 @@ const ModTrasferte = (() => {
             g.km_totali += (parseFloat(t.km_andata || 0) + parseFloat(t.km_ritorno || 0));
             g.vitto += parseFloat(t.vitto || 0);
             g.alloggio += parseFloat(t.alloggio || 0);
+            g.altre += parseFloat(t.altre_spese || 0);
+            g.rimborso_km += rimborsoKmDi(t);
         });
         return Object.values(grouped);
     }
 
     function renderKpis() {
-        const costoKm = parseFloat(document.getElementById('trasferte-costo-km').value) || 0;
         const totIndennita = parseFloat(_totali.indennita) || 0;
 
-        const costoKmTotale = (_totali.km_totali || 0) * costoKm;
+        const costoKmTotale = _trasferte.reduce((a, t) => a + rimborsoKmDi(t), 0);
         const totaleComplessivo = (_totali.totale_spese || 0) + costoKmTotale + totIndennita;
 
         document.getElementById('trasferte-kpis').innerHTML = `
@@ -138,7 +147,7 @@ const ModTrasferte = (() => {
                 <div class="kpi-value">${UI.formatCurrency(costoKmTotale + totIndennita)}</div>
             </div>
             <div class="kpi-card kpi-red">
-                <div class="kpi-label">Spese Extra</div>
+                <div class="kpi-label">Spese</div>
                 <div class="kpi-value">${UI.formatCurrency(_totali.totale_spese)}</div>
             </div>
         `;
@@ -152,7 +161,6 @@ const ModTrasferte = (() => {
         }
 
         const rows = raggruppa().sort((a, b) => b.data.localeCompare(a.data));
-        const costoKm = parseFloat(document.getElementById('trasferte-costo-km').value) || 0;
 
         const cella = (entries) => entries.map(e => `
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
@@ -165,8 +173,8 @@ const ModTrasferte = (() => {
 
         tbody.innerHTML = rows.map(g => {
             const indennita = indennitaDi(g.data);
-            const spese = g.vitto + g.alloggio;
-            const rimborsoTotale = (g.km_totali * costoKm) + indennita + spese;
+            const spese = g.vitto + g.alloggio + g.altre;
+            const rimborsoTotale = g.rimborso_km + indennita + spese;
             const dataAttr = UI.esc(g.data);
 
             return `
@@ -176,7 +184,7 @@ const ModTrasferte = (() => {
                 <td class="td-primary">${cella(g.pomeriggio)}</td>
                 <td class="text-right">${UI.formatNumber(g.km_totali)}</td>
                 <td class="text-right">${UI.formatCurrency(indennita)}</td>
-                <td class="text-right fw-600" title="${spese ? 'Comprende ' + UI.esc(UI.formatCurrency(spese)) + ' di vitto e alloggio' : ''}">${UI.formatCurrency(rimborsoTotale)}</td>
+                <td class="text-right fw-600" title="${spese ? 'Comprende ' + UI.esc(UI.formatCurrency(spese)) + ' di spese (scheda Spese)' : ''}">${UI.formatCurrency(rimborsoTotale)}</td>
                 <td>
                     <div class="flex gap-2 justify-end" style="align-items: center;">
                         <button type="button" class="btn btn-sm ${g.pernottamento ? 'btn-primary' : 'btn-ghost'}" style="margin-right: 10px; display: flex; align-items: center; gap: 6px; ${g.pernottamento ? 'box-shadow: 0 0 8px var(--accent);' : ''}" title="Dormo fuori" onclick="ModTrasferte.togglePernottamento('${dataAttr}', ${!g.pernottamento}, this)">
@@ -245,14 +253,7 @@ const ModTrasferte = (() => {
                     <input type="number" class="form-control" id="f-t-km-ritorno" value="${UI.esc(data.km_ritorno || 0)}" step="0.1" min="0">
                 </div>
 
-                <div class="form-group">
-                    <label>Vitto</label>
-                    <input type="number" class="form-control" id="f-t-vitto" value="${UI.esc(data.vitto || 0)}" step="0.01" min="0">
-                </div>
-                <div class="form-group">
-                    <label>Alloggio</label>
-                    <input type="number" class="form-control" id="f-t-alloggio" value="${UI.esc(data.alloggio || 0)}" step="0.01" min="0">
-                </div>
+                <p class="form-group full-width td-sub" style="margin:0">Vitto, alloggio, pedaggi e altre spese si registrano nella scheda «Spese», con il giustificativo.</p>
                 <div class="form-group full-width" style="display: flex; gap: 20px; align-items: center; margin-top: 10px;">
                     <input type="hidden" id="f-t-pernottamento" value="${UI.esc(data.pernottamento || 0)}">
                     <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
@@ -388,8 +389,6 @@ const ModTrasferte = (() => {
             km_andata: document.getElementById('f-t-km-andata').value,
             km_ritorno: document.getElementById('f-t-km-ritorno').value,
 
-            vitto: document.getElementById('f-t-vitto').value,
-            alloggio: document.getElementById('f-t-alloggio').value,
             descrizione: document.getElementById('f-t-desc').value,
             pernottamento: parseInt(document.getElementById('f-t-pernottamento').value) || 0,
             km_bloccati: document.getElementById('f-t-km-bloccati').checked ? 1 : 0,
@@ -539,10 +538,13 @@ const ModTrasferte = (() => {
         }
     }
 
-    function exportPdf() {
+    async function exportPdf() {
         const year = document.getElementById('trasferte-year').value;
         const month = document.getElementById('trasferte-month').value;
         const costoKm = parseFloat(document.getElementById('trasferte-costo-km').value) || 0;
+        const mesePdf = month ? `${year}-${String(month).padStart(2, '0')}` : null;
+        // Elenco delle spese del mese, se il periodo è un mese (per l'anno la tabella per giornata basta)
+        const speseMese = mesePdf ? ((await Store.api('list', 'spese', { mese: mesePdf }).catch(() => null))?.spese || []) : [];
 
         if (!_trasferte.length) {
             UI.toast('Nessuna trasferta da esportare nel periodo selezionato', 'error');
@@ -553,18 +555,19 @@ const ModTrasferte = (() => {
         const rows = raggruppa().sort((a, b) => a.data.localeCompare(b.data));
         const nomi = (entries) => entries.map(e => e.nome || 'Da assegnare').join(', ');
 
-        let totKm = 0, totIndennita = 0, totRimborsoKm = 0, totVitto = 0, totAlloggio = 0, totTotale = 0;
+        let totKm = 0, totIndennita = 0, totRimborsoKm = 0, totVitto = 0, totAlloggio = 0, totAltre = 0, totTotale = 0;
 
         const tableRows = rows.map(g => {
             const indennita = indennitaDi(g.data);
-            const rimborsoKm = g.km_totali * costoKm;
-            const totaleRiga = rimborsoKm + indennita + g.vitto + g.alloggio;
+            const rimborsoKm = g.rimborso_km;
+            const totaleRiga = rimborsoKm + indennita + g.vitto + g.alloggio + g.altre;
 
             totKm += g.km_totali;
             totIndennita += indennita;
             totRimborsoKm += rimborsoKm;
             totVitto += g.vitto;
             totAlloggio += g.alloggio;
+            totAltre += g.altre;
             totTotale += totaleRiga;
 
             const [y, m, d] = g.data.split('-').map(Number);
@@ -580,6 +583,7 @@ const ModTrasferte = (() => {
                 <td class="num">${UI.formatCurrency(indennita)}</td>
                 <td class="num">${g.vitto ? UI.formatCurrency(g.vitto) : '—'}</td>
                 <td class="num">${g.alloggio ? UI.formatCurrency(g.alloggio) : '—'}</td>
+                <td class="num">${g.altre ? UI.formatCurrency(g.altre) : '—'}</td>
                 <td class="num tot">${UI.formatCurrency(totaleRiga)}</td>
             </tr>`;
         }).join('');
@@ -624,7 +628,7 @@ const ModTrasferte = (() => {
             <div class="sub">Riepilogo Trasferte — ${periodo}</div>
         </div>
         <div class="info">
-            Costo KM: ${costoKm.toFixed(4)} €/km<br>
+            Costo KM: ${costoKm.toFixed(4)} €/km (costo ACI del mezzo, se indicato)<br>
             Indennità giornaliera: 46,48 € (30,99 € con vitto o alloggio rimborsato, 15,49 € con entrambi)<br>
             ${(() => { const selId = document.getElementById('trasferte-mezzo')?.value; const mezzo = selId ? _mezziCache.find(v => v.id == selId) : null; return mezzo ? `Mezzo: <strong>${UI.esc(mezzo.nome)}</strong> — Targa: <strong>${UI.esc(mezzo.targa)}</strong><br>` : ''; })()}
             Stampato il: ${new Date().toLocaleDateString('it-IT')}
@@ -642,6 +646,7 @@ const ModTrasferte = (() => {
                 <th style="text-align:right">Indennità</th>
                 <th style="text-align:right">Vitto</th>
                 <th style="text-align:right">Alloggio</th>
+                <th style="text-align:right">Altre spese</th>
                 <th style="text-align:right">Totale</th>
             </tr>
         </thead>
@@ -654,10 +659,17 @@ const ModTrasferte = (() => {
                 <td class="num">${UI.formatCurrency(totIndennita)}</td>
                 <td class="num">${UI.formatCurrency(totVitto)}</td>
                 <td class="num">${UI.formatCurrency(totAlloggio)}</td>
+                <td class="num">${UI.formatCurrency(totAltre)}</td>
                 <td class="num">${UI.formatCurrency(totTotale)}</td>
             </tr>
         </tbody>
     </table>
+    ${speseMese.length ? `<table>
+        <thead><tr><th>Data</th><th>Spesa</th><th>Esercente / descrizione</th><th>Pagamento</th><th>Giustificativo</th><th style="text-align:right">Importo</th></tr></thead>
+        <tbody>${speseMese.slice().reverse().map(sp => `<tr><td>${UI.formatDate(sp.data)}</td><td>${UI.esc(sp.categoria)}</td>
+            <td>${UI.esc(sp.esercente || sp.descrizione || '—')}</td><td>${UI.esc(sp.metodo)}${sp.da_segnalare ? ' (non tracciabile)' : ''}</td>
+            <td>${sp.ha_documento ? 'allegato' : 'manca'}</td><td class="num">${UI.formatCurrency(sp.importo)}</td></tr>`).join('')}</tbody>
+    </table>` : ''}
     <div class="footer-note">Documento generato automaticamente da MV Consulting ERP</div>
 </body>
 </html>`;

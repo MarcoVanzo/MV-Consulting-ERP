@@ -91,6 +91,8 @@ check('km negativi', TrasferteRegole::errore(['data_trasferta' => '2026-02-28', 
 // ═══ 2. Database di prova ═══════════════════════════════════
 $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
 $pdo->exec("CREATE TABLE mv_clienti (id INTEGER PRIMARY KEY, ragione_sociale TEXT, indirizzo TEXT, citta TEXT)");
+// Spese di trasferta (l'alloggio vale come notte fuori)
+$pdo->exec("CREATE TABLE mv_spese (id INTEGER PRIMARY KEY, data TEXT, categoria TEXT, importo REAL, deleted_at TEXT)");
 $pdo->exec("CREATE TABLE mv_sottoclienti (id INTEGER PRIMARY KEY, cliente_id INT, nome TEXT, indirizzo TEXT, citta TEXT)");
 $pdo->exec("CREATE TABLE mv_trasferte (id INTEGER PRIMARY KEY AUTOINCREMENT, cliente_id INT, sottocliente_id INT,
     data_trasferta TEXT NOT NULL, fascia_oraria TEXT DEFAULT 'intera', descrizione TEXT, luogo_partenza TEXT, luogo_arrivo TEXT,

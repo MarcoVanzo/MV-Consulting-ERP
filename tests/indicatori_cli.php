@@ -107,8 +107,10 @@ foreach ([
     "ALTER TABLE {$p}offerte ADD COLUMN data_followup TEXT",
     "ALTER TABLE {$p}offerte ADD COLUMN iva_percentuale REAL",
     "CREATE TABLE {$p}movimenti_banca (id INTEGER PRIMARY KEY, stato TEXT, abbinabile INT DEFAULT 1, origine TEXT, importo REAL, classificazione TEXT DEFAULT 'classificato')",
-    "CREATE TABLE {$p}trasferte (id INTEGER PRIMARY KEY, data_trasferta TEXT, cliente_id INT, sottocliente_id INT,
+    "CREATE TABLE {$p}trasferte (id INTEGER PRIMARY KEY, data_trasferta TEXT, cliente_id INT, sottocliente_id INT, mezzo_id INT,
         km_andata REAL DEFAULT 0, km_ritorno REAL DEFAULT 0, vitto REAL DEFAULT 0, alloggio REAL DEFAULT 0)",
+    "CREATE TABLE {$p}mezzi (id INTEGER PRIMARY KEY, costo_km REAL)",
+    "CREATE TABLE {$p}spese (id INTEGER PRIMARY KEY, data TEXT, categoria TEXT, importo REAL, deleted_at TEXT)",
 ] as $sql) $pdo->exec($sql);
 $pdo->exec("UPDATE {$p}offerte SET data_followup = '2026-09-20' WHERE stato = 'inviata'");
 $pdo->exec("INSERT INTO {$p}movimenti_banca (stato, abbinabile, origine, importo) VALUES
@@ -127,14 +129,24 @@ $tot = array_sum(array_column($ia['settimane'], 'fatturate'));
 check('fattura in scadenza il 31/10 nella sua settimana', abs($tot - 3660) < 0.01 && abs($ia['settimane'][4]['fatturate'] - 3660) < 0.01, $ia['settimane']);
 // rata 4000 prevista 15/10 + 30 gg = 14/11, IVA 22% → settimana del 9/11 (indice 6)
 check('rata da fatturare alla data di incasso con IVA', abs($ia['settimane'][6]['da_fatturare'] - 4880) < 0.01, $ia['settimane'][6]);
-$pdo->exec("INSERT INTO {$p}trasferte (data_trasferta, cliente_id, km_andata, km_ritorno, vitto) VALUES
-    ('2026-09-02', 1, 50, 50, 0), ('2026-09-03', 2, 30, 30, 15), ('2026-09-04', NULL, 10, 10, 0), ('2026-08-30', 1, 99, 99, 0)");
+$pdo->exec("INSERT INTO {$p}trasferte (data_trasferta, cliente_id, km_andata, km_ritorno) VALUES
+    ('2026-09-02', 1, 50, 50), ('2026-09-03', 2, 30, 30), ('2026-09-04', NULL, 10, 10), ('2026-08-30', 1, 99, 99)");
+// Le spese stanno nella loro tabella: vitto il 3 (riduce l'indennità), un pedaggio il 4, una spesa eliminata
+$pdo->exec("INSERT INTO {$p}spese (data, categoria, importo, deleted_at) VALUES
+    ('2026-09-03', 'vitto', 15, NULL), ('2026-09-04', 'pedaggio', 7.5, NULL), ('2026-09-03', 'alloggio', 90, '2026-09-05')");
 $tr = $ind->trasferte('2026-09-01', '2026-09-30', 0.5);
 check('km e rimborso al costo/km', abs($tr['km'] - 180) < 0.01 && abs($tr['rimborso_km'] - 90) < 0.01, $tr);
 check('indennità dalle regole (piena + ridotta)', abs($tr['indennita'] - (46.48 + 30.99)) < 0.01, $tr);
 check('giornate senza cliente', $tr['num_giornate'] === 3 && $tr['num_senza_cliente'] === 1, $tr);
-check('totale da rimborsare', abs($tr['da_rimborsare'] - (90 + 46.48 + 30.99 + 15)) < 0.01, $tr);
-check('senza costo/km: rimborso km non calcolato', $ind->trasferte('2026-09-01', '2026-09-30', null)['rimborso_km'] === null);
+check('spese dalla tabella spese, eliminate escluse', abs($tr['spese'] - 22.5) < 0.01, $tr);
+check('totale da rimborsare', abs($tr['da_rimborsare'] - (90 + 46.48 + 30.99 + 22.5)) < 0.01, $tr);
+$pdo->exec("INSERT INTO {$p}mezzi (id, costo_km) VALUES (1, 0.8)");
+$pdo->exec("UPDATE {$p}trasferte SET mezzo_id = 1 WHERE data_trasferta = '2026-09-02'");
+check('costo ACI del mezzo al posto di quello generale', abs($ind->trasferte('2026-09-01', '2026-09-30', 0.5)['rimborso_km'] - (100 * 0.8 + 80 * 0.5)) < 0.01);
+$t0 = $ind->trasferte('2026-09-01', '2026-09-30', null);
+check('senza costo generale: solo i km del mezzo con costo, gli altri segnalati', abs($t0['rimborso_km'] - 80) < 0.01 && $t0['km_senza_costo'] === true, $t0);
+$pdo->exec("UPDATE {$p}trasferte SET mezzo_id = NULL");
+check('nessun costo noto: rimborso km non calcolato', $ind->trasferte('2026-09-01', '2026-09-30', null)['rimborso_km'] === null);
 
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);

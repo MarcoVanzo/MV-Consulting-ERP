@@ -9,7 +9,7 @@ declare(strict_types=1);
 
 class Documenti
 {
-    private const ESTENSIONI = ['pdf', 'docx', 'doc', 'txt', 'md', 'jpg', 'jpeg', 'png'];
+    private const ESTENSIONI = ['pdf', 'docx', 'doc', 'txt', 'md', 'jpg', 'jpeg', 'png', 'webp'];
     private const MIME = [
         'pdf' => 'application/pdf',
         'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -19,6 +19,7 @@ class Documenti
         'jpg' => 'image/jpeg',
         'jpeg' => 'image/jpeg',
         'png' => 'image/png',
+        'webp' => 'image/webp',
     ];
 
     private static function dir(): string
@@ -100,7 +101,7 @@ class Documenti
         $dir = self::dir();
         if (!is_dir($dir)) return 0;
         $usati = [];
-        foreach ([["offerte", "file_path"], ["incarichi", "pdf_path"], ["commessa_costi", "offerta_fornitore_file"], ["mezzi_manutenzioni", "allegato_url"]] as [$t, $c]) {
+        foreach ([["offerte", "file_path"], ["incarichi", "pdf_path"], ["commessa_costi", "offerta_fornitore_file"], ["mezzi_manutenzioni", "allegato_url"], ["spese", "documento"]] as [$t, $c]) {
             foreach ($pdo->query("SELECT $c FROM {$prefix}$t WHERE $c LIKE 'documenti/%'")->fetchAll(PDO::FETCH_COLUMN) as $ref) {
                 $usati[$ref] = true;
             }

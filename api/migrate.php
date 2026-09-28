@@ -683,6 +683,56 @@ $queries = [
         KEY idx_attivita_cliente (cliente_id, data),
         CONSTRAINT fk_attivita_cliente FOREIGN KEY (cliente_id) REFERENCES {$prefix}clienti(id) ON DELETE CASCADE,
         CONSTRAINT fk_attivita_offerta FOREIGN KEY (offerta_id) REFERENCES {$prefix}offerte(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+    // v082: note spese — ogni spesa di trasferta con giustificativo, metodo di pagamento e movimento della carta
+    "CREATE TABLE IF NOT EXISTS {$prefix}spese (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        data DATE NOT NULL,
+        categoria ENUM('vitto','alloggio','treno','aereo','taxi','pedaggio','parcheggio','carburante','altro') NOT NULL DEFAULT 'altro',
+        descrizione VARCHAR(255) DEFAULT NULL,
+        esercente VARCHAR(150) DEFAULT NULL,
+        importo DECIMAL(10,2) NOT NULL,
+        metodo ENUM('carta','bancomat','bonifico','contanti','altro') NOT NULL DEFAULT 'carta',
+        cliente_id INT DEFAULT NULL,
+        movimento_id INT DEFAULT NULL COMMENT 'Movimento della carta che la paga',
+        documento VARCHAR(255) DEFAULT NULL COMMENT 'Giustificativo in storage/documenti',
+        origine ENUM('manuale','scontrino','carta','trasferta') NOT NULL DEFAULT 'manuale',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        deleted_at DATETIME DEFAULT NULL,
+        KEY idx_spese_data (data),
+        UNIQUE KEY uq_spese_movimento (movimento_id),
+        CONSTRAINT fk_spese_cliente FOREIGN KEY (cliente_id) REFERENCES {$prefix}clienti(id) ON DELETE SET NULL,
+        CONSTRAINT fk_spese_movimento FOREIGN KEY (movimento_id) REFERENCES {$prefix}movimenti_banca(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+    // v083: vitto e alloggio già scritti sulle trasferte diventano spese (le colonne restano, non più usate)
+    "INSERT INTO {$prefix}spese (data, categoria, descrizione, importo, metodo, cliente_id, origine)
+        SELECT data_trasferta, 'vitto', 'Vitto (dalla trasferta)', vitto, 'altro', cliente_id, 'trasferta' FROM {$prefix}trasferte WHERE vitto > 0
+        UNION ALL
+        SELECT data_trasferta, 'alloggio', 'Alloggio (dalla trasferta)', alloggio, 'altro', cliente_id, 'trasferta' FROM {$prefix}trasferte WHERE alloggio > 0",
+
+    // v084: costo chilometrico ACI del modello, per mezzo (senza: vale il costo al km generale)
+    "ALTER TABLE {$prefix}mezzi ADD COLUMN costo_km DECIMAL(7,4) DEFAULT NULL COMMENT 'Costo €/km dalle tabelle ACI' AFTER capacita,
+        ADD COLUMN modello_aci VARCHAR(150) DEFAULT NULL AFTER costo_km",
+
+    // v085: nota spese del mese — stato e totali congelati quando si presenta
+    "CREATE TABLE IF NOT EXISTS {$prefix}rimborsi (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        mese CHAR(7) NOT NULL COMMENT 'AAAA-MM',
+        stato ENUM('presentata','rimborsata') NOT NULL DEFAULT 'presentata',
+        km DECIMAL(10,1) NOT NULL DEFAULT 0,
+        importo_km DECIMAL(10,2) NOT NULL DEFAULT 0,
+        indennita DECIMAL(10,2) NOT NULL DEFAULT 0,
+        spese DECIMAL(10,2) NOT NULL DEFAULT 0,
+        totale DECIMAL(10,2) NOT NULL DEFAULT 0,
+        data_presentazione DATE NOT NULL,
+        data_rimborso DATE DEFAULT NULL,
+        note VARCHAR(255) DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_rimborsi_mese (mese)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];

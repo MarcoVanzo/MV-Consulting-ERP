@@ -76,6 +76,49 @@ TXT;
         ]));
     }
 
+    /**
+     * Scontrino, ricevuta o fattura di una spesa di trasferta (foto o PDF).
+     * categoria tra quelle di Spese::CATEGORIE; metodo = come è stata pagata, se si legge.
+     */
+    public static function estraiScontrino(array $document): array
+    {
+        $instruction = <<<TXT
+Il documento è uno scontrino, una ricevuta o una fattura di una spesa sostenuta in trasferta da MV Consulting.
+Campi:
+- data: data della spesa (AAAA-MM-GG).
+- importo: totale pagato, IVA inclusa (numero). Non il subtotale né il resto.
+- esercente: nome del locale, dell'albergo o della società (es. "Autostrade per l'Italia", "Trenitalia").
+- partita_iva_esercente: la partita IVA dell'esercente se stampata, altrimenti stringa vuota.
+- categoria: "vitto" (ristoranti, bar, pasti), "alloggio" (hotel, B&B), "treno", "aereo", "taxi" (anche NCC),
+  "pedaggio" (autostrada), "parcheggio", "carburante", altrimenti "altro".
+- metodo: "carta" se pagato con carta di credito/debito o POS, "bancomat" se indicato bancomat/PagoBancomat,
+  "contanti" se indicato contante, altrimenti "altro".
+- descrizione: una riga breve su cosa è stato acquistato.
+- note_estrazione: dubbi (importo illeggibile, data incerta), altrimenti null.
+TXT;
+        $x = ClaudeClient::extractJson(self::SYSTEM, $instruction, $document, [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['data', 'importo', 'esercente', 'partita_iva_esercente', 'categoria', 'metodo', 'descrizione', 'note_estrazione'],
+            'properties' => [
+                'data' => ['anyOf' => [['type' => 'string', 'format' => 'date'], ['type' => 'null']]],
+                'importo' => self::nullable('number'),
+                'esercente' => self::nullable('string'),
+                'partita_iva_esercente' => ['type' => 'string'],
+                'categoria' => ['type' => 'string', 'enum' => ['vitto', 'alloggio', 'treno', 'aereo', 'taxi', 'pedaggio', 'parcheggio', 'carburante', 'altro']],
+                'metodo' => ['type' => 'string', 'enum' => ['carta', 'bancomat', 'contanti', 'altro']],
+                'descrizione' => self::nullable('string'),
+                'note_estrazione' => self::nullable('string'),
+            ],
+        ]);
+        // Controlli sul risultato: una data nel futuro o un importo non positivo non si accettano in silenzio
+        if (isset($x['importo']) && (float)$x['importo'] <= 0) $x['importo'] = null;
+        if (!empty($x['data']) && $x['data'] > date('Y-m-d')) {
+            $x['note_estrazione'] = trim(($x['note_estrazione'] ?? '') . ' Data nel futuro: controllala.');
+        }
+        return $x;
+    }
+
     /** Preventivo che MV Consulting invia a un cliente (preparato con Cowork). */
     public static function estraiOfferta(array $document): array
     {

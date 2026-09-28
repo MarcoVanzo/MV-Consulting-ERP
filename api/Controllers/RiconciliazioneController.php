@@ -119,6 +119,11 @@ class RiconciliazioneController {
             }
         }
         unset($esito['ids']);
+        // Le spese di trasferta pagate con carta trovano il loro movimento
+        if ($carta) {
+            require_once __DIR__ . '/../Shared/Spese.php';
+            try { $esito['spese_abbinate'] = (new Spese($this->pdo, $this->prefix))->abbinaCarta(); } catch (Throwable $e) { /* tabella spese non ancora migrata */ }
+        }
         $esito['metodo'] = $letto['metodo'];
         $esito['banca'] = $letto['banca'];
         $esito['avvisi'] = array_merge($letto['avvisi'], $esito['avvisi'] ?? []);

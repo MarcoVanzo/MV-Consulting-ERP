@@ -6,6 +6,8 @@
 require_once __DIR__ . '/../Shared/TrasferteRegole.php';
 require_once __DIR__ . '/../Shared/Percorsi.php';
 
+require_once __DIR__ . '/../Shared/Spese.php';
+
 class TrasferteController {
     private const CHIAVE_COSTO_KM = 'trasferte_costo_km';
 
@@ -38,7 +40,7 @@ class TrasferteController {
         $sql = "SELECT t.*,
                 c.ragione_sociale as cliente_nome, c.citta as cliente_citta,
                 sc.nome as sottocliente_nome, sc.citta as sottocliente_citta,
-                m.nome as mezzo_nome, m.targa as mezzo_targa
+                m.nome as mezzo_nome, m.targa as mezzo_targa, m.costo_km as mezzo_costo_km
             FROM {$this->prefix}trasferte t
             LEFT JOIN {$this->prefix}clienti c ON c.id = t.cliente_id
             LEFT JOIN {$this->prefix}sottoclienti sc ON sc.id = t.sottocliente_id
@@ -47,28 +49,39 @@ class TrasferteController {
             ORDER BY t.data_trasferta DESC, t.id ASC";
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([$da, $a]);
-        $trasferte = $stmt->fetchAll();
+        // Vitto, alloggio e altre spese vengono dalla tabella spese (unica fonte), messi sulla riga del giorno
+        $speseGiorno = (new Spese($this->pdo, $this->prefix))->perGiorno($da, $a);
+        $trasferte = Spese::applicaAlleTrasferte($stmt->fetchAll(), $speseGiorno);
+        $costoKm = $this->costoKm();
 
         $totKm = 0;
-        $totVitto = 0;
-        $totAlloggio = 0;
-        foreach ($trasferte as $t) {
-            $totKm += floatval($t['km_andata'] ?? 0) + floatval($t['km_ritorno'] ?? 0);
-            $totVitto += floatval($t['vitto'] ?? 0);
-            $totAlloggio += floatval($t['alloggio'] ?? 0);
+        $totRimborsoKm = 0;
+        foreach ($trasferte as &$t) {
+            $km = floatval($t['km_andata'] ?? 0) + floatval($t['km_ritorno'] ?? 0);
+            $totKm += $km;
+            // Costo ACI del mezzo della trasferta, altrimenti quello generale
+            $costo = $t['mezzo_costo_km'] !== null ? (float)$t['mezzo_costo_km'] : $costoKm;
+            $t['rimborso_km'] = $costo === null ? 0 : round($km * $costo, 2);
+            $totRimborsoKm += $t['rimborso_km'];
         }
+        unset($t);
+        $totVitto = array_sum(array_column($speseGiorno, 'vitto'));
+        $totAlloggio = array_sum(array_column($speseGiorno, 'alloggio'));
+        $totAltre = array_sum(array_column($speseGiorno, 'altre'));
         $giornate = TrasferteRegole::giornate($trasferte);
 
         Response::json(true, '', [
             'trasferte' => $trasferte,
             'giornate' => $giornate,
-            'costo_km' => $this->costoKm(),
+            'costo_km' => $costoKm,
             'totali' => [
                 'num_trasferte' => count($trasferte),
                 'km_totali' => round($totKm, 1),
+                'rimborso_km' => round($totRimborsoKm, 2),
                 'vitto' => round($totVitto, 2),
                 'alloggio' => round($totAlloggio, 2),
-                'totale_spese' => round($totVitto + $totAlloggio, 2),
+                'altre_spese' => round($totAltre, 2),
+                'totale_spese' => round($totVitto + $totAlloggio + $totAltre, 2),
                 'indennita' => round(array_sum(array_column($giornate, 'indennita')), 2)
             ]
         ]);
@@ -246,7 +259,7 @@ class TrasferteController {
             ORDER BY c.ragione_sociale ASC, t.data_trasferta ASC";
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([$da, $a]);
-        $rows = $stmt->fetchAll();
+        $rows = Spese::applicaAlleTrasferte($stmt->fetchAll(), (new Spese($this->pdo, $this->prefix))->perGiorno($da, $a));
 
         // Group by client
         $grouped = [];
@@ -261,7 +274,7 @@ class TrasferteController {
                 ];
             }
             $km = floatval($r['km_andata']) + floatval($r['km_ritorno']);
-            $spese = floatval($r['vitto']) + floatval($r['alloggio']);
+            $spese = floatval($r['vitto']) + floatval($r['alloggio']) + floatval($r['altre_spese']);
             $grouped[$key]['trasferte'][] = $r;
             $grouped[$key]['totale_km'] += $km;
             $grouped[$key]['totale_spese'] += $spese;
@@ -464,7 +477,12 @@ class TrasferteController {
         foreach ($trasferte as $t) {
             if ($t['pernottamento'] == 1 || floatval($t['alloggio'] ?? 0) > 0) return true;
         }
-        return false;
+        // L'alloggio ora è una spesa: una spesa di alloggio quel giorno vale come notte fuori
+        $d = $trasferte[0]['data_trasferta'] ?? null;
+        if (!$d) return false;
+        $stmt = $this->pdo->prepare("SELECT 1 FROM {$this->prefix}spese WHERE data = ? AND categoria = 'alloggio' AND deleted_at IS NULL");
+        $stmt->execute([$d]);
+        return (bool)$stmt->fetchColumn();
     }
 
     private function zeroKmForDate(string $date): void {
