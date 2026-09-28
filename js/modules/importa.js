@@ -209,6 +209,11 @@ const ModImporta = (() => {
         } else {
             const daFare = pronte.filter(daSalvare);
             for (const v of daFare) await importa(v);
+            // Fatture nuove: i movimenti già importati e rimasti da riconciliare le cercano di nuovo
+            const FATTURE = ['fattura', 'lista_passive', 'lista_attive', 'fattura_pdf'];
+            if (window.ModRiconciliazione && daFare.some(v => v.stato === 'importato' && FATTURE.includes(v.tipo))) {
+                await ModRiconciliazione.riabbina(true);
+            }
             _fase = 'fatto';
             // La vista sotto si aggiorna subito, anche se poi si chiude la finestra con la X
             ricarica();

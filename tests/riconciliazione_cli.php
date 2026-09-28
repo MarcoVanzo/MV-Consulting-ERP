@@ -175,6 +175,7 @@ foreach ([
         stato TEXT NOT NULL DEFAULT 'da_riconciliare', origine TEXT NOT NULL DEFAULT 'estratto_conto', avviso_id INT, file_nome TEXT,
         categoria_id INT, categoria_fonte TEXT, classificazione TEXT NOT NULL DEFAULT 'da_classificare', regola_id INT,
         categoria_proposta_id INT, proposta_motivo TEXT, abbinabile INT NOT NULL DEFAULT 1,
+        segno_incerto INT NOT NULL DEFAULT 0, abbinamento_annullato INT NOT NULL DEFAULT 0,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)",
     "CREATE TABLE {$p}riconciliazioni (id INTEGER PRIMARY KEY, movimento_id INT NOT NULL REFERENCES {$p}movimenti_banca(id) ON DELETE CASCADE,
         tipo TEXT NOT NULL, documento_id INT NOT NULL, importo REAL NOT NULL, metodo TEXT NOT NULL, created_by INT, stato_precedente TEXT,
@@ -633,6 +634,30 @@ $n = (int)$pdo->query("SELECT COUNT(*) FROM {$p}movimenti_banca")->fetchColumn()
 $pdo->n = 0;
 $lista = $ric->lista([]);
 check("#12 lista di $n movimenti con poche query ({$pdo->n})", count($lista) === $n && $pdo->n <= 6);
+
+echo "Riprova abbinamento dopo l'import delle fatture\n";
+$pdo->beginTransaction();
+$er = $ric->importaMovimenti([['data_operazione' => '2026-08-20', 'data_valuta' => '2026-08-20', 'importo' => -915.0,
+    'descrizione' => 'Bonifico a favore Tipografia Beta Srl saldo', 'controparte' => 'Tipografia Beta Srl', 'riferimento' => 'RB1', 'iban' => 'X']],
+    ['banca' => ''], 7);
+$pdo->commit();
+$idBeta = $er['ids'][0];
+check('fornitore non ancora in anagrafica: movimento senza aggancio', (int)$ric->movimento($idBeta)['abbinabile'] === 0);
+$ins("INSERT INTO {$p}fornitori (id, ragione_sociale) VALUES (?, ?)", [9, 'Tipografia Beta S.r.l.']);
+$ins("INSERT INTO {$p}fatture_passive (id, fornitore_id, numero, data_emissione, imponibile, importo_totale, data_scadenza) VALUES (?,?,?,?,?,?,?)",
+    [9, 9, 'B-7', '2026-07-31', 750, 915, '2026-08-31']);
+$pdo->beginTransaction();
+$rb = $ric->riabbina(7);
+$pdo->commit();
+check('riabbina: acquista l\'aggancio e salda la fattura passiva', $rb['nuovi_agganci'] >= 1 && in_array($idBeta, $rb['ids'], true)
+    && $ric->movimento($idBeta)['stato'] === 'riconciliato' && (int)$ric->movimento($idBeta)['abbinabile'] === 1
+    && $pdo->query("SELECT stato FROM {$p}fatture_passive WHERE id = 9")->fetchColumn() === 'pagata', $rb);
+$pdo->beginTransaction();
+$rb2 = $ric->riabbina(7);
+$pdo->commit();
+check('riabbina non rifà gli abbinamenti annullati a mano', !in_array($idEuro, $rb['ids'], true)
+    && (int)$ric->movimento($idEuro)['abbinamento_annullato'] === 1 && $ric->movimento($idEuro)['stato'] === 'da_riconciliare');
+check('riabbina ripetuto: niente di nuovo', $rb2['abbinati'] === 0 && $rb2['nuovi_agganci'] === 0, $rb2);
 
 // ═══ 4. Estratto conto vero (facoltativo) ═══════════════════
 $file = getenv('CBI_FILE') ?: '';

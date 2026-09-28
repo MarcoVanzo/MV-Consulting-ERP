@@ -203,8 +203,31 @@ const ModRiconciliazione = (() => {
     const ignora = id => invia('ignora', { movimento_id: id });
     const ripristina = id => invia('ignora', { movimento_id: id, ripristina: '1' });
 
+    /**
+     * Riprova l'abbinamento dei movimenti da riconciliare con le fatture presenti ora: all'import
+     * dell'estratto quelle pagate potevano non esserci ancora. Lo lancia anche l'import di fatture.
+     * silenzioso: nessun avviso se non si abbina niente.
+     */
+    async function riabbina(silenzioso = false) {
+        const btn = document.getElementById('btn-riabbina');
+        if (btn) btn.disabled = true;
+        try {
+            const r = await Store.api('riabbina', 'riconciliazione', {}) || {};
+            if (r.abbinati) UI.toast(`${r.abbinati} ${r.abbinati === 1 ? 'movimento abbinato' : 'movimenti abbinati'} a fatture`);
+            else if (!silenzioso) UI.toast(r.da_verificare ? `Nessun abbinamento sicuro: ${r.da_verificare} restano da verificare con le proposte` : 'Nessun movimento da abbinare');
+            if (document.getElementById('tab-riconciliazione')?.offsetParent) load();
+            return r;
+        } catch (e) {
+            if (!silenzioso) UI.toast(e.message, 'error');
+            return null;
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
     // ── Import estratto conto ──
     function init() {
+        document.getElementById('btn-riabbina')?.addEventListener('click', () => riabbina());
         document.querySelectorAll('#tab-riconciliazione .filter-chip').forEach(chip => {
             chip.addEventListener('click', () => {
                 document.querySelectorAll('#tab-riconciliazione .filter-chip').forEach(c => c.classList.remove('active'));
@@ -218,6 +241,6 @@ const ModRiconciliazione = (() => {
         if (m) ModMovimenti.classifica(m, load);
     }
 
-    return { load, init, categoria, mostraProposte, confermaProposta, sceltaManuale, annulla, ignora, ripristina };
+    return { load, init, categoria, mostraProposte, confermaProposta, sceltaManuale, annulla, ignora, ripristina, riabbina };
 })();
 window.ModRiconciliazione = ModRiconciliazione;

@@ -170,6 +170,28 @@ class RiconciliazioneController {
         return $col && str_contains((string)$col['Type'], 'estratto_carta');
     }
 
+    /** Riprova l'abbinamento dei movimenti da riconciliare con le fatture presenti ora (dopo un import di fatture). */
+    public function riabbina() {
+        $ric = $this->riconciliatore();
+        @set_time_limit(120);
+        $this->pdo->beginTransaction();
+        try {
+            $esito = $ric->riabbina($this->userId());
+            if ($esito['ids']) self::classifica($this->pdo, $this->prefix, $esito['ids'], true);
+            $this->pdo->commit();
+        } catch (Throwable $e) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            error_log('[Riconciliazione::riabbina] ' . $e->getMessage());
+            Response::json(false, 'Abbinamento non riuscito: ' . $e->getMessage());
+        }
+        if ($esito['abbinati'] || $esito['nuovi_agganci']) {
+            Audit::log('RICONCILIA', 'movimenti_banca', null, null, null, ['riabbina' => true, 'abbinati' => $esito['abbinati'],
+                'nuovi_agganci' => $esito['nuovi_agganci']]);
+        }
+        unset($esito['ids']);
+        Response::json(true, $esito['abbinati'] ? "{$esito['abbinati']} movimenti abbinati" : 'Nessun nuovo abbinamento sicuro', $esito);
+    }
+
     public function movimenti() {
         $stato = $_GET['stato'] ?? $_POST['stato'] ?? '';
         $origine = $_GET['origine'] ?? $_POST['origine'] ?? '';
