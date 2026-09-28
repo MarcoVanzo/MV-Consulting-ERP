@@ -45,7 +45,23 @@ class CommessaService
     public function offertaRapida(int $incaricoId, array $i): int
     {
         $data = (string)($i['data_incarico'] ?? date('Y-m-d'));
-        $numero = $this->nuovoNumeroOfferta((int)substr($data, 0, 4));
+        for ($tentativo = 1; ; $tentativo++) {
+            $numero = $this->nuovoNumeroOfferta((int)substr($data, 0, 4));
+            try {
+                $this->inserisciOffertaRapida($numero, $data, $incaricoId, $i);
+                break;
+            } catch (PDOException $e) {
+                // Numero preso da un salvataggio contemporaneo (indice unico numero+versione): si riprova
+                if ($tentativo >= 3 || !in_array((string)$e->getCode(), ['23000'], true)) throw $e;
+            }
+        }
+        $offertaId = (int)$this->pdo->lastInsertId();
+        $this->pdo->prepare("UPDATE {$this->p}incarichi SET offerta_id = ? WHERE id = ?")->execute([$offertaId, $incaricoId]);
+        return $offertaId;
+    }
+
+    private function inserisciOffertaRapida(string $numero, string $data, int $incaricoId, array $i): void
+    {
         $this->pdo->prepare("INSERT INTO {$this->p}offerte (numero, versione, cliente_id, sottocliente_id, data_offerta, oggetto,
                 tipo_commessa, num_giornate, imponibile, giorni_pagamento, condizioni_pagamento, stato, data_esito, incarico_id, origine, note)
             VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'accettata', ?, ?, 'rapida', ?)")
@@ -54,9 +70,6 @@ class CommessaService
                 $i['tipo_commessa'] ?? 'assistenza', (float)($i['num_giornate'] ?? 0), (float)$i['importo_totale'],
                 (int)($i['giorni_pagamento'] ?? 30), $i['condizioni_pagamento'] ?? null, $data, $incaricoId,
                 'Offerta registrata insieme alla commessa']);
-        $offertaId = (int)$this->pdo->lastInsertId();
-        $this->pdo->prepare("UPDATE {$this->p}incarichi SET offerta_id = ? WHERE id = ?")->execute([$offertaId, $incaricoId]);
-        return $offertaId;
     }
 
     /**

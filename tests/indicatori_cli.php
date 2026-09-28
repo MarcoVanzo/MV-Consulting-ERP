@@ -32,7 +32,8 @@ foreach ([
     "CREATE TABLE {$p}fatture (id INTEGER PRIMARY KEY, numero_fattura TEXT, data_emissione TEXT, cliente_id INT, sottocliente_id INT,
         incarico_id INT, imponibile REAL, importo_totale REAL, stato TEXT DEFAULT 'emessa', data_scadenza TEXT)",
     "CREATE TABLE {$p}fatture_passive (id INTEGER PRIMARY KEY, importo_totale REAL, ritenuta REAL DEFAULT 0, stato TEXT, data_scadenza TEXT)",
-    "CREATE TABLE {$p}offerte (id INTEGER PRIMARY KEY, data_offerta TEXT, stato TEXT, imponibile REAL, deleted_at TEXT, probabilita INT)",
+    "CREATE TABLE {$p}offerte (id INTEGER PRIMARY KEY, data_offerta TEXT, stato TEXT, imponibile REAL, deleted_at TEXT, probabilita INT,
+        origine TEXT DEFAULT 'manuale', data_invio TEXT)",
 ] as $sql) $pdo->exec($sql);
 
 $oggi = '2026-09-28';
@@ -56,6 +57,7 @@ $pdo->exec("INSERT INTO {$p}offerte (data_offerta, stato, imponibile, deleted_at
     ('2026-04-10', 'rifiutata', 3000, NULL), ('2026-05-10', 'inviata', 9999, '2026-05-11'), ('2026-06-10', 'sostituita', 4000, NULL),
     ('2026-07-10', 'lead', 20000, NULL)");
 $pdo->exec("UPDATE {$p}offerte SET probabilita = 80 WHERE stato = 'inviata' AND deleted_at IS NULL");
+$pdo->exec("UPDATE {$p}offerte SET data_invio = '2026-04-01' WHERE stato = 'rifiutata'");
 
 $ind = new Indicatori($pdo, $p, $oggi);
 
@@ -92,6 +94,11 @@ $o = $ind->offerte(2026);
 check('pipeline = solo offerte inviate non eliminate', uguale($o['pipeline'], 5000) && $o['num_inviate'] === 1, $o);
 check('bozze a parte', uguale($o['bozze'], 1500), $o);
 check('conversione = accettate / chiuse', $o['tasso_conversione'] === 50, $o);
+// Offerta registrata con una commessa (rapida) e lead perso senza offerta: fuori dalla conversione
+$pdo->exec("INSERT INTO {$p}offerte (data_offerta, stato, imponibile, origine) VALUES ('2026-08-01', 'accettata', 7000, 'rapida'), ('2026-08-02', 'rifiutata', 900, 'manuale')");
+$o2 = $ind->offerte(2026);
+check('conversione senza offerte rapide né lead persi', $o2['tasso_conversione'] === 50 && $o2['num_accettate'] === 2, $o2);
+$pdo->exec("DELETE FROM {$p}offerte WHERE data_offerta IN ('2026-08-01', '2026-08-02')");
 check('versioni sostituite non contate', $o['num_offerte'] === 5, $o);
 check('lead contati a parte', $o['num_lead'] === 1 && abs($o['valore_lead'] - 20000) < 0.01, $o);
 // 20000 × 10% (lead, predefinita) + 1500 × 30% (bozza, predefinita) + 5000 × 80% (inviata, sua)
@@ -110,7 +117,7 @@ foreach ([
     "CREATE TABLE {$p}trasferte (id INTEGER PRIMARY KEY, data_trasferta TEXT, cliente_id INT, sottocliente_id INT, mezzo_id INT,
         km_andata REAL DEFAULT 0, km_ritorno REAL DEFAULT 0, vitto REAL DEFAULT 0, alloggio REAL DEFAULT 0)",
     "CREATE TABLE {$p}mezzi (id INTEGER PRIMARY KEY, costo_km REAL)",
-    "CREATE TABLE {$p}spese (id INTEGER PRIMARY KEY, data TEXT, categoria TEXT, importo REAL, deleted_at TEXT)",
+    "CREATE TABLE {$p}spese (id INTEGER PRIMARY KEY, data TEXT, categoria TEXT, importo REAL, deleted_at TEXT, metodo TEXT DEFAULT 'contanti')",
 ] as $sql) $pdo->exec($sql);
 $pdo->exec("UPDATE {$p}offerte SET data_followup = '2026-09-20' WHERE stato = 'inviata'");
 $pdo->exec("INSERT INTO {$p}movimenti_banca (stato, abbinabile, origine, importo) VALUES
@@ -140,6 +147,10 @@ check('indennità dalle regole (piena + ridotta)', abs($tr['indennita'] - (46.48
 check('giornate senza cliente', $tr['num_giornate'] === 3 && $tr['num_senza_cliente'] === 1, $tr);
 check('spese dalla tabella spese, eliminate escluse', abs($tr['spese'] - 22.5) < 0.01, $tr);
 check('totale da rimborsare', abs($tr['da_rimborsare'] - (90 + 46.48 + 30.99 + 22.5)) < 0.01, $tr);
+$pdo->exec("UPDATE {$p}spese SET metodo = 'carta' WHERE categoria = 'pedaggio'");
+$trc = $ind->trasferte('2026-09-01', '2026-09-30', 0.5);
+check('spese con carta aziendale: rendicontate ma non rimborsate', abs($trc['spese'] - 22.5) < 0.01 && abs($trc['spese_aziendali'] - 7.5) < 0.01
+    && abs($trc['da_rimborsare'] - (90 + 46.48 + 30.99 + 15)) < 0.01, $trc);
 $pdo->exec("INSERT INTO {$p}mezzi (id, costo_km) VALUES (1, 0.8)");
 $pdo->exec("UPDATE {$p}trasferte SET mezzo_id = 1 WHERE data_trasferta = '2026-09-02'");
 check('costo ACI del mezzo al posto di quello generale', abs($ind->trasferte('2026-09-01', '2026-09-30', 0.5)['rimborso_km'] - (100 * 0.8 + 80 * 0.5)) < 0.01);
@@ -147,6 +158,23 @@ $t0 = $ind->trasferte('2026-09-01', '2026-09-30', null);
 check('senza costo generale: solo i km del mezzo con costo, gli altri segnalati', abs($t0['rimborso_km'] - 80) < 0.01 && $t0['km_senza_costo'] === true, $t0);
 $pdo->exec("UPDATE {$p}trasferte SET mezzo_id = NULL");
 check('nessun costo noto: rimborso km non calcolato', $ind->trasferte('2026-09-01', '2026-09-30', null)['rimborso_km'] === null);
+
+echo "Casi limite\n";
+// Nota di credito aperta che storna una fattura scaduta dello stesso cliente (stesso numero)
+$pdo->exec("INSERT INTO {$p}fatture (numero_fattura, data_emissione, cliente_id, imponibile, importo_totale, stato, data_scadenza) VALUES
+    ('50', '2026-05-01', 7, 1000, 1220, 'emessa', '2026-06-01'), ('50', '2026-05-20', 7, -1000, -1220, 'emessa', NULL)");
+$fn = $ind->fatture(2026, [], 7);
+check('nota di credito: documento a parte e scaduto azzerato', $fn['num_documenti'] === 2 && abs($fn['scaduto']) < 0.01 && abs($fn['da_incassare']) < 0.01, $fn);
+$pdo->exec("DELETE FROM {$p}fatture WHERE cliente_id = 7");
+// Commessa 2 da 2000 fatturata per intero senza aggancio alla rata: la rata non è più da fatturare
+$pdo->exec("INSERT INTO {$p}fatture (numero_fattura, data_emissione, cliente_id, incarico_id, imponibile, importo_totale, stato, data_scadenza) VALUES ('60', '2026-09-20', 2, 2, 2002, 2442.44, 'emessa', '2026-10-20')");
+check('rata di una commessa già fatturata esclusa', abs($ind->rateDaFatturare(120)['importo'] - 4000) < 0.01, $ind->rateDaFatturare(120));
+$pdo->exec("DELETE FROM {$p}fatture WHERE numero_fattura = '60'");
+// Ora legale: lunedì 29/03/2027 deve cadere nella sua settimana
+$pdo->exec("INSERT INTO {$p}fatture (numero_fattura, data_emissione, cliente_id, imponibile, importo_totale, stato, data_scadenza) VALUES ('70', '2027-03-01', 8, 100, 122, 'emessa', '2027-03-29')");
+date_default_timezone_set('Europe/Rome');
+$iaDst = (new Indicatori($pdo, $p, '2027-03-10'))->incassiAttesi(4);
+check('settimana giusta dopo il cambio dell\'ora', abs($iaDst['settimane'][3]['fatturate'] - 122) < 0.01 && $iaDst['settimane'][3]['dal'] === '2027-03-29', $iaDst['settimane']);
 
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);

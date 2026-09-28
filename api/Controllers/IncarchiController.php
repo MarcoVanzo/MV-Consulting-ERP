@@ -139,6 +139,10 @@ class IncarchiController {
                     . ' € ma l\'importo dell\'incarico è ' . number_format($fields['importo_totale'], 2, ',', '.')
                     . ' €: aggiorna il piano di fatturazione nella scheda commessa.';
             }
+            // L'offerta registrata insieme alla commessa ne segue importo e descrizione
+            $this->pdo->prepare("UPDATE {$p}offerte SET imponibile = ?, oggetto = COALESCE(?, oggetto), tipo_commessa = ?
+                WHERE incarico_id = ? AND origine = 'rapida'")
+                ->execute([$fields['importo_totale'], $fields['descrizione'] ? mb_substr($fields['descrizione'], 0, 255) : null, $fields['tipo_commessa'], $id]);
             $this->pdo->commit();
             $this->recalculate($id);
 
@@ -173,7 +177,10 @@ class IncarchiController {
         $p = $this->prefix;
         $this->pdo->beginTransaction();
         $this->pdo->prepare("UPDATE {$p}fatture SET incarico_id = NULL WHERE incarico_id = ?")->execute([$id]);
-        $this->pdo->prepare("UPDATE {$p}offerte SET stato = 'inviata', incarico_id = NULL, data_esito = NULL WHERE incarico_id = ?")->execute([$id]);
+        // L'offerta registrata insieme alla commessa (rapida) sparisce con lei; un'offerta vera torna aperta
+        $this->pdo->prepare("UPDATE {$p}offerte SET deleted_at = NOW(), incarico_id = NULL WHERE incarico_id = ? AND origine = 'rapida'")->execute([$id]);
+        $this->pdo->prepare("UPDATE {$p}offerte SET stato = CASE WHEN data_invio IS NULL THEN 'bozza' ELSE 'inviata' END,
+            incarico_id = NULL, data_esito = NULL WHERE incarico_id = ?")->execute([$id]);
         // I costi nati sull'offerta tornano all'offerta, gli altri spariscono con l'incarico (FK)
         $this->pdo->prepare("UPDATE {$p}commessa_costi SET incarico_id = NULL WHERE incarico_id = ? AND offerta_id IS NOT NULL")->execute([$id]);
         $this->pdo->prepare("DELETE FROM {$p}incarichi WHERE id = ?")->execute([$id]);

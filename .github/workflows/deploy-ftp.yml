@@ -79,9 +79,22 @@ jobs:
             .deploy_cache.json
             .deploy_history.log
 
+      # Le migrazioni partono subito dopo i file: il codice nuovo può usare tabelle e colonne nuove.
+      # Sono tutte additive, quindi compatibili anche col codice vecchio per i pochi secondi dell'FTP.
+      - name: Migrazioni del database
+        env:
+          KEY: ${{ secrets.DEPLOY_KEY }}
+          URL: https://www.mv-consulting.it/ERP/api/router.php?module=admin&action=migrate
+        run: |
+          if [ -z "$KEY" ]; then echo "::error::Secret DEPLOY_KEY non impostato: migrazioni non eseguite"; exit 1; fi
+          # Repository pubblico: nei log solo l'esito, non l'output completo
+          body=$(curl -sS --max-time 120 -X POST -H "X-Deploy-Key: $KEY" "$URL" || true)
+          echo "$body" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("message"), "- nuove:", (d.get("data") or {}).get("newly_applied")); sys.exit(0 if d.get("success") else 1)'
+
       - name: Controllo di salute
         run: |
           sleep 5
           body=$(curl -sS --max-time 30 https://www.mv-consulting.it/ERP/api/health.php || true)
+          # status ok = database raggiungibile e nessuna migrazione mancante (api/health.php)
           echo "$body" | grep -Eq '"status": *"ok"' || { echo "::error::Health check non ok: $body"; exit 1; }
           echo "Produzione ok"

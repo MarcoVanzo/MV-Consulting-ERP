@@ -108,7 +108,7 @@ const ModTrasferte = (() => {
         _trasferte.forEach(t => {
             const g = grouped[t.data_trasferta] ??= {
                 data: t.data_trasferta, mattina: [], pomeriggio: [], km_totali: 0,
-                vitto: 0, alloggio: 0, altre: 0, rimborso_km: 0, pernottamento: false, destinazioni: []
+                vitto: 0, alloggio: 0, altre: 0, aziendali: 0, rimborso_km: 0, pernottamento: false, destinazioni: []
             };
             if (t.pernottamento == 1 || t.pernottamento == true) g.pernottamento = true;
             const entry = { nome: t.sottocliente_nome || t.cliente_nome || '', id: t.id };
@@ -122,6 +122,7 @@ const ModTrasferte = (() => {
             g.vitto += parseFloat(t.vitto || 0);
             g.alloggio += parseFloat(t.alloggio || 0);
             g.altre += parseFloat(t.altre_spese || 0);
+            g.aziendali += parseFloat(t.spese_aziendali || 0);
             g.rimborso_km += rimborsoKmDi(t);
         });
         return Object.values(grouped);
@@ -131,7 +132,8 @@ const ModTrasferte = (() => {
         const totIndennita = parseFloat(_totali.indennita) || 0;
 
         const costoKmTotale = _trasferte.reduce((a, t) => a + rimborsoKmDi(t), 0);
-        const totaleComplessivo = (_totali.totale_spese || 0) + costoKmTotale + totIndennita;
+        const speseDaRimborsare = (_totali.totale_spese || 0) - (_totali.spese_aziendali || 0);
+        const totaleComplessivo = speseDaRimborsare + costoKmTotale + totIndennita;
 
         document.getElementById('trasferte-kpis').innerHTML = `
             <div class="kpi-card kpi-blue">
@@ -147,8 +149,8 @@ const ModTrasferte = (() => {
                 <div class="kpi-value">${UI.formatCurrency(costoKmTotale + totIndennita)}</div>
             </div>
             <div class="kpi-card kpi-red">
-                <div class="kpi-label">Spese</div>
-                <div class="kpi-value">${UI.formatCurrency(_totali.totale_spese)}</div>
+                <div class="kpi-label">Spese da rimborsare</div>
+                <div class="kpi-value">${UI.formatCurrency(speseDaRimborsare)}</div>
             </div>
         `;
     }
@@ -173,7 +175,8 @@ const ModTrasferte = (() => {
 
         tbody.innerHTML = rows.map(g => {
             const indennita = indennitaDi(g.data);
-            const spese = g.vitto + g.alloggio + g.altre;
+            // Le spese pagate dalla società (carta aziendale, bonifico) non si rimborsano
+            const spese = g.vitto + g.alloggio + g.altre - g.aziendali;
             const rimborsoTotale = g.rimborso_km + indennita + spese;
             const dataAttr = UI.esc(g.data);
 
@@ -184,7 +187,7 @@ const ModTrasferte = (() => {
                 <td class="td-primary">${cella(g.pomeriggio)}</td>
                 <td class="text-right">${UI.formatNumber(g.km_totali)}</td>
                 <td class="text-right">${UI.formatCurrency(indennita)}</td>
-                <td class="text-right fw-600" title="${spese ? 'Comprende ' + UI.esc(UI.formatCurrency(spese)) + ' di spese (scheda Spese)' : ''}">${UI.formatCurrency(rimborsoTotale)}</td>
+                <td class="text-right fw-600" title="${spese ? 'Comprende ' + UI.esc(UI.formatCurrency(spese)) + ' di spese da rimborsare (scheda Spese)' : ''}${g.aziendali ? ' · ' + UI.esc(UI.formatCurrency(g.aziendali)) + ' pagati dalla società' : ''}">${UI.formatCurrency(rimborsoTotale)}</td>
                 <td>
                     <div class="flex gap-2 justify-end" style="align-items: center;">
                         <button type="button" class="btn btn-sm ${g.pernottamento ? 'btn-primary' : 'btn-ghost'}" style="margin-right: 10px; display: flex; align-items: center; gap: 6px; ${g.pernottamento ? 'box-shadow: 0 0 8px var(--accent);' : ''}" title="Dormo fuori" onclick="ModTrasferte.togglePernottamento('${dataAttr}', ${!g.pernottamento}, this)">
@@ -194,7 +197,9 @@ const ModTrasferte = (() => {
                     </div>
                 </td>
             </tr>`;
-        }).join('');
+        }).join('') + (parseFloat(_totali.spese_fuori_giornata) > 0 ? `
+            <tr><td colspan="5" class="td-sub">Spese in giorni senza trasferta (es. treno o hotel del giorno prima): vedi la scheda Spese</td>
+                <td class="text-right fw-600">${UI.formatCurrency(_totali.spese_fuori_giornata)}</td><td></td></tr>` : '');
     }
 
     function getFormHtml(data = {}) {
@@ -560,7 +565,7 @@ const ModTrasferte = (() => {
         const tableRows = rows.map(g => {
             const indennita = indennitaDi(g.data);
             const rimborsoKm = g.rimborso_km;
-            const totaleRiga = rimborsoKm + indennita + g.vitto + g.alloggio + g.altre;
+            const totaleRiga = rimborsoKm + indennita + g.vitto + g.alloggio + g.altre - g.aziendali;
 
             totKm += g.km_totali;
             totIndennita += indennita;
@@ -652,23 +657,27 @@ const ModTrasferte = (() => {
         </thead>
         <tbody>
             ${tableRows}
+            ${parseFloat(_totali.spese_fuori_giornata) > 0 ? `<tr><td colspan="9">Spese in giorni senza trasferta (dettaglio sotto)</td>
+                <td class="num">${UI.formatCurrency(_totali.spese_fuori_giornata)}</td><td class="num tot">${UI.formatCurrency(_totali.spese_fuori_giornata)}</td></tr>` : ''}
             <tr class="footer-row">
-                <td colspan="4">TOTALE (${rows.length} giornate)</td>
+                <td colspan="4">DA RIMBORSARE (${rows.length} giornate)</td>
                 <td class="num">${totKm.toFixed(1)}</td>
                 <td class="num">${UI.formatCurrency(totRimborsoKm)}</td>
                 <td class="num">${UI.formatCurrency(totIndennita)}</td>
                 <td class="num">${UI.formatCurrency(totVitto)}</td>
                 <td class="num">${UI.formatCurrency(totAlloggio)}</td>
-                <td class="num">${UI.formatCurrency(totAltre)}</td>
-                <td class="num">${UI.formatCurrency(totTotale)}</td>
+                <td class="num">${UI.formatCurrency(totAltre + (parseFloat(_totali.spese_fuori_giornata) || 0))}</td>
+                <td class="num">${UI.formatCurrency(totTotale + (parseFloat(_totali.spese_fuori_giornata) || 0))}</td>
             </tr>
+            ${parseFloat(_totali.spese_aziendali) > 0 ? `<tr><td colspan="11">Vitto, alloggio e altre spese comprendono ${UI.formatCurrency(_totali.spese_aziendali)} pagati dalla società (carta aziendale, bonifico): esclusi dal totale da rimborsare</td></tr>` : ''}
         </tbody>
     </table>
     ${speseMese.length ? `<table>
-        <thead><tr><th>Data</th><th>Spesa</th><th>Esercente / descrizione</th><th>Pagamento</th><th>Giustificativo</th><th style="text-align:right">Importo</th></tr></thead>
+        <thead><tr><th>Data</th><th>Spesa</th><th>Esercente / descrizione</th><th>Pagamento</th><th>Giustificativo</th><th style="text-align:right">Importo</th><th style="text-align:right">Da rimborsare</th></tr></thead>
         <tbody>${speseMese.slice().reverse().map(sp => `<tr><td>${UI.formatDate(sp.data)}</td><td>${UI.esc(sp.categoria)}</td>
             <td>${UI.esc(sp.esercente || sp.descrizione || '—')}</td><td>${UI.esc(sp.metodo)}${sp.da_segnalare ? ' (non tracciabile)' : ''}</td>
-            <td>${sp.ha_documento ? 'allegato' : 'manca'}</td><td class="num">${UI.formatCurrency(sp.importo)}</td></tr>`).join('')}</tbody>
+            <td>${sp.ha_documento ? 'allegato' : 'manca'}</td><td class="num">${UI.formatCurrency(sp.importo)}</td>
+            <td class="num">${sp.rimborsabile ? UI.formatCurrency(sp.importo) : 'pagata dalla società'}</td></tr>`).join('')}</tbody>
     </table>` : ''}
     <div class="footer-note">Documento generato automaticamente da MV Consulting ERP</div>
 </body>

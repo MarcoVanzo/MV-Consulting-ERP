@@ -41,16 +41,20 @@ const ModImporta = (() => {
         if (UI.isModalOpen() && document.getElementById('imp-lista')) { aggiungi(files); return; }
         _voci = []; _fase = 'scelta';
         UI.openModal('Importa file', `
-            <label class="imp-drop" id="imp-drop" for="imp-input">
+            <label class="imp-drop" id="imp-drop" for="imp-input" tabindex="0" role="button">
                 <i class="ph ph-upload-simple"></i>
                 <strong>Trascina qui i file o tocca per sceglierli</strong>
                 <span>Fatture XML/p7m, estratti conto (XML, CSV, Excel, PDF), estratti carta, avvisi di pagamento,
                 lista fatture di Sistemi, lettere d'incarico, offerte, foto degli scontrini</span>
             </label>
-            <input type="file" id="imp-input" multiple class="hidden"
+            <input type="file" id="imp-input" multiple class="visually-hidden"
                 accept=".xml,.p7m,.csv,.xlsx,.pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp">
             <div id="imp-lista" class="imp-lista" aria-live="polite"></div>`, azione, { wide: true });
         const input = document.getElementById('imp-input');
+        // Da tastiera: Invio o spazio sulla zona aprono la scelta dei file
+        document.getElementById('imp-drop').addEventListener('keydown', e => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+        });
         input.addEventListener('change', e => { aggiungi([...e.target.files]); e.target.value = ''; });
         const drop = document.getElementById('imp-drop');
         ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('attivo'); }));
@@ -92,14 +96,15 @@ const ModImporta = (() => {
             return null;
         }
         v.pagine = await pagine(v.file);
+        // Criteri prudenti, dal più specifico: nel dubbio il tipo lo sceglie l'utente
         const t = v.pagine.join('\n').toLowerCase();
-        if (/numia|cartabcc|carta di credito|estratto conto carta/.test(t)) return 'estratto_carta';
+        if (/estratto conto carta|cartabcc|numia/.test(t) && /totale operazioni/.test(t)) return 'estratto_carta';
         if (/pagamento fornitore|avviso di pagamento|distinta di pagamento/.test(t)) return 'avviso';
         if (/lettera d.incarico|conferimento (dell.)?incarico|incarico professionale/.test(t)) return 'incarico';
         if (/estratto conto|saldo iniziale|saldo finale|elenco movimenti|lista movimenti/.test(t)) return 'estratto';
+        if (/fattura (n\.?|nr\.?|numero)|numero fattura|fattura elettronica|tipo documento/.test(t)) return 'fattura_pdf';
         if (/documento commerciale|scontrino|ricevuta fiscale|ricevuta di pagamento|pedaggio|biglietto/.test(t)) return 'scontrino';
-        if (/offerta|preventivo|proposta economica/.test(t)) return 'offerta';
-        if (/fattura/.test(t)) return 'fattura_pdf';
+        if (/preventivo|proposta economica|offerta economica|offerta n/.test(t)) return 'offerta';
         return null;
     }
 
@@ -183,7 +188,7 @@ const ModImporta = (() => {
     // ── Azioni ───────────────────────────────────────────
 
     async function azione() {
-        if (_fase === 'fatto') { UI.closeModal(); ricarica(); return; }
+        if (_fase === 'fatto') { UI.closeModal(); apriOfferta(); return; }
         const pronte = _voci.filter(v => v.tipo && !['errore', 'lettura', 'importato'].includes(v.stato));
         if (!pronte.length) throw new Error('Aggiungi almeno un file e scegline il tipo');
         if (_fase === 'scelta') {
@@ -193,8 +198,10 @@ const ModImporta = (() => {
             const daFare = pronte.filter(v => v.stato === 'ok' && v.tipo !== 'incarico');
             for (const v of daFare) await importa(v);
             _fase = 'fatto';
+            // La vista sotto si aggiorna subito, anche se poi si chiude la finestra con la X
+            ricarica();
             const incarico = pronte.find(v => v.tipo === 'incarico' && v.stato === 'ok');
-            if (incarico) { UI.closeModal(); ricarica(); ModIncarichi.importPdf(incarico.file); return; }
+            if (incarico) { UI.closeModal(); ModIncarichi.importPdf(incarico.file); return; }
         }
         aggiorna();
         // La modale rimette l'etichetta del pulsante a fine azione: si ridisegna subito dopo
@@ -269,7 +276,7 @@ const ModImporta = (() => {
             case 'scontrino': {
                 const sp = d.spesa || {};
                 righe.push(`${sp.categoria || 'Spesa'} di ${UI.formatCurrency(sp.importo)} del ${UI.formatDate(sp.data)}${sp.esercente ? ' · ' + sp.esercente : ''}`);
-                righe.push(`Pagata con ${sp.metodo || '—'}${sp.abbinata_carta ? ' · abbinata al movimento della carta' : ''}`);
+                righe.push(`Pagata con ${({ carta: 'carta aziendale', carta_personale: 'carta personale' })[sp.metodo] || sp.metodo || '—'}${sp.abbinata_carta ? ' · abbinata al movimento della carta' : ''}`);
                 avvisi.push(...(d.avvisi || []));
                 break;
             }
@@ -351,9 +358,14 @@ const ModImporta = (() => {
 
     /** Dopo l'import si aggiorna quello che è a schermo. */
     function ricarica() {
-        const offerta = _voci.find(v => v.offertaId);
         const vista = document.querySelector('.view-section.active')?.id.replace('view-', '');
         if (vista && window.apriVista) apriVista(vista, undefined, { storia: false });
+        if (window.ModClienti) ModClienti.load(); // gli import creano clienti e prospect
+    }
+
+    /** Offerta importata: si apre da controllare quando si chiude l'import. */
+    function apriOfferta() {
+        const offerta = _voci.find(v => v.offertaId);
         if (offerta && window.ModOfferte) ModOfferte.edit(offerta.offertaId);
     }
 
@@ -362,15 +374,18 @@ const ModImporta = (() => {
         let timer = null;
         const haFile = e => [...(e.dataTransfer?.types || [])].includes('Files');
         const dentro = () => !document.getElementById('app-shell')?.classList.contains('hidden');
+        // Un file trascinato su un campo file (allegati di offerte, spese, mezzi) o su un'altra finestra aperta
+        // va a quel campo, non all'importazione
+        const perAltri = e => e.target.closest?.('input[type=file]') || (UI.isModalOpen() && !document.getElementById('imp-lista'));
         document.addEventListener('dragover', e => {
-            if (!haFile(e) || !dentro()) return;
+            if (!haFile(e) || !dentro() || perAltri(e)) return;
             e.preventDefault();
             document.body.classList.add('trascina-file');
             clearTimeout(timer);
             timer = setTimeout(() => document.body.classList.remove('trascina-file'), 150);
         });
         document.addEventListener('drop', e => {
-            if (!haFile(e) || !dentro()) return;
+            if (!haFile(e) || !dentro() || perAltri(e)) return;
             if (e.target.closest?.('#imp-drop')) return;
             e.preventDefault();
             document.body.classList.remove('trascina-file');

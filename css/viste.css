@@ -122,15 +122,15 @@ button.nav-item { width: 100%; background: none; border: 0; font: inherit; color
   }
   .sidebar-header, .nav-section-label, .nav-importa { display: none !important; }
   .sidebar-nav { display: flex; flex-direction: row; padding: 0; gap: 0; overflow: visible; }
-  .sidebar .nav-item {
+  .sidebar-nav .nav-item {
     flex: 1 1 0; min-width: 0; flex-direction: column; justify-content: center; align-items: center;
     gap: 2px; padding: 8px 2px 6px; margin: 0; border-radius: 0; text-align: center;
   }
-  .sidebar .nav-item::before { display: none; }
-  .sidebar .nav-item i { font-size: 1.3rem; margin: 0; }
-  .sidebar .nav-item span { display: block !important; font-size: 0.62rem; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-  .sidebar .nav-item .nav-badge { position: absolute; margin: 0; transform: translate(14px, -10px); font-size: 0.6rem; padding: 1px 5px; }
-  .sidebar .nav-item { position: relative; }
+  .sidebar-nav .nav-item::before { display: none; }
+  .sidebar-nav .nav-item i { font-size: 1.3rem; margin: 0; }
+  .sidebar-nav .nav-item > span:not(.nav-badge) { display: block !important; font-size: 0.62rem; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .sidebar-nav .nav-item .nav-badge { display: inline-block; position: absolute; margin: 0; transform: translate(14px, -10px); font-size: 0.6rem; padding: 1px 5px; }
+  .sidebar-nav .nav-item { position: relative; }
   .sidebar-footer { flex: 0 0 auto; padding: 0; border: 0; display: flex; align-items: center; }
   .sidebar-user { padding: 8px 10px; }
   .sidebar-user > .ph-caret-up { display: none; }
@@ -145,8 +145,8 @@ button.nav-item { width: 100%; background: none; border: 0; font: inherit; color
   .vtabs { gap: 18px; }
 }
 @media (max-width: 380px) {
-  .sidebar .nav-item span[data-breve] { font-size: 0; }
-  .sidebar .nav-item span[data-breve]::after { content: attr(data-breve); font-size: 0.62rem; }
+  .sidebar-nav .nav-item span[data-breve] { font-size: 0; }
+  .sidebar-nav .nav-item span[data-breve]::after { content: attr(data-breve); font-size: 0.62rem; }
 }
 
 /* ── Vendite: lead e scheda cliente ── */
@@ -201,3 +201,9 @@ button.nav-item { width: 100%; background: none; border: 0; font: inherit; color
 .sp-carta h3 { font-size: 0.9rem; margin: 0; }
 .sp-carta select { width: auto; padding: 4px 8px; }
 @media (max-width: 700px) { .sp-totali { grid-template-columns: 1fr 1fr; } }
+
+/* Pulsante secondario (usato da più moduli, mancava nel foglio base) */
+.btn-secondary { background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border-hover); }
+.btn-secondary:hover { background: var(--bg-surface-hover); }
+/* Nascosto alla vista ma raggiungibile da tastiera e lettori di schermo */
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

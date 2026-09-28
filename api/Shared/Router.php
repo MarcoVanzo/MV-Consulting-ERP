@@ -105,7 +105,7 @@ class ApiRouter {
             if (($data['anteprima'] ?? '') === '1') {
                 require_once __DIR__ . '/Anteprima.php';
                 $gia = ArchivioImport::giaImportato($pdo, getenv('DB_PREFIX') ?: 'mv_', $module, $action, $data);
-                if ($gia) Avvisi::aggiungi('Questo file è già stato importato il ' . date('d/m/Y', strtotime($gia)) . ': quello che contiene risulterà già presente.');
+                if ($gia) Avvisi::aggiungi('Questo file è già stato caricato il ' . date('d/m/Y', strtotime($gia)) . ': se quell\'import era andato a buon fine, quello che contiene risulterà già presente.');
                 $esito = Anteprima::esegui($pdo, fn() => self::instrada($module, $action, $data, $isDeployKeyAuth));
                 Response::json(true, 'Anteprima', ['anteprima' => true, 'esito' => $esito]);
             }
@@ -158,6 +158,8 @@ class ApiRouter {
                 break;
             case 'spese':
                 require_once __DIR__ . '/../Controllers/SpeseController.php';
+                // Eliminare spese e chiudere o riaprire la nota spese: solo l'amministratore
+                if (in_array($action, ['delete', 'rimborso'], true)) Auth::richiediAdmin();
                 $sp = new SpeseController();
                 $id = $data['id'] ?? $_GET['id'] ?? 0;
                 match ($action) {
@@ -320,6 +322,8 @@ class ApiRouter {
             case 'nota_save':
             case 'nota_delete':
                 require_once __DIR__ . '/../Controllers/SchedaClienteController.php';
+                // Cancellazioni solo per l'amministratore, come nel resto dell'ERP
+                if (in_array($action, ['referente_delete', 'nota_delete'], true)) Auth::richiediAdmin();
                 $s = new SchedaClienteController();
                 $id = $data['id'] ?? $_GET['id'] ?? 0;
                 match ($action) {
@@ -485,8 +489,13 @@ class ApiRouter {
                 require_once __DIR__ . '/Classificatore.php';
                 $daClassificare = 0;
                 try { $daClassificare = (int)(new Classificatore($pdo, $prefix))->contaDaClassificare(); } catch (Throwable $e) { /* tabelle non migrate */ }
+                // Partner da pagare: stesso elenco dello scadenzario (i back-to-back aspettano l'incasso del cliente)
+                require_once __DIR__ . '/Scadenzario.php';
+                $partner = (new Scadenzario($pdo, $prefix))->calcola(7)['pagamenti_partner'];
+                $daFare = $ind->daFare(7);
+                $daFare['partner_da_pagare'] = ['num' => count($partner), 'importo' => round(array_sum(array_column($partner, 'importo_totale')), 2)];
                 Response::json(true, '', $ind->riepilogo(30) + [
-                    'da_fare' => $ind->daFare(7) + ['movimenti_da_classificare' => ['num' => $daClassificare]],
+                    'da_fare' => $daFare + ['movimenti_da_classificare' => ['num' => $daClassificare]],
                     'incassi_attesi' => $ind->incassiAttesi(12),
                     'trasferte' => $ind->trasferte(date('Y-m-01'), date('Y-m-t'), $costo === false || $costo === null ? null : (float)$costo),
                 ]);

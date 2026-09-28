@@ -40,6 +40,9 @@ class EstrattoTabellare
         'descrizione' => ['descrizione', 'descrizione operazione', 'causale', 'dettagli', 'dettaglio', 'operazione', 'descrizione estesa', 'causale descrizione'],
     ];
 
+    /** Un estratto conto non ha più di qualche decina di colonne: oltre si ignora (file malformati). */
+    private const MAX_COLONNE = 200;
+
     /** Righe di un CSV (separatore ; , o tab, riconosciuto da solo; BOM e codifica Windows gestiti). */
     public static function daCsv(string $testo): array
     {
@@ -69,7 +72,11 @@ class EstrattoTabellare
         foreach (ListaFattureParser::leggiXlsx($percorso) as $celle) {
             if (!$celle) continue;
             $out = [];
-            foreach ($celle as $col => $v) $out[self::indiceColonna((string)$col)] = trim((string)$v);
+            foreach ($celle as $col => $v) {
+                $i = self::indiceColonna((string)$col);
+                if ($i < self::MAX_COLONNE) $out[$i] = trim((string)$v);
+            }
+            if (!$out) continue;
             $max = max(array_keys($out));
             $riga = [];
             for ($i = 0; $i <= $max; $i++) $riga[] = $out[$i] ?? '';
@@ -88,7 +95,10 @@ class EstrattoTabellare
         [$iInt, $intestazione] = self::intestazione($righe);
         $proposta = self::mappaAutomatica($intestazione);
         $proposta['intestazione'] = $iInt;
-        $mappa = $mappa ?? $proposta;
+        $mappa = self::mappaValida($mappa, count($intestazione)) ?? $proposta;
+        // La riga d'intestazione è sempre quella trovata in questo file: la mappa salvata viene da un file
+        // della stessa banca con le stesse colonne, ma le righe di testata possono essere di più o di meno
+        $mappa['intestazione'] = $iInt;
         if (!self::mappaCompleta($mappa)) {
             throw new MappaturaRichiesta($intestazione, array_slice($righe, $iInt + 1, 3), $proposta);
         }
@@ -184,6 +194,26 @@ class EstrattoTabellare
         if ($dare === null && $avere === null) return null;
         // Dare = uscita (negativa) anche quando la banca la scrive già col meno
         return (float)($avere ?? 0) - abs((float)($dare ?? 0));
+    }
+
+    /** Mappa con soli indici interi dentro l'intestazione (descrizione anche come elenco), altrimenti null. */
+    private static function mappaValida(?array $m, int $colonne): ?array
+    {
+        if ($m === null) return null;
+        $ok = fn($v) => is_int($v) || (is_string($v) && ctype_digit($v));
+        $out = [];
+        foreach (['data_operazione', 'data_valuta', 'importo', 'dare', 'avere', 'descrizione'] as $k) {
+            $v = $m[$k] ?? null;
+            if ($v === null || $v === '') continue;
+            if ($k === 'descrizione' && is_array($v)) {
+                $v = array_values(array_filter(array_map('intval', array_filter($v, $ok)), fn($i) => $i >= 0 && $i < max($colonne, 1)));
+                if ($v) $out[$k] = $v;
+                continue;
+            }
+            if (!$ok($v) || (int)$v < 0 || (int)$v >= max($colonne, 1)) return null;
+            $out[$k] = (int)$v;
+        }
+        return $out;
     }
 
     private static function mappaCompleta(array $m): bool

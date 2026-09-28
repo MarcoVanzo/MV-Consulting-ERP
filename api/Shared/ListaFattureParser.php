@@ -33,6 +33,14 @@ class ListaFattureParser
         if (!class_exists('ZipArchive')) throw new RuntimeException('Il server non ha l\'estensione zip: impossibile leggere il file Excel');
         $zip = new ZipArchive();
         if ($zip->open($percorso) !== true) throw new RuntimeException('File non leggibile: serve un Excel .xlsx (il vecchio .xls va risalvato come .xlsx)');
+        // Un foglio decompresso oltre 30 MB non è un estratto né una lista fatture (e manderebbe il PHP fuori memoria)
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $st = $zip->statIndex($i);
+            if ($st && $st['size'] > 30 * 1024 * 1024) {
+                $zip->close();
+                throw new RuntimeException('File Excel troppo grande una volta aperto');
+            }
+        }
         try {
             $stringhe = [];
             $ss = $zip->getFromName('xl/sharedStrings.xml');

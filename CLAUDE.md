@@ -29,10 +29,12 @@ docker run --rm -v "$PWD":/app -w /app php:8.2-cli sh -c 'for t in tests/*_cli.p
 ```
 (`lista_fatture_cli.php` richiede l'estensione zip, assente nell'immagine base: in CI c'è.)
 
-Migrazioni DB: **mai automatiche**. Dopo il deploy, workflow manuale `migrazione.yml` (secret
-`DEPLOY_KEY`), oppure POST a `api/router.php?module=admin&action=migrate` con header `X-Deploy-Key`
-(`api/migrate.php` diretto è bloccato da `api/.htaccess`: 403). Si aggiungono query **solo in coda**
-all'array di `api/migrate.php`: la versione è la posizione.
+Migrazioni DB: partono **da sole a ogni deploy**, subito dopo l'FTP (step di `deploy-ftp.yml`, secret
+`DEPLOY_KEY`); il controllo di salute fallisce se ne resta qualcuna (`api/health.php` → `migrazioni_pendenti`).
+Per rilanciarle a mano: workflow `migrazione.yml`. L'elenco sta in `api/Shared/migrazioni.php` (lo usano
+`api/migrate.php` e `health.php`): si aggiunge **solo in coda**, la versione è la posizione. Devono essere
+**additive e ripetibili** (il codice vecchio gira ancora per qualche secondo; in CI `test.yml` le lancia due volte
+su MySQL 8 e la seconda non deve applicare niente).
 Backup: `.github/workflows/backup.yml` ogni notte; per migrazioni rischiose lancialo a mano prima.
 Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
 **Avvisami quando il deploy finisce** (`gh run watch`/`gh run list` in background).
@@ -65,6 +67,9 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   ambiguità), spesa da movimento. Rimborso km al costo ACI del mezzo (`mezzi.costo_km`, v084), altrimenti al costo
   generale. Nota spese mensile in `rimborsi` (v085): presentata congela i totali e blocca le modifiche finché non si
   riapre. Scontrini da «Importa file» (`spese/importa_scontrino`, Claude legge anche le foto). Prova: `php tests/spese_cli.php`.
+  **La carta dell'estratto è aziendale**: le spese con `metodo` carta o bonifico (`Spese::AZIENDALI`) si rendicontano
+  e riducono l'indennità, ma non entrano in `da_rimborsare`; per le spese di tasca propria c'è `carta_personale` (v086).
+  Un mese con nota presentata blocca spese, trasferte e mezzo finché non si riapre (`Spese::mesePresentato`).
 - **Importazione unica** (`js/modules/importa.js`): ogni pulsante `[data-importa]` e i file trascinati sulla
   finestra aprono la stessa finestra, che riconosce il tipo, chiede l'**anteprima** e poi importa. L'anteprima
   è l'import vero eseguito dentro una transazione annullata (`api/Shared/Anteprima.php`): le transazioni
@@ -91,7 +96,7 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
 - Documenti allegati in `storage/documenti/` con nome casuale, scaricabili solo dall'API autenticata.
 - Promemoria email: `.github/workflows/promemoria.yml` → router `module=cron&action=promemoria` con
   `X-Cron-Token` (`PROMEMORIA_CRON_TOKEN` nel `.env` del server e nei secret del repo).
-- Tabelle: migrazioni v047–v056 in `api/migrate.php`.
+- Tabelle: migrazioni v047–v056 in `api/Shared/migrazioni.php`.
 - Riconciliazione pagamenti (tab Contabilità → Riconciliazione): `api/Shared/Riconciliatore.php` + `EstrattoContoParser.php`
   (XML CBI, PDF di riserva), tabelle `movimenti_banca`/`riconciliazioni` (v057–v058). Prova: `php tests/riconciliazione_cli.php`.
 - Estratto carta di credito (Riconciliazione → «Estratto carta PDF», CartaBCC/Numia): `EstrattoContoParser::parseEstrattoCarta`,

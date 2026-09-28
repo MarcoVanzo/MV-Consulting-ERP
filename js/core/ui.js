@@ -31,7 +31,7 @@ const UI = (() => {
         _modalSaveCallback = onSave;
         // Ripristina i pulsanti del footer (qualche modulo li nasconde o rinomina)
         const saveBtn = document.getElementById('modal-save');
-        if (saveBtn) saveBtn.style.display = '';
+        if (saveBtn) { saveBtn.style.display = ''; saveBtn.innerHTML = opts.saveLabel || 'Salva'; }
         const cancelBtn = document.getElementById('modal-cancel');
         if (cancelBtn) cancelBtn.textContent = 'Annulla';
         if (opts.readOnly) {
@@ -295,6 +295,12 @@ const UI = (() => {
         _suScheda = onChange;
         document.querySelectorAll('.vtabs').forEach(barra => {
             const tabs = [...barra.querySelectorAll('.vtab')];
+            tabs.forEach(t => {
+                t.id = t.id || 'tab-' + t.dataset.pane;
+                t.setAttribute('aria-controls', t.dataset.pane);
+                t.tabIndex = t.classList.contains('active') ? 0 : -1;
+                document.getElementById(t.dataset.pane)?.setAttribute('aria-labelledby', t.id);
+            });
             tabs.forEach(t => t.addEventListener('click', () => mostraPane(t.dataset.pane, onChange)));
             // Frecce sinistra/destra tra le schede, come da pattern ARIA tablist
             barra.addEventListener('keydown', e => {

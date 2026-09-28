@@ -35,7 +35,7 @@ echo "Archivio\n";
 $xml = '<FatturaElettronica><Numero>1</Numero></FatturaElettronica>';
 $r1 = ArchivioImport::daRichiesta($pdo, $p, 'contabilita', 'import_xml', ['xml' => $xml, 'file_nome' => 'IT01_ABC.xml']);
 check('file XML archiviato', $r1 !== null && $r1['gia_importato'] === null, $r1);
-check('salvato col suo hash', is_file($tmp . hash('sha256', $xml) . '.xml'));
+check('salvato con nome neutro (.bin)', is_file($tmp . hash('sha256', $xml) . '.bin'));
 $r2 = ArchivioImport::daRichiesta($pdo, $p, 'contabilita', 'import_xml', ['xml' => $xml, 'file_nome' => 'copia.xml']);
 check('stesso file: riconosciuto come già importato', $r2 !== null && $r2['id'] === $r1['id'] && $r2['gia_importato'] !== null, $r2);
 check('contatore delle importazioni', (int)$pdo->query("SELECT volte FROM {$p}import_file")->fetchColumn() === 2);
@@ -43,7 +43,7 @@ check('azione che non è un import: niente', ArchivioImport::daRichiesta($pdo, $
 check('import senza file: niente', ArchivioImport::daRichiesta($pdo, $p, 'contabilita', 'import_pdf', ['pages' => ['testo']]) === null);
 $p7m = "\x30\x82\x01\x00firmato";
 $r3 = ArchivioImport::daRichiesta($pdo, $p, 'passive', 'import_xml', ['file_b64' => base64_encode($p7m), 'file_nome' => 'IT02.xml.p7m']);
-check('p7m in base64 decodificato e archiviato', $r3 !== null && is_file($tmp . hash('sha256', $p7m) . '.p7m'), $r3);
+check('p7m in base64 decodificato e archiviato', $r3 !== null && is_file($tmp . hash('sha256', $p7m) . '.bin'), $r3);
 $r4 = ArchivioImport::daRichiesta($pdo, $p, 'riconciliazione', 'import_estratto', ['xml' => '<Document/>', 'tipo' => 'carta', 'file_nome' => 'a.exe']);
 $t = $pdo->query("SELECT tipo, estensione FROM {$p}import_file WHERE id = " . (int)$r4['id'])->fetch();
 check('estratto carta con tipo proprio ed estensione non ammessa neutralizzata', $t['tipo'] === 'estratto_carta' && $t['estensione'] === 'bin', $t);

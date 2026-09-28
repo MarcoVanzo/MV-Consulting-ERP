@@ -56,6 +56,8 @@ class SpeseController
             Response::json(false, $e->getMessage());
         }
         if ($doc) $f['documento'] = $doc;
+        // Non più pagata con la carta aziendale: il movimento della carta torna libero
+        if ($f['metodo'] !== 'carta') $f['movimento_id'] = null;
         if ($id) {
             $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($f)));
             $this->pdo->prepare("UPDATE {$this->p}spese SET $sets WHERE id = ? AND deleted_at IS NULL")->execute(array_merge(array_values($f), [$id]));
@@ -84,7 +86,7 @@ class SpeseController
 
     public function documento($id): void
     {
-        $stmt = $this->pdo->prepare("SELECT documento, data FROM {$this->p}spese WHERE id = ?");
+        $stmt = $this->pdo->prepare("SELECT documento, data FROM {$this->p}spese WHERE id = ? AND deleted_at IS NULL");
         $stmt->execute([(int)$id]);
         $r = $stmt->fetch(PDO::FETCH_ASSOC);
         Documenti::invia($r['documento'] ?? null, 'giustificativo_' . ($r['data'] ?? ''));
@@ -93,6 +95,9 @@ class SpeseController
     /** Un'uscita della carta diventa spesa di trasferta. */
     public function daMovimento(array $data): void
     {
+        $stmt = $this->pdo->prepare("SELECT data_operazione FROM {$this->p}movimenti_banca WHERE id = ?");
+        $stmt->execute([(int)($data['movimento_id'] ?? 0)]);
+        $this->bloccaSePresentata((string)$stmt->fetchColumn(), 0);
         try {
             $id = (new Spese($this->pdo, $this->p))->daMovimento((int)($data['movimento_id'] ?? 0), (string)($data['categoria'] ?? 'altro'),
                 !empty($data['cliente_id']) ? (int)$data['cliente_id'] : null);
@@ -154,11 +159,14 @@ class SpeseController
         $azione = (string)($data['azione'] ?? '');
         $oggi = date('Y-m-d');
         if ($azione === 'presenta') {
+            $stmt = $this->pdo->prepare("SELECT stato FROM {$this->p}rimborsi WHERE mese = ?");
+            $stmt->execute([$mese]);
+            if ($stmt->fetchColumn()) Response::json(false, 'La nota spese è già presentata: per ricalcolarla riaprila');
             $t = (new Indicatori($this->pdo, $this->p))->trasferte($mese . '-01', date('Y-m-t', strtotime($mese . '-01')), $this->costoKm());
             $this->pdo->prepare("DELETE FROM {$this->p}rimborsi WHERE mese = ?")->execute([$mese]);
             $this->pdo->prepare("INSERT INTO {$this->p}rimborsi (mese, stato, km, importo_km, indennita, spese, totale, data_presentazione)
                 VALUES (?, 'presentata', ?, ?, ?, ?, ?, ?)")
-                ->execute([$mese, $t['km'], $t['rimborso_km'] ?? 0, $t['indennita'], $t['spese'], $t['da_rimborsare'], $oggi]);
+                ->execute([$mese, $t['km'], $t['rimborso_km'] ?? 0, $t['indennita'], $t['spese_da_rimborsare'], $t['da_rimborsare'], $oggi]);
         } elseif ($azione === 'rimborsata') {
             $d = (string)($data['data'] ?? '');
             $d = preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) ? $d : $oggi;
@@ -198,15 +206,15 @@ class SpeseController
     /** Una nota spese già presentata non cambia sotto i piedi: prima si riapre. */
     private function bloccaSePresentata(string $data, int $id): void
     {
-        $mesi = [substr($data, 0, 7)];
+        $date = [$data];
         if ($id) {
             $stmt = $this->pdo->prepare("SELECT data FROM {$this->p}spese WHERE id = ?");
             $stmt->execute([$id]);
-            if ($vecchia = $stmt->fetchColumn()) $mesi[] = substr((string)$vecchia, 0, 7);
+            if ($vecchia = $stmt->fetchColumn()) $date[] = (string)$vecchia;
         }
-        $stmt = $this->pdo->prepare("SELECT mese FROM {$this->p}rimborsi WHERE mese IN (" . implode(',', array_fill(0, count($mesi), '?')) . ")");
-        $stmt->execute($mesi);
-        if ($m = $stmt->fetchColumn()) Response::json(false, 'La nota spese di ' . substr((string)$m, 5, 2) . '/' . substr((string)$m, 0, 4) . ' è già presentata: riaprila per cambiare le spese');
+        if ($m = Spese::mesePresentato($this->pdo, $this->p, $date)) {
+            Response::json(false, "La nota spese di $m è già presentata: riaprila per cambiare le spese");
+        }
     }
 
     private function mese($v): string

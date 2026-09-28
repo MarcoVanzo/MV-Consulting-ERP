@@ -181,7 +181,7 @@ foreach ([
         created_at TEXT DEFAULT CURRENT_TIMESTAMP)",
 ] as $sql) $pdo->exec($sql);
 // Categorie iniziali: la stessa INSERT della migrazione v060 (INSERT IGNORE → sintassi SQLite)
-$src = (string)file_get_contents(__DIR__ . '/../api/migrate.php');
+$src = (string)file_get_contents(__DIR__ . '/../api/Shared/migrazioni.php');
 preg_match('/"(INSERT IGNORE INTO \{\$prefix\}categorie_movimento.*?)"/s', $src, $mSeed);
 $pdo->exec(str_replace(['INSERT IGNORE', '{$prefix}'], ['INSERT OR IGNORE', $p], $mSeed[1]));
 

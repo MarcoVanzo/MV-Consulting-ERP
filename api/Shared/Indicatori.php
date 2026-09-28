@@ -51,33 +51,50 @@ class Indicatori
     /**
      * Fatture emesse.
      * fatturato = imponibile · totale = IVA inclusa · incassato/da_incassare/scaduto = IVA inclusa (quello che paga il cliente)
+     * Documento = numero + cliente + anno + segno (una nota di credito con lo stesso numero è un altro documento).
+     * Lo scaduto di un cliente non supera mai quanto gli resta da incassare: una nota di credito aperta lo riduce.
      */
-    public function fatture(?int $anno = null, ?array $esclusi = null): array
+    public function fatture(?int $anno = null, ?array $esclusi = null, ?int $clienteId = null): array
     {
         $esclusi = $esclusi ?? $this->clientiEsclusi();
         [$where, $params] = $this->periodo('data_emissione', $anno);
         if ($esclusi) {
             $where .= ' AND COALESCE(cliente_id, 0) NOT IN (' . implode(',', array_map('intval', $esclusi)) . ')';
         }
+        if ($clienteId !== null) {
+            $where .= ' AND cliente_id = ?';
+            $params[] = $clienteId;
+        }
         $sql = "SELECT
                 COALESCE(SUM(imponibile), 0) AS fatturato,
                 COALESCE(SUM(totale), 0) AS totale,
                 COALESCE(SUM(incassato), 0) AS incassato,
                 COALESCE(SUM(aperto), 0) AS da_incassare,
-                COALESCE(SUM(scaduto), 0) AS scaduto,
-                COUNT(*) AS num_documenti,
-                COUNT(CASE WHEN aperto < 0.005 AND totale > 0 THEN 1 END) AS num_incassati,
-                COUNT(CASE WHEN aperto >= 0.005 THEN 1 END) AS num_da_incassare,
-                COUNT(CASE WHEN scaduto >= 0.005 THEN 1 END) AS num_scaduti
+                COALESCE(SUM(CASE WHEN scaduto > aperto THEN (CASE WHEN aperto > 0 THEN aperto ELSE 0 END) ELSE scaduto END), 0) AS scaduto,
+                COALESCE(SUM(num_documenti), 0) AS num_documenti,
+                COALESCE(SUM(num_incassati), 0) AS num_incassati,
+                COALESCE(SUM(num_da_incassare), 0) AS num_da_incassare,
+                COALESCE(SUM(CASE WHEN scaduto >= 0.005 AND aperto >= 0.005 THEN num_scaduti ELSE 0 END), 0) AS num_scaduti
             FROM (
-                SELECT SUM(imponibile) AS imponibile, SUM(importo_totale) AS totale,
-                    SUM(CASE WHEN stato = 'pagata' THEN importo_totale ELSE 0 END) AS incassato,
-                    SUM(CASE WHEN stato <> 'pagata' THEN importo_totale ELSE 0 END) AS aperto,
-                    SUM(CASE WHEN stato <> 'pagata' AND data_scadenza IS NOT NULL AND data_scadenza < ? THEN importo_totale ELSE 0 END) AS scaduto
-                FROM {$this->p}fatture
-                WHERE $where
-                GROUP BY numero_fattura, COALESCE(cliente_id, 0), SUBSTR(data_emissione, 1, 4)
-            ) d";
+                SELECT cli,
+                    SUM(imponibile) AS imponibile, SUM(totale) AS totale, SUM(incassato) AS incassato,
+                    SUM(aperto) AS aperto, SUM(scaduto) AS scaduto,
+                    COUNT(*) AS num_documenti,
+                    COUNT(CASE WHEN aperto < 0.005 AND totale > 0 THEN 1 END) AS num_incassati,
+                    COUNT(CASE WHEN aperto >= 0.005 THEN 1 END) AS num_da_incassare,
+                    COUNT(CASE WHEN scaduto >= 0.005 THEN 1 END) AS num_scaduti
+                FROM (
+                    SELECT COALESCE(cliente_id, 0) AS cli,
+                        SUM(imponibile) AS imponibile, SUM(importo_totale) AS totale,
+                        SUM(CASE WHEN stato = 'pagata' THEN importo_totale ELSE 0 END) AS incassato,
+                        SUM(CASE WHEN stato <> 'pagata' THEN importo_totale ELSE 0 END) AS aperto,
+                        SUM(CASE WHEN stato <> 'pagata' AND data_scadenza IS NOT NULL AND data_scadenza < ? THEN importo_totale ELSE 0 END) AS scaduto
+                    FROM {$this->p}fatture
+                    WHERE $where
+                    GROUP BY numero_fattura, COALESCE(cliente_id, 0), SUBSTR(data_emissione, 1, 4), CASE WHEN importo_totale < 0 THEN 1 ELSE 0 END
+                ) d
+                GROUP BY cli
+            ) c";
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute(array_merge([$this->oggi], $params));
         return $this->numeri($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
@@ -111,10 +128,20 @@ class Indicatori
     public function rateDaFatturare(int $giorni = 30): array
     {
         $limite = date('Y-m-d', strtotime($this->oggi . " +$giorni days"));
-        $stmt = $this->pdo->prepare("SELECT COALESCE(SUM(importo), 0) AS importo, COUNT(*) AS num_rate
-            FROM {$this->p}incarichi_rate WHERE fattura_id IS NULL AND (data_prevista IS NULL OR data_prevista <= ?)");
+        // Una commessa già coperta dalle fatture non ha più rate da fatturare, anche se la fattura non è
+        // stata agganciata a una rata (importo diverso: lo segnala CommessaService)
+        $stmt = $this->pdo->prepare("SELECT COALESCE(SUM(r.importo), 0) AS importo, COUNT(*) AS num_rate
+            FROM {$this->p}incarichi_rate r
+            WHERE r.fattura_id IS NULL AND (r.data_prevista IS NULL OR r.data_prevista <= ?) AND " . $this->rataAperta('r'));
         $stmt->execute([$limite]);
         return $this->numeri(($stmt->fetch(PDO::FETCH_ASSOC) ?: []) + ['giorni' => $giorni]);
+    }
+
+    /** Condizione SQL: la rata appartiene a una commessa non ancora fatturata per intero. */
+    private function rataAperta(string $alias): string
+    {
+        return "(SELECT i.importo_totale - COALESCE((SELECT SUM(f.imponibile) FROM {$this->p}fatture f WHERE f.incarico_id = i.id), 0)
+            FROM {$this->p}incarichi i WHERE i.id = $alias.incarico_id) >= 0.01";
     }
 
     /** Probabilità di chiusura predefinita per stato, se l'offerta non ne ha una sua (%). */
@@ -141,12 +168,16 @@ class Indicatori
                     ELSE " . self::PROBABILITA['inviata'] . " END) / 100.0 ELSE 0 END), 0) AS pipeline_pesata,
                 COALESCE(SUM(CASE WHEN stato = 'accettata' THEN imponibile ELSE 0 END), 0) AS accettato,
                 COUNT(CASE WHEN stato = 'accettata' THEN 1 END) AS num_accettate,
-                COUNT(CASE WHEN stato IN ('rifiutata', 'scaduta') THEN 1 END) AS num_perse
+                COUNT(CASE WHEN stato IN ('rifiutata', 'scaduta') THEN 1 END) AS num_perse,
+                COUNT(CASE WHEN stato = 'accettata' AND COALESCE(origine, '') <> 'rapida' THEN 1 END) AS num_accettate_da_offerta,
+                COUNT(CASE WHEN stato IN ('rifiutata', 'scaduta') AND data_invio IS NOT NULL THEN 1 END) AS num_perse_inviate
             FROM {$this->p}offerte WHERE deleted_at IS NULL AND $where");
         $stmt->execute($params);
         $k = $this->numeri($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
-        $chiuse = $k['num_accettate'] + $k['num_perse'];
-        $k['tasso_conversione'] = $chiuse > 0 ? (int)round($k['num_accettate'] / $chiuse * 100) : null;
+        // Conversione delle offerte davvero proposte: fuori le offerte registrate insieme a una commessa
+        // (origine rapida) e i lead persi prima di ricevere un'offerta
+        $chiuse = $k['num_accettate_da_offerta'] + $k['num_perse_inviate'];
+        $k['tasso_conversione'] = $chiuse > 0 ? (int)round($k['num_accettate_da_offerta'] / $chiuse * 100) : null;
         return $k;
     }
 
@@ -177,12 +208,13 @@ class Indicatori
         };
         $p = $this->p;
         return [
-            // Per documento: una fattura divisa tra sottoclienti conta una volta
-            'incassi_scaduti' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(t), 0) AS importo FROM (SELECT SUM(importo_totale) AS t
-                FROM {$p}fatture WHERE stato <> 'pagata' AND importo_totale > 0 AND data_scadenza IS NOT NULL AND data_scadenza < ?
-                GROUP BY numero_fattura, COALESCE(cliente_id, 0), SUBSTR(data_emissione, 1, 4)) d", [$this->oggi]),
-            'rate_da_fatturare' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(importo), 0) AS importo FROM {$p}incarichi_rate
-                WHERE fattura_id IS NULL AND (data_prevista IS NULL OR data_prevista <= ?)", [$limite]),
+            // Stessa definizione di fatture(): per documento, al netto delle note di credito del cliente
+            'incassi_scaduti' => (function () {
+                $f = $this->fatture(null, []);
+                return ['num' => $f['num_scaduti'], 'importo' => $f['scaduto']];
+            })(),
+            'rate_da_fatturare' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(r.importo), 0) AS importo FROM {$p}incarichi_rate r
+                WHERE r.fattura_id IS NULL AND (r.data_prevista IS NULL OR r.data_prevista <= ?) AND " . $this->rataAperta('r'), [$limite]),
             'partner_da_pagare' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(importo_totale), 0) AS importo FROM {$p}fatture_passive
                 WHERE stato = 'da_pagare' AND (data_scadenza IS NULL OR data_scadenza <= ?)", [$limite]),
             'offerte_da_ricontattare' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(imponibile), 0) AS importo FROM {$p}offerte
@@ -219,7 +251,8 @@ class Indicatori
         $metti = function (string $data, float $importo, string $tipo) use (&$out, $lunedi, $fine) {
             if ($data < $this->oggi) { $out['scaduto'][$tipo] += $importo; return; }
             if ($data > $fine) return;
-            $i = intdiv((int)((strtotime($data) - strtotime($lunedi)) / 86400), 7);
+            // Giorni di calendario (DateTime): con strtotime il giorno del cambio d'ora dura 23 ore
+            $i = intdiv((new DateTimeImmutable($lunedi))->diff(new DateTimeImmutable($data))->days, 7);
             if (isset($out['settimane'][$i])) $out['settimane'][$i][$tipo] += $importo;
         };
         $stmt = $this->pdo->prepare("SELECT data_scadenza, importo_totale FROM {$this->p}fatture
@@ -229,7 +262,7 @@ class Indicatori
         $stmt = $this->pdo->prepare("SELECT r.data_prevista, r.importo, r.giorni_pagamento, o.iva_percentuale
             FROM {$this->p}incarichi_rate r JOIN {$this->p}incarichi i ON i.id = r.incarico_id
             LEFT JOIN {$this->p}offerte o ON o.id = i.offerta_id
-            WHERE r.fattura_id IS NULL AND r.data_prevista IS NOT NULL");
+            WHERE r.fattura_id IS NULL AND r.data_prevista IS NOT NULL AND " . $this->rataAperta('r'));
         $stmt->execute();
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $incasso = date('Y-m-d', strtotime($r['data_prevista'] . ' +' . (int)($r['giorni_pagamento'] ?? 30) . ' days'));
@@ -245,8 +278,9 @@ class Indicatori
 
     /**
      * Trasferte del periodo: km, rimborso chilometrico (costo ACI del mezzo, altrimenti il costo al km
-     * generale), indennità (TrasferteRegole, con vitto e alloggio presi dalle spese), spese di ogni tipo;
-     * giornate senza cliente = da assegnare.
+     * generale), indennità (TrasferteRegole, con vitto e alloggio presi dalle spese: pagati dalla società o
+     * no, riducono l'indennità), spese. da_rimborsare = km + indennità + solo le spese pagate di tasca propria:
+     * quelle con carta aziendale o bonifico le ha già pagate la società. Giornate senza cliente = da assegnare.
      */
     public function trasferte(string $dal, string $al, ?float $costoKm): array
     {
@@ -270,6 +304,7 @@ class Indicatori
             $rimborsoKm += $k * $costo;
         }
         $totSpese = array_sum(array_map(fn($g) => $g['vitto'] + $g['alloggio'] + $g['altre'], $perGiorno));
+        $metodo = $spese->perMetodo($dal, $al);
         $giornate = TrasferteRegole::giornate($righe);
         $indennita = array_sum(array_column($giornate, 'indennita'));
         $rimborsoKm = $senzaCosto && $rimborsoKm == 0.0 ? null : round($rimborsoKm, 2);
@@ -283,7 +318,9 @@ class Indicatori
             'km_senza_costo' => $senzaCosto,
             'indennita' => round($indennita, 2),
             'spese' => round($totSpese, 2),
-            'da_rimborsare' => round(($rimborsoKm ?? 0) + $indennita + $totSpese, 2),
+            'spese_aziendali' => $metodo['aziendali'],
+            'spese_da_rimborsare' => $metodo['da_rimborsare'],
+            'da_rimborsare' => round(($rimborsoKm ?? 0) + $indennita + $metodo['da_rimborsare'], 2),
         ];
     }
 

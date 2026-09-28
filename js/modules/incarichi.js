@@ -179,7 +179,7 @@ const ModIncarichi = (() => {
     }
 
     async function importPdf(file) {
-        if (!file||file.type!=='application/pdf') { UI.toast('Seleziona un PDF valido','error'); return; }
+        if (!file || !(file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) { UI.toast('Seleziona un PDF valido','error'); return; }
         UI.toast('Lettura della lettera d\'incarico…');
         try {
             // Testo con pdf.js per il metodo a regole di riserva; il PDF intero va all'AI

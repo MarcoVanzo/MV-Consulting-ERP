@@ -85,14 +85,26 @@ check('spesa creata dal movimento', (float)$s6['importo'] === 42.0 && $s6['metod
 try { $sp->daMovimento(6, 'vitto'); check('stesso movimento due volte: rifiutato', false); }
 catch (RuntimeException $e) { check('stesso movimento due volte: rifiutato', true); }
 
+// Ambiguità dal lato del movimento: due spese uguali vicine e una sola uscita della carta
+$pdo->exec("INSERT INTO {$p}spese (id, data, categoria, importo, metodo) VALUES (90, '2026-09-10', 'parcheggio', 25, 'carta'), (91, '2026-09-12', 'parcheggio', 25, 'carta')");
+$pdo->exec("INSERT INTO {$p}movimenti_banca (id, origine, importo, data_operazione, descrizione) VALUES (9, 'estratto_carta', -25, '2026-09-11', 'PARCHEGGIO')");
+$sp->abbinaCarta();
+check('due spese candidate per la stessa uscita: nessun abbinamento', $pdo->query("SELECT COUNT(*) FROM {$p}spese WHERE movimento_id = 9")->fetchColumn() == 0);
+$pdo->exec("DELETE FROM {$p}spese WHERE id IN (90, 91)");
+$pdo->exec("DELETE FROM {$p}movimenti_banca WHERE id = 9");
+
 echo "Nota spese del mese\n";
 $pdo->exec("INSERT INTO {$p}settings VALUES ('trasferte_costo_km', '0.5')");
 $pdo->exec("INSERT INTO {$p}trasferte (data_trasferta, cliente_id, km_andata, km_ritorno) VALUES ('2026-09-03', 1, 40, 40)");
 $c = new SpeseController($pdo, $p);
 $r = risposta(fn() => $c->rimborso(['mese' => '2026-09', 'azione' => 'presenta']));
 $rb = $pdo->query("SELECT * FROM {$p}rimborsi WHERE mese = '2026-09'")->fetch();
-// km 80 × 0,5 = 40; indennità 30,99 (vitto rimborsato); spese 22,5 + 7,2 + 95 + 22 + 42 = 188,7
-check('presentata con i totali congelati', $r['success'] && abs($rb['importo_km'] - 40) < 0.01 && abs($rb['indennita'] - 30.99) < 0.01 && abs($rb['spese'] - 188.7) < 0.01, $rb);
+// km 80 × 0,5 = 40; indennità 30,99 (vitto pagato: riduce l'indennità anche se con carta aziendale);
+// da rimborsare solo le spese pagate di tasca propria: 4 (vitto in contanti) + 22 (taxi) = 26
+check('presentata con i totali congelati', $r['success'] && abs($rb['importo_km'] - 40) < 0.01 && abs($rb['indennita'] - 30.99) < 0.01
+    && abs($rb['spese'] - 26) < 0.01 && abs($rb['totale'] - 96.99) < 0.01, $rb);
+check('ripresentare senza riaprire: rifiutato', risposta(fn() => $c->rimborso(['mese' => '2026-09', 'azione' => 'presenta']))['success'] === false);
+check('spesa dalla carta in un mese presentato: bloccata', risposta(fn() => $c->daMovimento(['movimento_id' => 4, 'categoria' => 'alloggio']))['success'] === false);
 $r = risposta(fn() => $c->save(['data' => '2026-09-12', 'categoria' => 'parcheggio', 'importo' => '3,50', 'metodo' => 'carta']));
 check('spesa in un mese presentato: bloccata', $r['success'] === false && str_contains($r['message'], '09/2026 è già presentata'), $r);
 check('rimborsata con data', risposta(fn() => $c->rimborso(['mese' => '2026-09', 'azione' => 'rimborsata', 'data' => '2026-10-05']))['success']

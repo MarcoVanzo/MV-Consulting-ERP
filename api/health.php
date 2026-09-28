@@ -29,8 +29,22 @@ try {
 }
 
 $checks['disk'] = is_writable(__DIR__ . '/../storage') ? 'ok' : 'warning';
+$checks['php'] = PHP_VERSION;
 
-$allOk = ($checks['php'] === 'ok' && ($checks['database'] ?? '') === 'ok');
+// Migrazioni mancanti: il codice nuovo può usare tabelle e colonne che non ci sono ancora
+if (($checks['database'] ?? '') === 'ok') {
+    try {
+        $prefix = getenv('DB_PREFIX') ?: 'mv_';
+        $attese = count(require __DIR__ . '/Shared/migrazioni.php');
+        $applicate = (int)$pdo->query("SELECT COUNT(*) FROM `{$prefix}migrations`")->fetchColumn();
+        $checks['migrazioni_pendenti'] = max(0, $attese - $applicate);
+    } catch (Throwable $e) {
+        $checks['migrazioni_pendenti'] = -1;
+        error_log('health migrazioni: ' . $e->getMessage());
+    }
+}
+
+$allOk = (($checks['database'] ?? '') === 'ok') && (($checks['migrazioni_pendenti'] ?? 0) === 0);
 $latency = round((microtime(true) - $start) * 1000);
 
 echo json_encode([

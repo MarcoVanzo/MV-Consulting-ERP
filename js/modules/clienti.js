@@ -176,10 +176,11 @@ const ModClienti = (() => {
         setTimeout(() => initVatLookup(false), 100);
     }
 
-    function edit(id) {
+    /** dopo: da chiamare dopo il salvataggio (es. per tornare alla scheda cliente). */
+    function edit(id, dopo = null) {
         const c = _clienti.find(x => x.id == id);
         if (!c) return;
-        UI.openModal('Modifica Cliente', getFormHtml(c), saveFromForm);
+        UI.openModal('Modifica Cliente', getFormHtml(c), () => saveFromForm(dopo));
         setTimeout(() => initVatLookup(false), 100);
     }
 
@@ -220,7 +221,7 @@ const ModClienti = (() => {
         });
     }
 
-    async function saveFromForm() {
+    async function saveFromForm(dopo = null) {
         const payload = {
             id: document.getElementById('f-cliente-id').value || undefined,
             ragione_sociale: document.getElementById('f-ragione-sociale').value,
@@ -241,7 +242,8 @@ const ModClienti = (() => {
             await Store.api('save', 'clienti', payload);
             UI.closeModal();
             UI.toast(payload.id ? 'Cliente aggiornato' : 'Cliente creato');
-            load();
+            await load();
+            if (typeof dopo === 'function') dopo();
         } catch (err) {
             UI.toast(err.message, 'error');
         }

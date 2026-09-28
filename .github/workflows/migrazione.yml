@@ -1,7 +1,7 @@
 name: Migrazione DB
 
 # Lancio manuale (Actions → Migrazione DB → Run workflow) dopo un deploy che aggiunge
-# migrazioni in api/migrate.php. Serve il secret DEPLOY_KEY, uguale a quello nel .env del server.
+# migrazioni in api/Shared/migrazioni.php (di norma le lancia già deploy-ftp.yml). Serve il secret DEPLOY_KEY, uguale a quello nel .env del server.
 # Il backup notturno copre la notte precedente: per migrazioni rischiose lancia prima «Backup notturno ERP».
 
 on:
