@@ -19,10 +19,12 @@ const ModImporta = (() => {
         fattura_pdf: { nome: 'Fattura PDF (lettura approssimativa)', icona: 'ph-file-pdf' },
         incarico: { nome: "Lettera d'incarico", icona: 'ph-file-text' },
         offerta: { nome: 'Offerta o preventivo', icona: 'ph-file-doc' },
+        scontrino: { nome: 'Scontrino o ricevuta di una spesa', icona: 'ph-receipt' },
     };
     const PER_ESTENSIONE = {
         xml: ['fattura', 'estratto'], p7m: ['fattura'], csv: ['estratto'], xlsx: ['lista_fatture', 'estratto'],
-        pdf: ['estratto', 'estratto_carta', 'avviso', 'fattura_pdf', 'incarico', 'offerta'],
+        pdf: ['estratto', 'estratto_carta', 'avviso', 'fattura_pdf', 'incarico', 'offerta', 'scontrino'],
+        jpg: ['scontrino'], jpeg: ['scontrino'], png: ['scontrino'], webp: ['scontrino'],
         docx: ['offerta'], txt: ['offerta'], md: ['offerta'],
     };
     const METODI = { cbi: 'XML CBI/camt', tabella: 'tabella CSV/Excel', ai: 'PDF con lettura AI', regole: 'PDF a regole', carta: 'estratto carta' };
@@ -43,10 +45,10 @@ const ModImporta = (() => {
                 <i class="ph ph-upload-simple"></i>
                 <strong>Trascina qui i file o tocca per sceglierli</strong>
                 <span>Fatture XML/p7m, estratti conto (XML, CSV, Excel, PDF), estratti carta, avvisi di pagamento,
-                lista fatture di Sistemi, lettere d'incarico, offerte</span>
+                lista fatture di Sistemi, lettere d'incarico, offerte, foto degli scontrini</span>
             </label>
             <input type="file" id="imp-input" multiple class="hidden"
-                accept=".xml,.p7m,.csv,.xlsx,.pdf,.docx,.txt,.md">
+                accept=".xml,.p7m,.csv,.xlsx,.pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp">
             <div id="imp-lista" class="imp-lista" aria-live="polite"></div>`, azione, { wide: true });
         const input = document.getElementById('imp-input');
         input.addEventListener('change', e => { aggiungi([...e.target.files]); e.target.value = ''; });
@@ -80,6 +82,7 @@ const ModImporta = (() => {
         const nome = v.file.name.toLowerCase();
         if (v.ext === 'p7m') return 'fattura';
         if (v.ext === 'csv') return 'estratto';
+        if (['jpg', 'jpeg', 'png', 'webp'].includes(v.ext)) return 'scontrino';
         if (['docx', 'txt', 'md'].includes(v.ext)) return 'offerta';
         if (v.ext === 'xlsx') return /estratt|moviment|conto|banca/.test(nome) ? 'estratto' : 'lista_fatture';
         if (v.ext === 'xml') {
@@ -94,6 +97,7 @@ const ModImporta = (() => {
         if (/pagamento fornitore|avviso di pagamento|distinta di pagamento/.test(t)) return 'avviso';
         if (/lettera d.incarico|conferimento (dell.)?incarico|incarico professionale/.test(t)) return 'incarico';
         if (/estratto conto|saldo iniziale|saldo finale|elenco movimenti|lista movimenti/.test(t)) return 'estratto';
+        if (/documento commerciale|scontrino|ricevuta fiscale|ricevuta di pagamento|pedaggio|biglietto/.test(t)) return 'scontrino';
         if (/offerta|preventivo|proposta economica/.test(t)) return 'offerta';
         if (/fattura/.test(t)) return 'fattura_pdf';
         return null;
@@ -161,6 +165,10 @@ const ModImporta = (() => {
                 break;
             case 'offerta':
                 module = 'offerte'; action = 'importa';
+                fd.append('file', v.file);
+                break;
+            case 'scontrino':
+                module = 'spese'; action = 'importa_scontrino';
                 fd.append('file', v.file);
                 break;
             default:
@@ -258,6 +266,13 @@ const ModImporta = (() => {
                 righe.push('Offerta in bozza, da controllare');
                 avvisi.push(...(d.avvisi || []));
                 break;
+            case 'scontrino': {
+                const sp = d.spesa || {};
+                righe.push(`${sp.categoria || 'Spesa'} di ${UI.formatCurrency(sp.importo)} del ${UI.formatDate(sp.data)}${sp.esercente ? ' · ' + sp.esercente : ''}`);
+                righe.push(`Pagata con ${sp.metodo || '—'}${sp.abbinata_carta ? ' · abbinata al movimento della carta' : ''}`);
+                avvisi.push(...(d.avvisi || []));
+                break;
+            }
         }
         return { righe, avvisi: avvisi.filter(Boolean).map(a => typeof a === 'string' ? a : (a.html ? a.html.replace(/<[^>]+>/g, '') : JSON.stringify(a))) };
     }

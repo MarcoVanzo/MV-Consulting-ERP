@@ -27,7 +27,7 @@ class ClaudeClient
      * Invia un documento (PDF in base64 oppure testo) con un'istruzione e restituisce
      * l'oggetto JSON prodotto dal modello, già validato dall'API contro $schema.
      *
-     * @param array{pdf_base64?: string, text?: string} $document
+     * @param array{pdf_base64?: string, image_base64?: string, media_type?: string, text?: string} $document
      * @throws RuntimeException se la chiamata fallisce o il modello non risponde col JSON atteso
      */
     public static function extractJson(string $system, string $instruction, array $document, array $schema): array
@@ -42,6 +42,13 @@ class ClaudeClient
             $content[] = [
                 'type' => 'document',
                 'source' => ['type' => 'base64', 'media_type' => 'application/pdf', 'data' => $document['pdf_base64']],
+            ];
+        } elseif (!empty($document['image_base64'])) {
+            // Foto di scontrini e ricevute: JPEG, PNG, WebP o GIF
+            $media = in_array($document['media_type'] ?? '', ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true) ? $document['media_type'] : 'image/jpeg';
+            $content[] = [
+                'type' => 'image',
+                'source' => ['type' => 'base64', 'media_type' => $media, 'data' => $document['image_base64']],
             ];
         } elseif (isset($document['text']) && trim($document['text']) !== '') {
             $content[] = ['type' => 'text', 'text' => "<documento>\n" . $document['text'] . "\n</documento>"];

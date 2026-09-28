@@ -93,18 +93,26 @@ class MezziController {
         }
     }
 
+    /** Costo €/km ACI: vuoto = vale il costo generale delle trasferte. */
+    private function costoKm($v): ?float {
+        if ($v === null || $v === '' || !is_numeric($v)) return null;
+        $v = round((float)$v, 4);
+        return $v > 0 && $v < 10 ? $v : null;
+    }
+
     public function createVehicle($data) {
         if (!$data || empty($data['nome']) || empty($data['targa'])) {
             Response::json(false, "Nome e Targa obbligatori");
         }
 
         try {
-            $sql = "INSERT INTO {$this->prefix}mezzi (nome, targa, capacita, stato, scadenza_assicurazione, scadenza_bollo, note) VALUES (?, ?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO {$this->prefix}mezzi (nome, targa, costo_km, modello_aci, stato, scadenza_assicurazione, scadenza_bollo, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute([
                 $data['nome'],
                 $data['targa'],
-                $data['capacita'] ?? 9,
+                $this->costoKm($data['costo_km'] ?? null),
+                trim((string)($data['modello_aci'] ?? '')) ?: null,
                 $data['stato'] ?? 'attivo',
                 $data['scadenza_assicurazione'] ?? null,
                 $data['scadenza_bollo'] ?? null,
@@ -126,12 +134,13 @@ class MezziController {
         }
 
         try {
-            $sql = "UPDATE {$this->prefix}mezzi SET nome=?, targa=?, capacita=?, stato=?, scadenza_assicurazione=?, scadenza_bollo=?, note=? WHERE id=?";
+            $sql = "UPDATE {$this->prefix}mezzi SET nome=?, targa=?, costo_km=?, modello_aci=?, stato=?, scadenza_assicurazione=?, scadenza_bollo=?, note=? WHERE id=?";
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute([
                 $data['nome'],
                 $data['targa'],
-                $data['capacita'] ?? 9,
+                $this->costoKm($data['costo_km'] ?? null),
+                trim((string)($data['modello_aci'] ?? '')) ?: null,
                 $data['stato'] ?? 'attivo',
                 $data['scadenza_assicurazione'] ?? null,
                 $data['scadenza_bollo'] ?? null,

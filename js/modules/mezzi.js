@@ -137,9 +137,9 @@ const ModMezzi = (() => {
                                     </div>
                                     
                                     <div class="vehicle-metrics">
-                                        <div class="v-metric" title="Posti a sedere">
-                                            <i class="ph ph-users"></i>
-                                            <span>${UI.esc(v.capacita || 9)} Posti</span>
+                                        <div class="v-metric" title="Costo chilometrico ACI">
+                                            <i class="ph ph-gas-pump"></i>
+                                            <span>${v.costo_km ? UI.esc(parseFloat(v.costo_km).toLocaleString('it-IT', { maximumFractionDigits: 4 })) + ' €/km' : 'costo €/km generale'}</span>
                                         </div>
                                         <div class="v-metric">
                                             <i class="ph ph-calendar-check"></i>
@@ -178,8 +178,12 @@ const ModMezzi = (() => {
                     <input type="text" class="form-control" id="m-targa" value="${mezzo ? UI.esc(mezzo.targa) : ''}" style="text-transform:uppercase;">
                 </div>
                 <div class="form-group">
-                    <label>Capacità (Posti)</label>
-                    <input type="number" class="form-control" id="m-cap" value="${UI.esc(mezzo ? mezzo.capacita : 9)}" min="1">
+                    <label for="m-aci">Modello (tabelle ACI)</label>
+                    <input type="text" class="form-control" id="m-aci" value="${UI.esc(mezzo?.modello_aci || '')}" placeholder="es. Fiat Tipo 1.6 Multijet">
+                </div>
+                <div class="form-group">
+                    <label for="m-costo">Costo €/km (ACI)</label>
+                    <input type="number" class="form-control" id="m-costo" step="0.0001" min="0" value="${UI.esc(mezzo?.costo_km ?? '')}" placeholder="vuoto = costo generale">
                 </div>
                 <div class="form-group">
                     <label>Stato</label>
@@ -221,7 +225,8 @@ const ModMezzi = (() => {
             const payload = {
                 id: mezzo?.id,
                 nome, targa,
-                capacita: document.getElementById('m-cap').value,
+                modello_aci: document.getElementById('m-aci').value || null,
+                costo_km: document.getElementById('m-costo').value,
                 stato: document.getElementById('m-stato').value,
                 scadenza_assicurazione: document.getElementById('m-ass').value || null,
                 scadenza_bollo: document.getElementById('m-bollo').value || null,
@@ -357,8 +362,10 @@ const ModMezzi = (() => {
             <div class="info-grid">
                 <div class="info-card">
                     <h3 style="margin-top:0; margin-bottom:24px; color:var(--accent-primary);">Dettagli Tecnici</h3>
-                    <div class="info-lbl">Capacità</div>
-                    <div class="info-val">${UI.esc(v.capacita)} Posti</div>
+                    <div class="info-lbl">Modello ACI</div>
+                    <div class="info-val">${UI.esc(v.modello_aci || '—')}</div>
+                    <div class="info-lbl">Rimborso chilometrico</div>
+                    <div class="info-val">${v.costo_km ? UI.esc(parseFloat(v.costo_km).toLocaleString('it-IT', { maximumFractionDigits: 4 })) + ' €/km' : 'costo €/km generale'}</div>
                     <div class="info-lbl">Note Aggiuntive</div>
                     <div class="info-val" style="color:var(--text-muted); font-weight:normal;">${v.note ? UI.esc(v.note).replace(/\n/g, '<br>') : '—'}</div>
                 </div>

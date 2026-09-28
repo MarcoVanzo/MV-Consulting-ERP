@@ -59,6 +59,12 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   `SchedaClienteController`): referenti (v080), note datate (`attivita`, v081) e storico che unisce le note agli
   eventi di offerte, commesse e fatture senza duplicarli. Prova: `php tests/vendite_cli.php`.
   Attenzione agli alias SQL: `lead` è riservato in MySQL 8 (SQLite dei test non se ne accorge).
+- **Note spese** (dal 28/09/2026): tutte le spese di trasferta stanno in `spese` (v082; vitto e alloggio delle
+  trasferte migrati da v083, le colonne `trasferte.vitto/alloggio` non si usano più). `api/Shared/Spese.php`: spese
+  per giorno messe sulle righe di trasferta (indennità), abbinamento alla carta (stesso importo, ±3 giorni, solo senza
+  ambiguità), spesa da movimento. Rimborso km al costo ACI del mezzo (`mezzi.costo_km`, v084), altrimenti al costo
+  generale. Nota spese mensile in `rimborsi` (v085): presentata congela i totali e blocca le modifiche finché non si
+  riapre. Scontrini da «Importa file» (`spese/importa_scontrino`, Claude legge anche le foto). Prova: `php tests/spese_cli.php`.
 - **Importazione unica** (`js/modules/importa.js`): ogni pulsante `[data-importa]` e i file trascinati sulla
   finestra aprono la stessa finestra, che riconosce il tipo, chiede l'**anteprima** e poi importa. L'anteprima
   è l'import vero eseguito dentro una transazione annullata (`api/Shared/Anteprima.php`): le transazioni

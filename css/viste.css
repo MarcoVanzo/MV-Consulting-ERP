@@ -184,3 +184,20 @@ button.nav-item { width: 100%; background: none; border: 0; font: inherit; color
   .sc-lista li { flex-wrap: wrap; }
   .sc-storico li { grid-template-columns: 72px 18px 1fr auto; }
 }
+
+/* ── Note spese ── */
+.sp-mese { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-secondary); }
+.sp-mese input { width: auto; }
+.sp-nota { margin-bottom: 14px; }
+.sp-nota-testa { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sp-nota-testa h2 { text-transform: none; }
+.sp-totali { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.sp-totali > div { background: var(--bg-surface); border-radius: var(--radius-sm); padding: 10px 12px; display: grid; gap: 2px; }
+.sp-totali b { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.sp-totali span { font-size: 0.75rem; color: var(--text-muted); }
+.sp-azioni { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sp-avvisi { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.sp-carta { margin-top: 18px; display: grid; gap: 8px; }
+.sp-carta h3 { font-size: 0.9rem; margin: 0; }
+.sp-carta select { width: auto; padding: 4px 8px; }
+@media (max-width: 700px) { .sp-totali { grid-template-columns: 1fr 1fr; } }

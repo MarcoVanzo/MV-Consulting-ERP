@@ -86,6 +86,7 @@ const ModOggi = (() => {
             ['giallo', df.movimenti_da_abbinare?.num, n => `Abbinare ${UI.plurale(n, 'movimento bancario', 'movimenti bancari')}`, null, 'banca/tab-riconciliazione'],
             ['blu', df.movimenti_da_classificare?.num, n => `Classificare ${UI.plurale(n, 'movimento', 'movimenti')}`, null, 'banca/tab-classificare'],
             ['grigio', t.num_senza_cliente, n => `Assegnare ${UI.plurale(n, 'giornata', 'giornate')} di trasferta a un cliente`, null, 'trasferte/trasferte-viaggi'],
+            ['grigio', df.spese_senza_giustificativo?.num, n => `Allegare il giustificativo a ${UI.plurale(n, 'spesa', 'spese')}`, df.spese_senza_giustificativo?.importo, 'trasferte/trasferte-spese'],
         ].filter(v => (v[1] || 0) > 0);
         if (!voci.length) return '<p class="oggi-vuoto"><i class="ph ph-check-circle"></i> Niente in sospeso</p>';
         return `<ul class="oggi-dafare">${voci.map(([col, n, testo, imp, vai]) => `

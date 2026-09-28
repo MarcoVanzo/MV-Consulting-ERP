@@ -95,7 +95,7 @@ function initApplication(userData) {
         vendite:     { 'comm-offerte': () => ModOfferte.load(), 'tab-incarichi': () => ModIncarichi.load(), 'comm-margini': () => ModCommessa.loadMargini() },
         incassi:     { 'tab-fatture': () => ModContabilita.load(), 'inc-ricevute': () => ModPartner.loadPassive() },
         banca:       { 'tab-riconciliazione': () => ModRiconciliazione.load(), 'tab-classificare': () => ModMovimenti.loadCoda(), 'tab-andamento': () => ModAndamento.load() },
-        trasferte:   { 'trasferte-viaggi': () => ModTrasferte.load({ refreshMezzi: true }), 'trasferte-mezzi': () => ModMezzi.init() },
+        trasferte:   { 'trasferte-viaggi': () => ModTrasferte.load({ refreshMezzi: true }), 'trasferte-spese': () => ModSpese.load(), 'trasferte-mezzi': () => ModMezzi.init() },
         anagrafiche: { 'anag-clienti': () => ModClienti.load(), 'anag-fornitori': () => ModPartner.loadFornitori() },
         utenti:      () => ModAdmin.loadUsers(),
         backup:      () => ModAdmin.loadBackups(),

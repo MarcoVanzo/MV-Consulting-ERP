@@ -192,6 +192,13 @@ class Indicatori
             // Movimenti del conto che chiedono un intervento (da abbinare o da classificare), contati una volta
             'movimenti_da_sistemare' => $uno("SELECT COUNT(*) AS num FROM {$p}movimenti_banca WHERE origine = 'estratto_conto'
                 AND ((stato = 'da_riconciliare' AND abbinabile = 1) OR classificazione = 'da_classificare')", []),
+            // Note spese (mese corrente e precedente): spese senza giustificativo, uscite della carta non registrate
+            'spese_senza_giustificativo' => $this->unoSicuro("SELECT COUNT(*) AS num, COALESCE(SUM(importo), 0) AS importo FROM {$p}spese
+                WHERE deleted_at IS NULL AND documento IS NULL AND data >= ?", [date('Y-m-01', strtotime(substr($this->oggi, 0, 7) . '-01 -1 month'))]),
+            'carta_da_registrare' => $this->unoSicuro("SELECT COUNT(*) AS num, COALESCE(SUM(-m.importo), 0) AS importo FROM {$p}movimenti_banca m
+                WHERE m.origine = 'estratto_carta' AND m.importo < 0 AND m.data_operazione >= ?
+                  AND NOT EXISTS (SELECT 1 FROM {$p}spese s WHERE s.movimento_id = m.id AND s.deleted_at IS NULL)",
+                [date('Y-m-01', strtotime(substr($this->oggi, 0, 7) . '-01 -1 month'))]),
             'giorni' => $giorni,
         ];
     }
@@ -237,21 +244,35 @@ class Indicatori
     }
 
     /**
-     * Trasferte del periodo: km, rimborso chilometrico al costo/km impostato, indennità (TrasferteRegole),
-     * vitto e alloggio; giornate senza cliente = da assegnare.
+     * Trasferte del periodo: km, rimborso chilometrico (costo ACI del mezzo, altrimenti il costo al km
+     * generale), indennità (TrasferteRegole, con vitto e alloggio presi dalle spese), spese di ogni tipo;
+     * giornate senza cliente = da assegnare.
      */
     public function trasferte(string $dal, string $al, ?float $costoKm): array
     {
         require_once __DIR__ . '/TrasferteRegole.php';
-        $stmt = $this->pdo->prepare("SELECT data_trasferta, cliente_id, sottocliente_id, km_andata, km_ritorno, vitto, alloggio
-            FROM {$this->p}trasferte WHERE data_trasferta BETWEEN ? AND ?");
+        require_once __DIR__ . '/Spese.php';
+        $stmt = $this->pdo->prepare("SELECT t.data_trasferta, t.cliente_id, t.sottocliente_id, t.km_andata, t.km_ritorno, m.costo_km
+            FROM {$this->p}trasferte t LEFT JOIN {$this->p}mezzi m ON m.id = t.mezzo_id
+            WHERE t.data_trasferta BETWEEN ? AND ?");
         $stmt->execute([$dal, $al]);
-        $righe = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $km = array_sum(array_map(fn($r) => (float)$r['km_andata'] + (float)$r['km_ritorno'], $righe));
-        $spese = array_sum(array_map(fn($r) => (float)$r['vitto'] + (float)$r['alloggio'], $righe));
+        $spese = new Spese($this->pdo, $this->p);
+        $perGiorno = $spese->perGiorno($dal, $al);
+        $righe = Spese::applicaAlleTrasferte($stmt->fetchAll(PDO::FETCH_ASSOC), $perGiorno);
+        $km = 0.0;
+        $rimborsoKm = 0.0;
+        $senzaCosto = false;
+        foreach ($righe as $r) {
+            $k = (float)$r['km_andata'] + (float)$r['km_ritorno'];
+            $km += $k;
+            $costo = $r['costo_km'] !== null ? (float)$r['costo_km'] : $costoKm;
+            if ($costo === null) { if ($k > 0) $senzaCosto = true; continue; }
+            $rimborsoKm += $k * $costo;
+        }
+        $totSpese = array_sum(array_map(fn($g) => $g['vitto'] + $g['alloggio'] + $g['altre'], $perGiorno));
         $giornate = TrasferteRegole::giornate($righe);
         $indennita = array_sum(array_column($giornate, 'indennita'));
-        $rimborsoKm = $costoKm === null ? null : round($km * $costoKm, 2);
+        $rimborsoKm = $senzaCosto && $rimborsoKm == 0.0 ? null : round($rimborsoKm, 2);
         return [
             'dal' => $dal, 'al' => $al,
             'num_giornate' => count($giornate),
@@ -259,10 +280,23 @@ class Indicatori
             'km' => round($km, 1),
             'costo_km' => $costoKm,
             'rimborso_km' => $rimborsoKm,
+            'km_senza_costo' => $senzaCosto,
             'indennita' => round($indennita, 2),
-            'spese' => round($spese, 2),
-            'da_rimborsare' => round(($rimborsoKm ?? 0) + $indennita + $spese, 2),
+            'spese' => round($totSpese, 2),
+            'da_rimborsare' => round(($rimborsoKm ?? 0) + $indennita + $totSpese, 2),
         ];
+    }
+
+    /** Una riga di conteggio che non rompe la dashboard se la tabella non è ancora migrata. */
+    private function unoSicuro(string $sql, array $par): array
+    {
+        try {
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($par);
+            return $this->numeri($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
+        } catch (PDOException $e) {
+            return ['num' => 0, 'importo' => 0.0];
+        }
     }
 
     /** Situazione di oggi, per la dashboard. */

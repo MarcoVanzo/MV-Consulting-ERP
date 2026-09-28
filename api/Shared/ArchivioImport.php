@@ -26,9 +26,10 @@ class ArchivioImport
         'incarichi' => ['import_pdf' => 'lettera_incarico'],
         'offerte' => ['importa' => 'offerta'],
         'importa' => ['fattura' => 'fattura'],
+        'spese' => ['importa_scontrino' => 'scontrino'],
     ];
 
-    private const ESTENSIONI = ['xml', 'p7m', 'pdf', 'xlsx', 'csv', 'docx', 'doc', 'txt', 'md'];
+    private const ESTENSIONI = ['xml', 'p7m', 'pdf', 'xlsx', 'csv', 'docx', 'doc', 'txt', 'md', 'jpg', 'jpeg', 'png', 'webp'];
 
     /** Archivia il file della richiesta se $module/$action è un'importazione. */
     public static function daRichiesta(PDO $pdo, string $prefix, string $module, string $action, array $data): ?array

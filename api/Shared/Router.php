@@ -48,6 +48,7 @@ class ApiRouter {
         'passive'      => ['list'],
         'commesse'     => ['get', 'margini', 'scadenzario', 'fatture_libere'],
         'indicatori'   => ['riepilogo', 'oggi'],
+        'spese'        => ['list', 'documento'],
         'riconciliazione' => ['movimenti', 'proposte', 'documenti_aperti'],
         'movimenti'    => ['categorie', 'conteggio', 'elenco', 'statistiche', 'regole'],
         'admin'        => ['listUsers', 'listBackups', 'downloadBackup', 'listLogs'],
@@ -154,6 +155,21 @@ class ApiRouter {
                 break;
             case 'indicatori':
                 self::handleIndicatori($action, $data);
+                break;
+            case 'spese':
+                require_once __DIR__ . '/../Controllers/SpeseController.php';
+                $sp = new SpeseController();
+                $id = $data['id'] ?? $_GET['id'] ?? 0;
+                match ($action) {
+                    'list' => $sp->list($data),
+                    'save' => $sp->save($data),
+                    'delete' => $sp->delete($id),
+                    'documento' => $sp->documento($id),
+                    'da_movimento' => $sp->daMovimento($data),
+                    'importa_scontrino' => $sp->importaScontrino($data),
+                    'rimborso' => $sp->rimborso($data),
+                    default => Response::json(false, "Azione spese non supportata: $action"),
+                };
                 break;
             case 'importa':
                 if ($action !== 'fattura') Response::json(false, "Azione importa non supportata: $action");
