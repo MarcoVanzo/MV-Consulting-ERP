@@ -104,6 +104,8 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   Un estratto carta caricato come estratto conto viene riconosciuto (`eEstrattoCarta`) e importato comunque come carta; v076 sposta quelli già importati male.
 - Lista fatture di Sistemi (Fatture → «Lista fatture (Excel)», .xlsx): `api/Shared/ListaFattureParser.php` + `ContabilitaController::importListaFatture`;
   crea solo le fatture mancanti, il «Residuo» di Sistemi si ignora (è sempre uguale al totale). Prova: `php tests/lista_fatture_cli.php`.
+- Categoria di un movimento: tendina sulla riga in Banca › Movimenti (`ModMovimenti.tendina` / `scegliRapido`, stesse
+  impostazioni predefinite della finestra: impara la regola e la applica ai simili); «Altre opzioni…» apre la finestra.
 - Categorie dei movimenti (tab Da classificare / Andamento): `api/Shared/Classificatore.php` (fatture → regole apprese →
   euristiche; il resto lo chiede all'utente) e `CategorieMovimenti.php` (grafici). Tabelle v059–v063.
 
