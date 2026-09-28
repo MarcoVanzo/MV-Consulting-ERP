@@ -211,7 +211,7 @@ const UI = (() => {
     // Tipi di commessa di offerte e incarichi: codice nel DB → etichetta (stesso elenco in CommessaService::TIPI)
     const TIPI_COMMESSA = {
         assistenza: 'Assistenza', dpo: 'DPO', formazione: 'Formazione', nis2: 'Consulenza NIS 2',
-        ict: 'Consulenza ICT', digital: 'Consulenza Digital', sviluppo_software: 'Sviluppo Software',
+        ict: 'Consulenza ICT', digital: 'Consulenza Digital', sviluppo_software: 'Sviluppo Software', altro: 'Altro',
     };
     const tipoCommessa = t => TIPI_COMMESSA[t] || String(t || '');
     /** <option> dei tipi di commessa, con quello scelto selezionato. */

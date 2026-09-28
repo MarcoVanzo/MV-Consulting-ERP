@@ -84,9 +84,83 @@ class ClaudeClient
             if (is_array($salvato)) return $salvato;
         }
 
+        $response = self::invia($payload, $apiKey);
+
+        $stopReason = $response['stop_reason'] ?? '';
+        if ($stopReason === 'refusal') {
+            throw new RuntimeException('Il servizio AI ha rifiutato di elaborare il documento');
+        }
+        if ($stopReason === 'max_tokens') {
+            throw new RuntimeException('Risposta AI troncata: documento troppo lungo');
+        }
+
+        foreach ($response['content'] ?? [] as $block) {
+            if (($block['type'] ?? '') === 'text') {
+                $data = json_decode($block['text'], true);
+                if (is_array($data)) {
+                    self::salvaCache($cache, $data);
+                    return $data;
+                }
+            }
+        }
+        throw new RuntimeException('Risposta AI non interpretabile');
+    }
+
+    /**
+     * Domanda con ricerca sul web (strumento web_search lato server): restituisce il testo finale della
+     * risposta. Le risposte si tengono in cache come quelle delle estrazioni.
+     * @throws RuntimeException se la chiamata fallisce
+     */
+    public static function cercaSulWeb(string $system, string $domanda, int $maxRicerche = 5): string
+    {
+        $apiKey = (string)getenv('ANTHROPIC_API_KEY');
+        if ($apiKey === '') throw new RuntimeException('ANTHROPIC_API_KEY non configurata');
+        $messaggi = [['role' => 'user', 'content' => $domanda]];
+        $body = [
+            'model' => getenv('ANTHROPIC_MODEL') ?: self::DEFAULT_MODEL,
+            'max_tokens' => 4000,
+            'system' => $system,
+            'tools' => [['type' => 'web_search_20260209', 'name' => 'web_search', 'max_uses' => $maxRicerche]],
+            'output_config' => ['effort' => 'low'],
+            'fallbacks' => 'default',
+        ];
+        $cache = self::fileCache(json_encode($body + ['messages' => $messaggi], JSON_UNESCAPED_UNICODE));
+        if (is_file($cache) && filemtime($cache) > time() - self::CACHE_TTL) {
+            $salvato = json_decode((string)file_get_contents($cache), true);
+            if (isset($salvato['testo'])) return (string)$salvato['testo'];
+        }
+
+        $inizio = microtime(true);
+        // Il ciclo delle ricerche lato server può fermarsi a metà (pause_turn): si riprende finché c'è tempo
+        for ($giro = 0; $giro < 3; $giro++) {
+            $residuo = (int)floor(self::BUDGET_SECONDS - (microtime(true) - $inizio));
+            if ($residuo < 20) throw new RuntimeException('Il servizio AI non ha risposto in tempo');
+            $response = self::invia(json_encode($body + ['messages' => $messaggi], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE), $apiKey, $residuo);
+            $stop = $response['stop_reason'] ?? '';
+            if ($stop === 'pause_turn') {
+                $messaggi[] = ['role' => 'assistant', 'content' => $response['content'] ?? []];
+                continue;
+            }
+            if ($stop === 'refusal') throw new RuntimeException('Il servizio AI ha rifiutato la ricerca');
+            $testo = '';
+            foreach ($response['content'] ?? [] as $block) {
+                if (($block['type'] ?? '') === 'text') $testo .= $block['text'];
+            }
+            self::salvaCache($cache, ['testo' => $testo]);
+            return $testo;
+        }
+        throw new RuntimeException('Ricerca non conclusa');
+    }
+
+    /**
+     * POST alla Messages API entro il tempo concesso dal proxy; restituisce la risposta decodificata.
+     * @throws RuntimeException su errore di rete, timeout o risposta HTTP diversa da 200
+     */
+    private static function invia(string $payload, string $apiKey, int $budget = self::BUDGET_SECONDS): array
+    {
         // Il proxy di Aruba chiude le richieste dopo circa 100 s: tutto (tentativi compresi) sta sotto i 95 s
-        $scadenza = microtime(true) + self::BUDGET_SECONDS;
-        @set_time_limit(self::BUDGET_SECONDS + 15);
+        $scadenza = microtime(true) + $budget;
+        @set_time_limit($budget + 15);
         $ch = curl_init(self::API_URL);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
@@ -134,24 +208,7 @@ class ClaudeClient
             throw new RuntimeException('Errore del servizio AI: ' . $msg);
         }
 
-        $stopReason = $response['stop_reason'] ?? '';
-        if ($stopReason === 'refusal') {
-            throw new RuntimeException('Il servizio AI ha rifiutato di elaborare il documento');
-        }
-        if ($stopReason === 'max_tokens') {
-            throw new RuntimeException('Risposta AI troncata: documento troppo lungo');
-        }
-
-        foreach ($response['content'] ?? [] as $block) {
-            if (($block['type'] ?? '') === 'text') {
-                $data = json_decode($block['text'], true);
-                if (is_array($data)) {
-                    self::salvaCache($cache, $data);
-                    return $data;
-                }
-            }
-        }
-        throw new RuntimeException('Risposta AI non interpretabile');
+        return $response;
     }
 
     /** Durata della cache delle risposte (secondi). */

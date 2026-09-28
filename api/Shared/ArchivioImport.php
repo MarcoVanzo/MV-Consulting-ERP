@@ -25,7 +25,7 @@ class ArchivioImport
         'riconciliazione' => ['import_estratto' => 'estratto'],
         'incarichi' => ['import_pdf' => 'lettera_incarico'],
         'offerte' => ['importa' => 'offerta'],
-        'importa' => ['fattura' => 'fattura'],
+        'importa' => ['fattura' => 'fattura', 'lista' => 'lista_fatture'],
         'spese' => ['importa_scontrino' => 'scontrino'],
     ];
 

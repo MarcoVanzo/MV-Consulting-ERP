@@ -45,8 +45,9 @@ Campi:
   "formazione" se si tratta di corsi o formazione; "nis2" per la consulenza sulla direttiva NIS 2
   (D.Lgs. 138/2024, cybersicurezza); "ict" per la consulenza su sistemi informativi, reti e infrastruttura IT;
   "digital" per la consulenza digital (marketing digitale, social, siti, trasformazione digitale);
-  "sviluppo_software" per sviluppo di software, applicazioni o gestionali; altrimenti "assistenza"
-  (l'"assistenza annuale privacy" è assistenza, non DPO).
+  "sviluppo_software" per sviluppo di software, applicazioni o gestionali; "assistenza" per l'assistenza o
+  consulenza su privacy e compliance (l'"assistenza annuale privacy" è assistenza, non DPO); "altro" se non è
+  nessuno di questi.
 - descrizione: una riga che riassume l'attività.
 - condizioni_pagamento: come e quando verrà pagato, se indicato (testo breve).
 - giorni_pagamento: giorni di pagamento dalla fattura, se indicati (es. "30 gg d.f." → 30).
@@ -67,7 +68,7 @@ TXT;
                 'data_incarico' => ['anyOf' => [['type' => 'string', 'format' => 'date'], ['type' => 'null']]],
                 'importo_totale' => self::nullable('number'),
                 'num_giornate' => self::nullable('number'),
-                'tipo_commessa' => ['type' => 'string', 'enum' => ['assistenza', 'dpo', 'formazione', 'nis2', 'ict', 'digital', 'sviluppo_software']],
+                'tipo_commessa' => ['type' => 'string', 'enum' => ['assistenza', 'dpo', 'formazione', 'nis2', 'ict', 'digital', 'sviluppo_software', 'altro']],
                 'descrizione' => self::nullable('string'),
                 'condizioni_pagamento' => self::nullable('string'),
                 'giorni_pagamento' => self::nullable('integer'),
@@ -133,7 +134,7 @@ Campi:
 - descrizione: sintesi del servizio offerto (2-3 frasi).
 - data_offerta: data del documento.
 - validita_giorni: per quanti giorni vale l'offerta, se indicato.
-- tipo_commessa: "dpo", "formazione", "nis2", "ict", "digital", "sviluppo_software" o "assistenza" (vedi natura del servizio).
+- tipo_commessa: "dpo", "formazione", "nis2", "ict", "digital", "sviluppo_software", "assistenza" (assistenza o consulenza privacy e compliance) o "altro" se non è nessuno di questi.
 - righe: le voci economiche dell'offerta, ciascuna con descrizione, quantità, unità (es. "giornate", "ore", "a corpo"),
   prezzo unitario e importo (IVA esclusa). Se c'è un solo prezzo complessivo, una sola riga.
   Non includere come righe l'IVA né i totali.
@@ -166,7 +167,7 @@ TXT;
                 'descrizione' => self::nullable('string'),
                 'data_offerta' => ['anyOf' => [['type' => 'string', 'format' => 'date'], ['type' => 'null']]],
                 'validita_giorni' => self::nullable('integer'),
-                'tipo_commessa' => ['type' => 'string', 'enum' => ['assistenza', 'dpo', 'formazione', 'nis2', 'ict', 'digital', 'sviluppo_software']],
+                'tipo_commessa' => ['type' => 'string', 'enum' => ['assistenza', 'dpo', 'formazione', 'nis2', 'ict', 'digital', 'sviluppo_software', 'altro']],
                 'righe' => [
                     'type' => 'array',
                     'items' => [

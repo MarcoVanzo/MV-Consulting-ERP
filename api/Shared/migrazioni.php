@@ -719,6 +719,14 @@ return [
     "ALTER TABLE {$prefix}spese MODIFY metodo ENUM('carta','carta_personale','bancomat','bonifico','contanti','altro') NOT NULL DEFAULT 'carta'",
 
     // v087: indice per le uscite della carta per periodo (spese, dashboard)
-    "ALTER TABLE {$prefix}movimenti_banca ADD KEY idx_movimenti_origine_data (origine, data_operazione)"
+    "ALTER TABLE {$prefix}movimenti_banca ADD KEY idx_movimenti_origine_data (origine, data_operazione)",
+
+    // v088–v089: clienti e fornitori creati dagli elenchi di fatture col solo nome; la P.IVA si cerca sul web (AnagraficaAuto)
+    "ALTER TABLE {$prefix}clienti ADD COLUMN piva_ricerca ENUM('da_cercare','trovata','non_trovata') DEFAULT NULL",
+    "ALTER TABLE {$prefix}fornitori ADD COLUMN piva_ricerca ENUM('da_cercare','trovata','non_trovata') DEFAULT NULL",
+
+    // v090–v091: tipo di commessa «altro» per quello che non è DPO, assistenza, formazione né le consulenze specifiche
+    "ALTER TABLE {$prefix}incarichi MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software','altro') NOT NULL DEFAULT 'assistenza'",
+    "ALTER TABLE {$prefix}offerte MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software','altro') NOT NULL DEFAULT 'assistenza'"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];

@@ -75,6 +75,25 @@ check('data italiana convertita', $f[2]['data'] === '2026-03-08');
 check('registro e numero', $f[1]['registro'] === '001' && $f[1]['numero'] === '12/001');
 unlink($file);
 
+check('Sistemi: colonna Cliente → fatture emesse', $r['verso'] === 'attiva', $r['verso']);
+
+echo "Elenco del portale (fatture ricevute)\n";
+$file = xlsx([
+    ['Da leggere', 'Firma', 'Allegati', 'Annotazioni', 'Fornitore', 'Data', 'Numero', 'Tipo documento', 'Totale', 'Stato FTE', 'Data consegna'],
+    ['1', '', 'Allegato presente', '', 'Epsilon Servizi S.r.l.', 46290, '5/FE', 'Fattura', 9202, 'Ricevuta', 46290],
+    ['1', '', '', '', 'Zeta S.p.A.', 46287, 'NC-3', 'Nota di credito', 150.5, 'Ricevuta', 46287],
+    ['1', '', '', '', 'Eta S.n.c.', 46286, '9', 'Fattura', 80, 'Scartata', 46286],
+]);
+$r = ListaFattureParser::fatture(ListaFattureParser::leggiXlsx($file));
+$f = $r['fatture'];
+check('colonna Fornitore → fatture ricevute', $r['verso'] === 'passiva', $r['verso']);
+check('fornitore letto come controparte', $f[0]['cliente'] === 'Epsilon Servizi S.r.l.', $f[0]['cliente']);
+check('data del portale (seriale Excel)', $f[0]['data'] === '2026-09-25', $f[0]['data']);
+check('solo totale: imponibile = totale, IVA 0', $f[0]['imponibile'] === 9202.0 && $f[0]['iva'] === 0.0);
+check('nota di credito in positivo resa negativa', $f[1]['nota_credito'] && $f[1]['totale'] === -150.5 && $f[1]['imponibile'] === -150.5, $f[1]);
+check('fattura scartata dallo SdI saltata', count($f) === 2 && str_contains($r['avvisi'][0] ?? '', 'scartata'), $r['avvisi']);
+unlink($file);
+
 echo "Casi limite\n";
 check('data seriale di Excel', ListaFattureParser::data('46089') === '2026-03-08', ListaFattureParser::data('46089'));
 check('importo italiano', ListaFattureParser::numero('1.234,56') === 1234.56);

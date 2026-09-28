@@ -15,7 +15,7 @@ class CommessaService
     /** Tipi di commessa di offerte e incarichi: codice → etichetta (stesso elenco in js/core/ui.js). */
     public const TIPI = [
         'assistenza' => 'Assistenza', 'dpo' => 'DPO', 'formazione' => 'Formazione', 'nis2' => 'Consulenza NIS 2',
-        'ict' => 'Consulenza ICT', 'digital' => 'Consulenza Digital', 'sviluppo_software' => 'Sviluppo Software',
+        'ict' => 'Consulenza ICT', 'digital' => 'Consulenza Digital', 'sviluppo_software' => 'Sviluppo Software', 'altro' => 'Altro',
     ];
 
     private $pdo;
