@@ -68,6 +68,7 @@ class TrasferteController {
         $totVitto = array_sum(array_column($speseGiorno, 'vitto'));
         $totAlloggio = array_sum(array_column($speseGiorno, 'alloggio'));
         $totAltre = array_sum(array_column($speseGiorno, 'altre'));
+        $fuoriGiornata = Spese::fuoriGiornata($speseGiorno, array_flip(array_column($trasferte, 'data_trasferta')));
         $giornate = TrasferteRegole::giornate($trasferte);
 
         Response::json(true, '', [
@@ -82,6 +83,8 @@ class TrasferteController {
                 'alloggio' => round($totAlloggio, 2),
                 'altre_spese' => round($totAltre, 2),
                 'totale_spese' => round($totVitto + $totAlloggio + $totAltre, 2),
+                'spese_fuori_giornata' => $fuoriGiornata,
+                'spese_aziendali' => round(array_sum(array_column($speseGiorno, 'aziendali')), 2),
                 'indennita' => round(array_sum(array_column($giornate, 'indennita')), 2)
             ]
         ]);
@@ -93,6 +96,13 @@ class TrasferteController {
         if ($errore = TrasferteRegole::errore($data, $isUpdate)) {
             Response::json(false, $errore, null, 422);
         }
+        $date = [$data['data_trasferta'] ?? date('Y-m-d')];
+        if ($isUpdate) {
+            $st = $this->pdo->prepare("SELECT data_trasferta FROM {$this->prefix}trasferte WHERE id = ?");
+            $st->execute([$id]);
+            $date[] = (string)$st->fetchColumn();
+        }
+        $this->bloccaSePresentata($date);
 
         $fields = [
             'cliente_id'       => !empty($data['cliente_id']) ? (int)$data['cliente_id'] : null,
@@ -174,6 +184,7 @@ class TrasferteController {
         if ($date === false) {
             Response::json(false, 'Trasferta non trovata', null, 404);
         }
+        $this->bloccaSePresentata([$date]);
 
         $this->pdo->prepare("DELETE FROM {$this->prefix}trasferte WHERE id = ?")->execute([$id]);
         Audit::log('DELETE', 'trasferte', $id, null, null, null);
@@ -189,6 +200,7 @@ class TrasferteController {
      */
     public function setMezzo($data) {
         [$da, $a] = $this->periodo($data['year'] ?? date('Y'), $data['month'] ?? null);
+        $this->bloccaSePresentata([$da, $a]);
         $mezzoId = (int)($data['mezzo_id'] ?? 0) > 0 ? (int)$data['mezzo_id'] : null;
         if ($mezzoId !== null) {
             $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM {$this->prefix}mezzi WHERE id = ?");
@@ -293,6 +305,7 @@ class TrasferteController {
         if (!$date || TrasferteRegole::errore(['data_trasferta' => $date], false)) {
             Response::json(false, "Data mancante o non valida");
         }
+        $this->bloccaSePresentata([$date]);
 
         $sql = "UPDATE {$this->prefix}trasferte SET pernottamento = ? WHERE data_trasferta = ?";
         $this->pdo->prepare($sql)->execute([$state, $date]);
@@ -471,6 +484,13 @@ class TrasferteController {
         $ind = !empty($row['sc_indirizzo']) ? $row['sc_indirizzo'] : ($row['indirizzo'] ?? '');
         $cit = !empty($row['sc_citta']) ? $row['sc_citta'] : ($row['citta'] ?? '');
         return trim("$ind $cit");
+    }
+
+    /** Km, mezzo e clienti di un mese con nota spese presentata non cambiano: i totali sono congelati. */
+    private function bloccaSePresentata(array $date): void {
+        if ($m = Spese::mesePresentato($this->pdo, $this->prefix, $date)) {
+            Response::json(false, "La nota spese di $m è già presentata: riaprila (Trasferte › Spese) per cambiare le trasferte");
+        }
     }
 
     private function hasPernottamento(array $trasferte): bool {

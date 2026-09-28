@@ -32,7 +32,8 @@ class ContabilitaController {
         if ($stato === 'da_incassare') {
             $sql .= " AND f.stato <> 'pagata'";
         } elseif ($stato === 'scaduta') {
-            $sql .= " AND f.stato <> 'pagata' AND f.data_scadenza IS NOT NULL AND f.data_scadenza < CURDATE()";
+            $sql .= " AND f.stato <> 'pagata' AND f.data_scadenza IS NOT NULL AND f.data_scadenza < ?";
+            $params[] = date('Y-m-d');
         } elseif ($stato && in_array($stato, self::STATI_FATTURA, true)) {
             $sql .= " AND f.stato = ?";
             $params[] = $stato;
@@ -690,6 +691,13 @@ class ContabilitaController {
                 }
             }
 
+            // Nota di credito che storna per intero fatture aperte dello stesso cliente: si chiudono entrambe,
+            // altrimenti la fattura resterebbe «scaduta» per sempre (scadenzario, dashboard, solleciti)
+            if ($isNotaCredito && $clienteId) {
+                $chiuse = $this->chiudiStornate($body, (int)$clienteId, $numeroFattura, $dataEmissione);
+                if ($chiuse) $errors[] = "Nota di credito n. $numeroFattura: storna per intero la fattura $chiuse, segnate chiuse entrambe.";
+            }
+
             } // fine documenti del lotto
 
             $this->pdo->commit();
@@ -1031,6 +1039,42 @@ class ContabilitaController {
             'movimento_id' => $movimentoId,
             'messages' => $messages
         ]);
+    }
+
+    /**
+     * Se la nota di credito indica le fatture collegate (DatiFattureCollegate) e il suo totale le copre
+     * esattamente, fatture e nota diventano «pagata» (chiuse per storno). Restituisce i numeri chiusi o ''.
+     */
+    private function chiudiStornate(SimpleXMLElement $body, int $clienteId, string $numeroNc, string $dataNc): string {
+        $collegate = [];
+        foreach ($body->DatiGenerali->DatiFattureCollegate as $fc) {
+            $n = trim((string)($fc->IdDocumento ?? ''));
+            if ($n !== '') $collegate[] = $n;
+        }
+        if (!$collegate) return '';
+        $p = $this->prefix;
+        $in = implode(',', array_fill(0, count($collegate), '?'));
+        $stmt = $this->pdo->prepare("SELECT id, importo_totale FROM {$p}fatture
+            WHERE cliente_id = ? AND numero_fattura IN ($in) AND importo_totale > 0 AND stato <> 'pagata'");
+        $stmt->execute(array_merge([$clienteId], $collegate));
+        $fatture = $stmt->fetchAll();
+        $stmt = $this->pdo->prepare("SELECT id, importo_totale FROM {$p}fatture
+            WHERE cliente_id = ? AND numero_fattura = ? AND data_emissione = ? AND importo_totale < 0 AND stato <> 'pagata'");
+        $stmt->execute([$clienteId, $numeroNc, $dataNc]);
+        $note = $stmt->fetchAll();
+        $totF = array_sum(array_column($fatture, 'importo_totale'));
+        $totNc = array_sum(array_column($note, 'importo_totale'));
+        if (!$fatture || !$note || abs($totF + $totNc) > 0.01) return ''; // storno parziale: resta aperto, lo gestisce la riconciliazione
+        $ids = array_merge(array_column($fatture, 'id'), array_column($note, 'id'));
+        $this->pdo->prepare("UPDATE {$p}fatture SET stato = 'pagata', data_pagamento = ?, metodo_pagamento = 'Nota di credito'
+            WHERE id IN (" . implode(',', array_fill(0, count($ids), '?')) . ")")->execute(array_merge([$dataNc], $ids));
+        // Solo i totali della commessa: l'aggancio alle rate qui non c'entra (e darebbe avvisi fuori luogo)
+        $stmt = $this->pdo->prepare("SELECT DISTINCT incarico_id FROM {$p}fatture WHERE incarico_id IS NOT NULL AND id IN ("
+            . implode(',', array_fill(0, count($ids), '?')) . ")");
+        $stmt->execute($ids);
+        require_once __DIR__ . '/IncarchiController.php';
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $inc) (new IncarchiController())->recalculate((int)$inc);
+        return implode(', ', array_unique($collegate));
     }
 
     /**

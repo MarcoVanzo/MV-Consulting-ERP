@@ -107,11 +107,11 @@ function initApplication(userData) {
         const c = CARICA[view];
         const f = typeof c === 'function' ? c : c?.[pane || paneAttivo(view)];
         try { f?.(); } catch (e) { console.error('[Vista]', view, e); }
-        if (window.ModMovimenti) ModMovimenti.aggiornaBadge();
     }
+    const VISTE_ADMIN = ['utenti', 'backup', 'logs'];
 
     function apriVista(view, pane, { storia = true } = {}) {
-        if (!document.getElementById('view-' + view)) view = 'oggi';
+        if (!document.getElementById('view-' + view) || (VISTE_ADMIN.includes(view) && !isAdmin)) view = 'oggi';
         document.querySelectorAll('.nav-item[data-view]').forEach(n => {
             const on = n.dataset.view === view;
             n.classList.toggle('active', on);
@@ -120,8 +120,10 @@ function initApplication(userData) {
         document.querySelectorAll('.view-section').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
         if (pane && document.getElementById(pane)) UI.mostraPane(pane, () => {});
         const p = paneAttivo(view);
-        if (storia) history.pushState(null, '', '#' + view + (p ? '/' + p : ''));
+        const hash = '#' + view + (p ? '/' + p : '');
+        if (storia && location.hash !== hash) history.pushState(null, '', hash);
         carica(view, p);
+        if (window.ModMovimenti) ModMovimenti.aggiornaBadge();
         document.getElementById('user-dropdown')?.classList.add('hidden');
         window.scrollTo(0, 0);
     }
@@ -140,6 +142,10 @@ function initApplication(userData) {
         if (v) carica(v);
     });
     window.addEventListener('popstate', () => {
+        // Link di reimpostazione password e simili: non sono viste
+        if (!/^#[a-z]+(\/[a-z0-9-]+)?$/i.test(location.hash) && location.hash !== '') return;
+        // Sul telefono «indietro» con una finestra aperta la chiude
+        if (UI.isModalOpen()) UI.closeModal();
         const [v, p] = location.hash.slice(1).split('/');
         apriVista(v || 'oggi', p, { storia: false });
     });
@@ -190,6 +196,9 @@ function initApplication(userData) {
     ModTrasferte.initFilters();
     ModContabilita.initFilters();
     ModClienti.initSearch();
+
+    // L'elenco clienti serve ai moduli di offerte, commesse, fatture, trasferte e spese: si carica subito
+    ModClienti.load();
 
     // ── Prima vista: quella dell'indirizzo (#vista/scheda) o la dashboard ──
     const [v0, p0] = location.hash.slice(1).split('/');

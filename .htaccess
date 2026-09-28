@@ -4,6 +4,13 @@
 
 Options -Indexes
 
+# index.html porta il ?v= degli script, che cambia a ogni deploy: non va tenuto in cache
+<IfModule mod_headers.c>
+    <Files "index.html">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </Files>
+</IfModule>
+
 # File nascosti (.env, .env.*, .git*, .deploy_*) e file di lavoro/configurazione
 <FilesMatch "(^\.|\.(env|json|log|config|md|sh|py|sql|bak|lock)$)">
     Require all denied

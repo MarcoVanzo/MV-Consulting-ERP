@@ -23,16 +23,21 @@ situazione di oggi gli incassi aperti si vedono tutti.
 | Incassato (fatture) | fatture con stato `pagata` | IVA inclusa |
 | Da incassare | fatture non `pagata` | IVA inclusa |
 | Scaduto | da incassare con `data_scadenza` passata (non dipende dal cron che mette `scaduta`) | IVA inclusa |
-| Numero di fatture | documenti distinti per numero + anno + cliente: una fattura divisa tra più sottoclienti conta una volta | — |
+| Numero di fatture | documenti distinti per numero + anno + cliente + segno: una fattura divisa tra più sottoclienti conta una volta, una nota di credito con lo stesso numero è un documento a parte | — |
+| Scaduto (per cliente) | non supera mai quanto resta da incassare a quel cliente: una nota di credito aperta lo riduce. Una nota di credito che storna per intero fatture aperte le chiude all'import (DatiFattureCollegate) | IVA inclusa |
 | Valore commesse | somma di `incarichi.importo_totale` | netto IVA |
 | Fatturato commesse | imponibile delle fatture collegate alla commessa | netto IVA |
 | Incassato commesse | imponibile delle fatture collegate e pagate | netto IVA |
 | Da fatturare (commesse) | valore della commessa non ancora coperto da fatture, mai negativo | netto IVA |
-| Rate da fatturare | rate senza fattura con data prevista entro l'orizzonte (le rate senza data contano sempre) | netto IVA |
+| Rate da fatturare | rate senza fattura con data prevista entro l'orizzonte (le rate senza data contano sempre), escluse quelle di commesse già fatturate per intero | netto IVA |
 | Pipeline | offerte in stato `inviata` (le bozze sono a parte: non le ha ancora viste nessuno) | netto IVA |
 | Pipeline pesata | somma di valore × probabilità di lead, bozze e inviate; probabilità dell'offerta o quella dello stato (lead 10%, bozza 30%, inviata 50%, `Indicatori::PROBABILITA`) | netto IVA |
-| Conversione | accettate / (accettate + rifiutate + scadute) | % |
-| Partner da pagare | fatture passive `da_pagare`; `importo_totale` è già il netto a pagare dopo la ritenuta | IVA inclusa |
+| Conversione | accettate / (accettate + rifiutate + scadute), contando solo offerte davvero proposte: fuori le offerte registrate insieme a una commessa (origine `rapida`) e i lead persi senza essere mai stati inviati | % |
+| Partner da pagare | fatture passive `da_pagare`; `importo_totale` è già il netto a pagare dopo la ritenuta. In Oggi: lo stesso elenco dello scadenzario (i back-to-back aspettano l'incasso del cliente) | IVA inclusa |
+| Incassi attesi (Oggi) | per settimana: fatture aperte alla scadenza (IVA inclusa) + rate da fatturare alla data prevista + giorni di pagamento, con l'IVA dell'offerta (22% se manca); una rata con data passata va nella settimana corrente | IVA inclusa |
+| Trasferte: rimborso km | km × costo ACI del mezzo (`mezzi.costo_km`), altrimenti × costo al km generale | € |
+| Trasferte: indennità | per giornata con cliente (TrasferteRegole): vitto e alloggio pagati, da chiunque, la riducono | € |
+| Trasferte: da rimborsare | rimborso km + indennità + spese pagate di tasca propria; le spese con carta aziendale o bonifico le ha già pagate la società | € |
 
 «Incassato» ha due basi volutamente diverse: nelle fatture è quello che il cliente ha pagato
 (IVA inclusa), nelle commesse è l'imponibile, per confrontarlo col valore della commessa.

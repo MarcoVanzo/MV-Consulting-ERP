@@ -74,7 +74,10 @@ class ArchivioImport
         if (!in_array($ext, self::ESTENSIONI, true)) $ext = 'bin';
         $dir = self::dir();
         if (!is_dir($dir)) mkdir($dir, 0750, true);
-        $file = $dir . $sha . '.' . $ext;
+        // Nome non ricavabile dal contenuto (HMAC con il segreto del server), estensione neutra:
+        // anche se il web server servisse storage/, il file non sarebbe né indovinabile né interpretato
+        $segreto = (string)getenv('JWT_SECRET');
+        $file = $dir . ($segreto !== '' ? hash_hmac('sha256', $sha, $segreto) : $sha) . '.bin';
         if (!is_file($file) && file_put_contents($file, $contenuto, LOCK_EX) === false) {
             throw new RuntimeException('Impossibile salvare il file importato');
         }

@@ -23,9 +23,11 @@ const ModScheda = (() => {
     /** Ricarica la scheda se è aperta (dopo aver salvato un lead, una nota, un referente). */
     async function aggiorna() {
         if (!_id || !document.getElementById('sc-scheda')) return;
-        _d = await Store.api('scheda', 'clienti', { id: _id });
-        document.getElementById('modal-body').innerHTML = html();
-        bind();
+        try {
+            _d = await Store.api('scheda', 'clienti', { id: _id });
+            document.getElementById('modal-body').innerHTML = html();
+            bind();
+        } catch (e) { UI.toast(e.message, 'error'); }
     }
 
     function html() {
@@ -97,7 +99,7 @@ const ModScheda = (() => {
 
     function bind() {
         const q = sel => document.querySelectorAll(`#sc-scheda ${sel}`);
-        q('[data-sc="modifica"]').forEach(b => b.addEventListener('click', () => ModClienti.edit(_id)));
+        q('[data-sc="modifica"]').forEach(b => b.addEventListener('click', () => ModClienti.edit(_id, () => apri(_id))));
         q('[data-sc="lead"]').forEach(b => b.addEventListener('click', () => ModOfferte.openLead({}, _id)));
         q('[data-sc="referente"]').forEach(b => b.addEventListener('click', () => referente({})));
         q('[data-ref-edit]').forEach(b => b.addEventListener('click', () => referente(_d.referenti.find(r => r.id == b.dataset.refEdit) || {})));

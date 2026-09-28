@@ -53,6 +53,11 @@ class Documenti
         if (!move_uploaded_file($f['tmp_name'], $dir . $name)) {
             throw new RuntimeException('Impossibile salvare il file');
         }
+        // In anteprima il record si annulla: il file non deve restare orfano
+        if (class_exists('Anteprima') && Anteprima::attiva()) {
+            $percorso = $dir . $name;
+            Anteprima::allaFine(fn() => @unlink($percorso));
+        }
         return 'documenti/' . $name;
     }
 

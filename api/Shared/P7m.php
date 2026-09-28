@@ -28,14 +28,14 @@ class P7m
         if (function_exists('openssl_cms_verify')) {
             // Si estrae solo il contenuto: la validità della firma non serve per registrare il documento
             $dir = sys_get_temp_dir();
-            $in = tempnam($dir, 'p7m');
-            $out = tempnam($dir, 'xml');
-            file_put_contents($in, $raw);
-            if (@openssl_cms_verify($in, OPENSSL_CMS_NOVERIFY | OPENSSL_CMS_NOSIGS | OPENSSL_CMS_BINARY, null, [], null, $out, null, null, OPENSSL_ENCODING_DER)) {
+            $in = @tempnam($dir, 'p7m');
+            $out = @tempnam($dir, 'xml');
+            // Cartella temporanea non scrivibile (open_basedir): si passa alla lettura ASN.1
+            if ($in !== false && $out !== false && @file_put_contents($in, $raw) !== false && @openssl_cms_verify($in, OPENSSL_CMS_NOVERIFY | OPENSSL_CMS_NOSIGS | OPENSSL_CMS_BINARY, null, [], null, $out, null, null, OPENSSL_ENCODING_DER)) {
                 $xml = (string)file_get_contents($out);
             }
-            @unlink($in);
-            @unlink($out);
+            if ($in !== false) @unlink($in);
+            if ($out !== false) @unlink($out);
         }
         // Riserva (busta che openssl non legge): estrazione diretta dalla struttura ASN.1
         if ($xml === '') $xml = (string)self::contenuto($raw);
@@ -60,8 +60,10 @@ class P7m
     }
 
     /** Accoda a $out il contenuto dell'OCTET STRING che inizia in $pos; restituisce la posizione successiva. */
-    private static function octets(string $d, int $pos, string &$out): int
+    private static function octets(string $d, int $pos, string &$out, int $livello = 0): int
     {
+        // Le buste vere hanno uno o due livelli: una catena lunghissima è un file costruito apposta
+        if ($livello > 16) throw new RuntimeException('Busta annidata troppo in profondità');
         $h = self::header($d, $pos);
         if ($h['tag'] === 0x04) {
             $out .= substr($d, $h['start'], $h['len']);
@@ -74,7 +76,7 @@ class P7m
             if ($fine !== null && $p >= $fine) return $fine;
             if ($fine === null && substr($d, $p, 2) === "\x00\x00") return $p + 2;
             if ($p >= strlen($d)) throw new RuntimeException('Busta troncata');
-            $p = self::octets($d, $p, $out);
+            $p = self::octets($d, $p, $out, $livello + 1);
         }
     }
 

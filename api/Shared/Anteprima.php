@@ -15,6 +15,13 @@ require_once __DIR__ . '/Response.php';
 class Anteprima
 {
     private static bool $attiva = false;
+    /** Da eseguire a fine anteprima (es. cancellare i file caricati: il DB si annulla, il disco no). */
+    private static array $allaFine = [];
+
+    public static function allaFine(callable $f): void
+    {
+        self::$allaFine[] = $f;
+    }
 
     public static function attiva(): bool
     {
@@ -33,13 +40,18 @@ class Anteprima
         } catch (RispostaCatturata $r) {
             $esito = $r->risposta;
         } catch (Throwable $e) {
+            // Il dettaglio (anche SQL) resta nel log, come nel router
             error_log('[Anteprima] ' . $e->getMessage());
-            $esito = ['success' => false, 'message' => 'Anteprima non riuscita: ' . $e->getMessage()];
+            $esito = ['success' => false, 'message' => 'Anteprima non riuscita: errore interno, riprova o importa il file da solo'];
         } finally {
             // Annulla tutto, anche i savepoint lasciati aperti da un'eccezione dentro l'import
             while ($pdo->inTransaction()) $pdo->rollBack();
             Response::fineCattura();
             self::$attiva = false;
+            foreach (self::$allaFine as $f) {
+                try { $f(); } catch (Throwable $e) { error_log('[Anteprima] pulizia: ' . $e->getMessage()); }
+            }
+            self::$allaFine = [];
         }
         return $esito;
     }

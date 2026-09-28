@@ -1,6 +1,7 @@
 name: Test
 
-# Sintassi PHP e test CLI (SQLite in memoria, nessun DB reale).
+# Sintassi PHP, test CLI (SQLite in memoria) e migrazioni su un MySQL 8 vero, lanciate due volte:
+# la prima deve applicarle tutte senza errori, la seconda non deve applicare niente.
 # Gira su ogni PR ed è il cancello del deploy: deploy-ftp.yml lo richiama prima di pubblicare.
 
 on:
@@ -10,13 +11,21 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test
+          MYSQL_DATABASE: mverp
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -ptest" --health-interval=5s --health-timeout=5s --health-retries=20
     steps:
       - uses: actions/checkout@v4
 
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
-          extensions: pdo_sqlite, zip, simplexml, dom, openssl, mbstring
+          extensions: pdo_sqlite, pdo_mysql, zip, simplexml, dom, openssl, mbstring
           coverage: none
 
       - name: Sintassi PHP
@@ -31,3 +40,25 @@ jobs:
             echo "::endgroup::"
           done
           exit $esito
+
+      - name: Migrazioni su MySQL 8 (due volte)
+        env:
+          DB_HOST: 127.0.0.1
+          DB_NAME: mverp
+          DB_USER: root
+          DB_PASS: test
+          DB_PREFIX: mv_
+        run: |
+          for giro in 1 2; do
+            php api/migrate.php > /tmp/migrate.json
+            python3 - "$giro" <<'PY'
+          import json, sys
+          giro = sys.argv[1]
+          d = json.load(open('/tmp/migrate.json'))
+          errori = [m for m in d['migrations'] if m['status'] == 'ERROR']
+          print(f"giro {giro}: nuove {d['newly_applied']}, errori {len(errori)}")
+          for e in errori: print('  ', e)
+          if errori or not d['success']: sys.exit(1)
+          if giro == '2' and d['newly_applied'] != 0: sys.exit('la seconda esecuzione ha applicato di nuovo delle migrazioni')
+          PY
+          done

@@ -9,8 +9,9 @@
 const ModSpese = (() => {
     const CATEGORIE = { vitto: 'Vitto', alloggio: 'Alloggio', treno: 'Treno', aereo: 'Aereo', taxi: 'Taxi / NCC', pedaggio: 'Pedaggio',
         parcheggio: 'Parcheggio', carburante: 'Carburante', altro: 'Altro' };
-    const METODI = { carta: 'Carta', bancomat: 'Bancomat', bonifico: 'Bonifico', contanti: 'Contanti', altro: 'Altro' };
-    let _mese = new Date().toISOString().slice(0, 7);
+    // La carta dell'estratto è aziendale: le spese pagate con lei (o con bonifico) si rendicontano ma non si rimborsano
+    const METODI = { carta: 'Carta aziendale', carta_personale: 'Carta personale', bancomat: 'Bancomat personale', contanti: 'Contanti', bonifico: 'Bonifico della società', altro: 'Altro (di tasca propria)' };
+    let _mese = UI.todayLocal().slice(0, 7);
     let _d = null;
 
     async function load() {
@@ -32,7 +33,7 @@ const ModSpese = (() => {
         const statoNota = !rb ? '<span class="badge badge-gray">Aperta</span>'
             : rb.stato === 'rimborsata' ? `<span class="badge badge-green">Rimborsata il ${UI.formatDate(rb.data_rimborso)}</span>`
             : `<span class="badge badge-yellow">Presentata il ${UI.formatDate(rb.data_presentazione)}</span>`;
-        const v = rb || { km: t.km, importo_km: t.rimborso_km, indennita: t.indennita, spese: t.spese, totale: t.da_rimborsare };
+        const v = rb || { km: t.km, importo_km: t.rimborso_km, indennita: t.indennita, spese: t.spese_da_rimborsare, totale: t.da_rimborsare };
 
         box.innerHTML = `
             <div class="comm-toolbar">
@@ -46,9 +47,10 @@ const ModSpese = (() => {
                 <div class="sp-totali">
                     <div><b>${UI.formatNumber(v.km)} km</b><span>${UI.formatCurrency(v.importo_km)} rimborso km</span></div>
                     <div><b>${UI.formatCurrency(v.indennita)}</b><span>indennità</span></div>
-                    <div><b>${UI.formatCurrency(v.spese)}</b><span>spese</span></div>
+                    <div><b>${UI.formatCurrency(v.spese)}</b><span>spese da rimborsare</span></div>
                     <div><b>${UI.formatCurrency(v.totale)}</b><span>da rimborsare</span></div>
                 </div>
+                ${!rb && t.spese_aziendali > 0 ? `<p class="td-sub">Più ${UI.formatCurrency(t.spese_aziendali)} di spese pagate dalla società (carta aziendale, bonifico): rendicontate, non si rimborsano.</p>` : ''}
                 ${t.km_senza_costo && !rb ? '<p class="td-sub">Alcuni km non hanno un costo: imposta il costo €/km generale o quello ACI del mezzo.</p>' : ''}
                 ${rb ? '<p class="td-sub">Totali congelati alla presentazione: per cambiare le spese riapri la nota.</p>' : ''}
                 <div class="sp-azioni">
@@ -115,7 +117,11 @@ const ModSpese = (() => {
                 par.data = d;
             }
             if (azione === 'riapri' && !confirm('Riaprire la nota spese? I totali verranno ricalcolati.')) return;
-            try { const r = await Store.api('rimborso', 'spese', par); UI.toast(r?.message || 'Fatto'); load(); } catch (e) { UI.toast(e.message, 'error'); }
+            try {
+                await Store.api('rimborso', 'spese', par);
+                UI.toast({ presenta: 'Nota spese presentata', rimborsata: 'Rimborso registrato', riapri: 'Nota spese riaperta' }[azione]);
+                load();
+            } catch (e) { UI.toast(e.message, 'error'); }
         }));
     }
 

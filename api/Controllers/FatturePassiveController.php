@@ -268,6 +268,8 @@ class FatturePassiveController {
             if ($content === '') Response::json(false, 'File firmato (p7m) non leggibile');
         }
         if (trim($content) === '') Response::json(false, 'Nessun contenuto XML fornito');
+        // Una FatturaPA non ha DOCTYPE: se c'è, il file non è una fattura (e le entità non vanno espanse)
+        if (stripos($content, '<!DOCTYPE') !== false) Response::json(false, 'File XML non valido: contiene una dichiarazione DOCTYPE');
         // Namespace rimossi come nell'import delle fatture emesse
         $content = preg_replace('/(<\/?)(?!xml)[a-zA-Z0-9_-]+:/i', '$1', $content);
         $content = preg_replace('/\sxmlns=[\'"].*?[\'"]/i', '', $content);

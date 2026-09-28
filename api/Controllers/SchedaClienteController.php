@@ -59,16 +59,10 @@ class SchedaClienteController
             FROM {$p}fatture WHERE cliente_id = ? ORDER BY data_emissione DESC, id DESC");
         $sottoclienti = $q("SELECT id, nome FROM {$p}sottoclienti WHERE cliente_id = ? ORDER BY nome");
 
-        $oggi = date('Y-m-d');
-        $situazione = ['fatturato_totale' => 0.0, 'da_incassare' => 0.0, 'scaduto' => 0.0];
-        foreach ($fatture as $f) {
-            $situazione['fatturato_totale'] += (float)$f['imponibile'];
-            if ($f['stato'] !== 'pagata') {
-                $situazione['da_incassare'] += (float)$f['importo_totale'];
-                if ($f['data_scadenza'] && $f['data_scadenza'] < $oggi) $situazione['scaduto'] += (float)$f['importo_totale'];
-            }
-        }
-        $situazione = array_map(fn($v) => round($v, 2), $situazione);
+        // Numeri dalle definizioni uniche (Indicatori): per documento, al netto delle note di credito
+        require_once __DIR__ . '/../Shared/Indicatori.php';
+        $f = (new Indicatori($this->pdo, $this->p))->fatture(null, [], $id);
+        $situazione = ['fatturato_totale' => $f['fatturato'], 'da_incassare' => $f['da_incassare'], 'scaduto' => $f['scaduto']];
         $c['tipo'] = ($commesse || $fatture) ? 'cliente' : 'prospect';
 
         return [
@@ -77,7 +71,7 @@ class SchedaClienteController
             'referenti' => $referenti,
             'offerte' => $offerte,
             'commesse' => $commesse,
-            'situazione' => $situazione + ['num_fatture' => count($fatture)],
+            'situazione' => $situazione + ['num_fatture' => $f['num_documenti']],
             'storico' => $this->storico($note, $offerte, $commesse, $fatture),
         ];
     }
@@ -163,7 +157,11 @@ class SchedaClienteController
 
     public function eliminaNota($id): void
     {
+        $stmt = $this->pdo->prepare("SELECT cliente_id, tipo, data, testo FROM {$this->p}attivita WHERE id = ?");
+        $stmt->execute([(int)$id]);
+        $prima = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         $this->pdo->prepare("DELETE FROM {$this->p}attivita WHERE id = ?")->execute([(int)$id]);
+        Audit::log('DELETE', 'attivita', (string)(int)$id, $prima, null);
         Response::json(true, 'Nota eliminata');
     }
 
