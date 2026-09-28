@@ -118,6 +118,42 @@ const ModMovimenti = (() => {
         sync();
     }
 
+    /** Categorie già caricate (per disegnare le tendine senza attendere); [] se non ancora. */
+    function categorieCaricate(tipo) {
+        return (_cat || []).filter(c => c.attiva == 1 && (!tipo || c.tipo === tipo));
+    }
+
+    /**
+     * Tendina della categoria per una riga di movimento: categorie del segno giusto, colorata come quella scelta,
+     * più «Altre opzioni…» che apre la finestra completa (regole, movimenti simili).
+     */
+    function tendina(m) {
+        const tipo = parseFloat(m.importo) >= 0 ? 'entrata' : 'uscita';
+        const cats = categorieCaricate(tipo);
+        const sel = cats.find(c => c.id == m.categoria_id);
+        const col = sel ? colore(sel.colore) : 'var(--accent-warm)';
+        return `<select class="cat-tendina" data-mov="${UI.esc(m.id)}" aria-label="Categoria del movimento"
+                style="border-color:${col};color:${col};background-color:${sel ? colore(sel.colore) + '1a' : 'rgba(245,158,11,0.12)'}">
+            ${sel ? '' : '<option value="" selected>Da classificare</option>'}
+            ${cats.map(c => `<option value="${UI.esc(c.id)}" ${c.id == m.categoria_id ? 'selected' : ''}>${UI.esc(c.nome)}</option>`).join('')}
+            <option value="altro">Altre opzioni…</option>
+        </select>`;
+    }
+
+    /**
+     * Scelta dalla tendina: salva subito con le stesse impostazioni predefinite della finestra
+     * (impara la regola e la applica ai movimenti simili; se il movimento veniva da una regola, aggiorna quella).
+     */
+    async function scegliRapido(m, categoriaId, dopo) {
+        const daRegola = m.categoria_fonte === 'regola' && m.regola_id;
+        const ok = await invia({
+            movimento_id: m.id, categoria_id: categoriaId,
+            aggiorna_regola: daRegola ? '1' : '0', applica_simili: daRegola ? '0' : '1',
+            chiave: m.chiave_suggerita || '', usa_codice: '0',
+        }, true);
+        if (typeof dopo === 'function') dopo(ok);
+    }
+
     async function scegli(categoriaId) {
         if (!_mov) return;
         const agg = document.getElementById('mov-aggiorna-regola')?.checked;
@@ -134,7 +170,7 @@ const ModMovimenti = (() => {
     async function invia(payload, silenziosoSuChiave) {
         try {
             const r = await Store.api('classifica', 'movimenti', payload) || {};
-            UI.toast(r.aggiornati ? `Classificato, e altri ${r.aggiornati} simili` : 'Movimento classificato');
+            UI.toast(r.aggiornati ? `Classificato, insieme a ${UI.plurale(r.aggiornati, 'movimento simile', 'movimenti simili')}` : 'Movimento classificato');
             setBadge(r.da_classificare);
             if (document.getElementById('tab-classificare')?.classList.contains('active')) loadCoda();
             return true;
@@ -228,6 +264,6 @@ const ModMovimenti = (() => {
         aggiornaBadge();
     }
 
-    return { init, loadCoda, aggiornaBadge, categorie, chip, classifica, scegli, accetta, gestisciCategorie, salvaCategoria, regole, eliminaRegola };
+    return { init, loadCoda, aggiornaBadge, categorie, caricaCategorie, tendina, scegliRapido, chip, classifica, scegli, accetta, gestisciCategorie, salvaCategoria, regole, eliminaRegola };
 })();
 window.ModMovimenti = ModMovimenti;

@@ -23,7 +23,12 @@ const ModRiconciliazione = (() => {
         // La coda da riconciliare mostra solo i movimenti agganciabili a fatture (gli altri sono in "Andamento")
         if (_stato === 'da_riconciliare') params.abbinabili = '1';
         try {
-            _movimenti = await Store.api('movimenti', 'riconciliazione', params) || [];
+            // Le categorie servono alle tendine delle righe (si caricano una volta, poi restano in memoria)
+            const [mov] = await Promise.all([
+                Store.api('movimenti', 'riconciliazione', params),
+                window.ModMovimenti ? ModMovimenti.caricaCategorie().catch(() => []) : null,
+            ]);
+            _movimenti = mov || [];
         } catch (e) {
             _movimenti = [];
             document.getElementById('tbody-riconciliazione').innerHTML = `<tr><td colspan="6"><div class="empty-state"><i class="ph ph-warning-circle"></i><h3>${UI.esc(e.message)}</h3></div></td></tr>`;
@@ -57,10 +62,9 @@ const ModRiconciliazione = (() => {
             const s = STATI[m.stato] || { cls: 'badge-blue', label: m.stato };
             const avviso = m.origine === 'avviso_pagamento' ? ' <span class="badge badge-blue">avviso</span>'
                 : m.origine === 'estratto_carta' ? ' <span class="badge badge-purple">carta</span>' : '';
-            // Categoria (clic per cambiarla); "Da classificare" se il sistema non l'ha riconosciuta
+            // Categoria: tendina sulla riga ("Da classificare" se il sistema non l'ha riconosciuta)
             const categoria = m.origine !== 'estratto_conto' || !('classificazione' in m) || !window.ModMovimenti ? ''
-                : ` <span style="cursor:pointer" onclick="ModRiconciliazione.categoria(${m.id})" title="Cambia categoria">${m.categoria_id
-                    ? ModMovimenti.chip(m) : '<span class="badge badge-yellow">Da classificare</span>'}</span>`;
+                : ' ' + ModMovimenti.tendina(m);
             let abbinato = (m.riconciliazioni || []).map(docLabel).join('');
             if (m.avviso_id) abbinato = '<span style="color:var(--text-muted)">Coperto dall\'avviso di pagamento</span>';
             let azioni = '';
@@ -83,6 +87,14 @@ const ModRiconciliazione = (() => {
                 <td><div class="flex gap-2">${azioni}</div></td>
             </tr><tr id="ric-prop-${m.id}" style="display:none"><td colspan="6"></td></tr>`;
         }).join('');
+        tbody.querySelectorAll('.cat-tendina').forEach(sel => sel.addEventListener('change', async () => {
+            const m = _movimenti.find(x => x.id == sel.dataset.mov);
+            if (!m) return;
+            if (sel.value === 'altro') { categoria(m.id); return; }
+            if (!sel.value) return;
+            sel.disabled = true;
+            await ModMovimenti.scegliRapido(m, sel.value, () => load());
+        }));
     }
 
     // ── Proposte ──
