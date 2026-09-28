@@ -61,7 +61,7 @@ class CommessaService
      */
     public function collegaFatturaARata(int $fatturaId): ?int
     {
-        $stmt = $this->pdo->prepare("SELECT id, incarico_id, imponibile, data_emissione, data_scadenza FROM {$this->p}fatture WHERE id = ?");
+        $stmt = $this->pdo->prepare("SELECT id, numero_fattura, incarico_id, imponibile, data_emissione, data_scadenza FROM {$this->p}fatture WHERE id = ?");
         $stmt->execute([$fatturaId]);
         $f = $stmt->fetch();
         if (!$f || !$f['incarico_id'] || (float)$f['imponibile'] <= 0) return null;
@@ -78,6 +78,14 @@ class CommessaService
         if (!$libere) return null;
 
         $gruppo = $this->rateCoperte($libere, (float)$f['imponibile']);
+        if (!$gruppo) {
+            // Nessuna rata (o sequenza di rate) con quell'importo: meglio chiedere che agganciare la rata sbagliata
+            require_once __DIR__ . '/Avvisi.php';
+            $importi = implode(', ', array_map(fn($r) => number_format((float)$r['importo'], 2, ',', '.'), $libere));
+            Avvisi::aggiungi("Fattura {$f['numero_fattura']}: " . number_format((float)$f['imponibile'], 2, ',', '.')
+                . " € non corrisponde a nessuna rata libera della commessa ($importi €). Collegala a mano dalla scheda commessa.");
+            return null;
+        }
         $scelta = $gruppo[0];
         $upd = $this->pdo->prepare("UPDATE {$this->p}incarichi_rate SET fattura_id = ? WHERE id = ?");
         $upd->execute([$fatturaId, $scelta['id']]);
@@ -102,7 +110,7 @@ class CommessaService
 
     /**
      * Rate coperte da un imponibile (tolleranza 1 €): prima una rata di pari importo,
-     * poi una sequenza di rate consecutive; altrimenti la prima rata libera.
+     * poi una sequenza di rate consecutive; altrimenti nessuna (la sceglie l'utente).
      */
     private function rateCoperte(array $libere, float $imponibile): array
     {
@@ -118,7 +126,7 @@ class CommessaService
                 if ($somma > $imponibile + 1.0) break;
             }
         }
-        return [$libere[0]];
+        return [];
     }
 
     /**

@@ -172,6 +172,10 @@
                     <i class="ph ph-car-profile"></i>
                     <span>Trasferte</span>
                 </div>
+                <button type="button" class="nav-item nav-importa" data-importa title="Importa file" aria-label="Importa file">
+                    <i class="ph ph-upload-simple"></i>
+                    <span>Importa file</span>
+                </button>
                 <div class="nav-item" data-view="contabilita" id="nav-contabilita">
                     <i class="ph ph-chart-line-up"></i>
                     <span>Contabilità</span>
@@ -384,10 +388,7 @@
                 <!-- ══ TAB: INCARICHI ══ -->
                 <div id="tab-incarichi" class="tab-content active">
                     <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
-                        <button class="btn btn-secondary" id="btn-import-pdf-incarico">
-                            <i class="ph ph-file-pdf"></i> Carica Incarico (PDF)
-                        </button>
-                        <input type="file" id="input-pdf-incarico" accept="application/pdf" style="display: none;">
+                        <button class="btn btn-secondary" data-importa type="button"><i class="ph ph-upload-simple"></i> Importa file</button>
                         <button class="btn btn-primary" id="btn-add-incarico">
                             <i class="ph ph-plus"></i> Nuovo Incarico
                         </button>
@@ -427,22 +428,7 @@
                 <!-- ══ TAB: FATTURE ══ -->
                 <div id="tab-fatture" class="tab-content" style="display: none;">
                     <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
-                        <button class="btn btn-secondary" id="btn-import-pdf-fatture">
-                            <i class="ph ph-file-pdf"></i> Importa PDF
-                        </button>
-                        <input type="file" id="input-pdf-fatture" accept="application/pdf" style="display: none;">
-                        <button class="btn btn-secondary" id="btn-import-xml-fatture">
-                            <i class="ph ph-file-code"></i> Importa XML
-                        </button>
-                        <input type="file" id="input-xml-fatture" accept=".xml" multiple style="display: none;">
-                        <button class="btn btn-secondary" id="btn-import-lista-fatture">
-                            <i class="ph ph-file-xls"></i> Lista fatture (Excel)
-                        </button>
-                        <input type="file" id="input-lista-fatture" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display: none;">
-                        <button class="btn btn-secondary" id="btn-import-payment-pdf" style="background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); color: #10b981;">
-                            <i class="ph ph-money"></i> Importa Pagamenti
-                        </button>
-                        <input type="file" id="input-payment-pdf" accept="application/pdf" multiple style="display: none;">
+                        <button class="btn btn-secondary" data-importa type="button"><i class="ph ph-upload-simple"></i> Importa file</button>
                         <button class="btn btn-primary" id="btn-add-fattura">
                             <i class="ph ph-plus"></i> Nuova Fattura
                         </button>
@@ -515,21 +501,7 @@
                 <!-- ══ TAB: RICONCILIAZIONE ══ -->
                 <div id="tab-riconciliazione" class="tab-content" style="display: none;">
                     <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
-                        <button class="btn btn-primary" id="btn-import-estratto-xml">
-                            <i class="ph ph-file-code"></i> Importa estratto conto (XML CBI)
-                        </button>
-                        <input type="file" id="input-estratto-xml" accept=".xml,text/xml,application/xml" style="display: none;">
-                        <button class="btn btn-secondary" id="btn-import-estratto-pdf">
-                            <i class="ph ph-file-pdf"></i> Estratto conto PDF
-                        </button>
-                        <input type="file" id="input-estratto-pdf" accept="application/pdf" style="display: none;">
-                        <button class="btn btn-secondary" id="btn-import-estratto-carta">
-                            <i class="ph ph-credit-card"></i> Estratto carta PDF
-                        </button>
-                        <input type="file" id="input-estratto-carta" accept="application/pdf" multiple style="display: none;">
-                        <button class="btn btn-secondary" id="btn-ric-avviso" style="background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); color: #10b981;">
-                            <i class="ph ph-money"></i> Importa avviso di pagamento
-                        </button>
+                        <button class="btn btn-primary" data-importa type="button"><i class="ph ph-upload-simple"></i> Importa estratti, avvisi e fatture</button>
                     </div>
                     <div class="table-container">
                         <div class="table-toolbar">
@@ -658,6 +630,7 @@
     <script src="js/modules/offerte.js?v=1790543384" defer></script>
     <script src="js/modules/partner.js?v=1790544327" defer></script>
     <script src="js/modules/commessa.js?v=1790543384" defer></script>
+    <script src="js/modules/importa.js?v=1" defer></script>
     <script src="js/app.js?v=1790544043" defer></script>
 
 </body>

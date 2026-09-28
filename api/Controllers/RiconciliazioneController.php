@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../Shared/ClaudeClient.php';
 require_once __DIR__ . '/../Shared/DocumentAi.php';
 require_once __DIR__ . '/../Shared/EstrattoContoParser.php';
+require_once __DIR__ . '/../Shared/EstrattoTabellare.php';
 require_once __DIR__ . '/../Shared/Riconciliatore.php';
 require_once __DIR__ . '/../Shared/Classificatore.php';
 require_once __DIR__ . '/../Shared/CommessaService.php';
@@ -52,22 +53,27 @@ class RiconciliazioneController {
     }
 
     /**
-     * Import estratto conto: XML CBI (campo xml) oppure testo delle pagine del PDF (pages[]).
+     * Import estratto conto: XML CBI/camt (campo xml), tabella CSV (campo csv) o Excel (file originale,
+     * formato=xlsx) oppure testo delle pagine del PDF (pages[]).
+     * Tabelle: colonne riconosciute dall'intestazione o scelte dall'utente (mappa, JSON), salvate per banca.
      * Con tipo=carta le pagine sono l'estratto della carta di credito: movimenti con origine estratto_carta.
      */
     public function importEstratto($data) {
         $ric = $this->riconciliatore();
         $fileNome = trim((string)($data['file_nome'] ?? ''));
         $carta = ($data['tipo'] ?? '') === 'carta';
+        $tabella = in_array($data['formato'] ?? '', ['csv', 'xlsx'], true);
         // Estratto carta caricato come estratto conto: si importa comunque come carta, altrimenti le spese si raddoppiano
-        $cartaRiconosciuta = !$carta && trim((string)($data['xml'] ?? '')) === '' && is_array($data['pages'] ?? null)
+        $cartaRiconosciuta = !$carta && !$tabella && trim((string)($data['xml'] ?? '')) === '' && is_array($data['pages'] ?? null)
             && EstrattoContoParser::eEstrattoCarta(implode("\n", array_map('strval', $data['pages'])));
         $carta = $carta || $cartaRiconosciuta;
         if ($carta && !$this->origineCartaPresente()) {
             Response::json(false, 'Import dell\'estratto carta non ancora attivo: lancia la migrazione del database.');
         }
         try {
-            if ($carta) {
+            if ($tabella) {
+                $letto = $this->leggiTabella($data);
+            } elseif ($carta) {
                 $pages = $data['pages'] ?? [];
                 if (empty($pages) || !is_array($pages)) Response::json(false, 'Nessun dato letto dal file');
                 $letto = EstrattoContoParser::parseEstrattoCarta($pages);
@@ -104,7 +110,8 @@ class RiconciliazioneController {
             'nuovi' => $esito['nuovi'], 'abbinati' => $esito['abbinati'],
         ]);
         // L'AI propone (non decide) una categoria per ciò che le regole non riconoscono
-        if ($esito['classificazione'] && ($esito['classificazione']['da_classificare'] ?? 0) > 0 && ClaudeClient::isConfigured()) {
+        if ($esito['classificazione'] && ($esito['classificazione']['da_classificare'] ?? 0) > 0 && ClaudeClient::isConfigured()
+            && !(class_exists('Anteprima') && Anteprima::attiva())) {
             try {
                 $esito['proposte_ai'] = (new Classificatore($this->pdo, $this->prefix))->proponiConAi(40);
             } catch (Throwable $e) {
@@ -116,7 +123,40 @@ class RiconciliazioneController {
         $esito['banca'] = $letto['banca'];
         $esito['avvisi'] = array_merge($letto['avvisi'], $esito['avvisi'] ?? []);
         if ($cartaRiconosciuta) array_unshift($esito['avvisi'], 'Il file è un estratto della carta di credito: importato come carta, fuori da categorie e grafici.');
+        // Colonne scelte dall'utente: valgono anche per i prossimi file con la stessa intestazione
+        if ($tabella && !empty($data['mappa'])) {
+            $this->pdo->prepare("REPLACE INTO {$this->prefix}settings (setting_key, setting_value) VALUES (?, ?)")
+                ->execute(['estratto_mappa_' . $letto['firma'], json_encode($letto['mappa'])]);
+        }
         Response::json(true, $carta ? 'Estratto carta importato' : 'Estratto conto importato', $esito);
+    }
+
+    /** Estratto CSV/Excel: mappa delle colonne dall'utente, poi quella salvata, poi il riconoscimento automatico. */
+    private function leggiTabella(array $data): array {
+        if (($data['formato'] ?? '') === 'xlsx') {
+            $f = $_FILES['originale'] ?? null;
+            if (!$f || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) Response::json(false, 'File Excel mancante');
+            $righe = EstrattoTabellare::daXlsx($f['tmp_name']);
+        } else {
+            $righe = EstrattoTabellare::daCsv((string)($data['csv'] ?? ''));
+        }
+        if (!$righe) Response::json(false, 'Il file è vuoto');
+        $mappa = json_decode((string)($data['mappa'] ?? ''), true);
+        if (!is_array($mappa)) {
+            $stmt = $this->pdo->prepare("SELECT setting_value FROM {$this->prefix}settings WHERE setting_key = ?");
+            $stmt->execute(['estratto_mappa_' . EstrattoTabellare::firmaDi($righe)]);
+            $mappa = json_decode((string)$stmt->fetchColumn(), true);
+        }
+        $banca = trim((string)($data['banca'] ?? '')) ?: EstrattoContoParser::riconosciBanca(
+            ($data['file_nome'] ?? '') . "
+" . implode("
+", array_map(fn($r) => implode(' ', $r), array_slice($righe, 0, 15))));
+        try {
+            return EstrattoTabellare::parse($righe, is_array($mappa) ? $mappa : null, $banca);
+        } catch (MappaturaRichiesta $e) {
+            Response::json(false, $e->getMessage(), ['serve_mappatura' => true, 'intestazione' => $e->intestazione,
+                'esempio' => $e->esempio, 'proposta' => $e->proposta]);
+        }
     }
 
     /** La migrazione v070 aggiunge estratto_carta ai valori di movimenti_banca.origine. */

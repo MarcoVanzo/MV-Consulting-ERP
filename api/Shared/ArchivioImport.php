@@ -25,9 +25,10 @@ class ArchivioImport
         'riconciliazione' => ['import_estratto' => 'estratto'],
         'incarichi' => ['import_pdf' => 'lettera_incarico'],
         'offerte' => ['importa' => 'offerta'],
+        'importa' => ['fattura' => 'fattura'],
     ];
 
-    private const ESTENSIONI = ['xml', 'p7m', 'pdf', 'xlsx', 'docx', 'doc', 'txt', 'md'];
+    private const ESTENSIONI = ['xml', 'p7m', 'pdf', 'xlsx', 'csv', 'docx', 'doc', 'txt', 'md'];
 
     /** Archivia il file della richiesta se $module/$action è un'importazione. */
     public static function daRichiesta(PDO $pdo, string $prefix, string $module, string $action, array $data): ?array
@@ -41,6 +42,22 @@ class ArchivioImport
             return self::registra($pdo, $prefix, $tipo, $nome, $contenuto, (int)($GLOBALS['userContext']['id'] ?? 0) ?: null);
         } catch (Throwable $e) {
             error_log('[ArchivioImport] ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /** Data della prima importazione dello stesso file, se c'è già stata (sola lettura: serve all'anteprima). */
+    public static function giaImportato(PDO $pdo, string $prefix, string $module, string $action, array $data): ?string
+    {
+        if (!isset(self::AZIONI[$module][$action])) return null;
+        try {
+            [$contenuto] = self::contenuto($data);
+            if ($contenuto === null || $contenuto === '') return null;
+            $stmt = $pdo->prepare("SELECT prima_importazione FROM {$prefix}import_file WHERE sha256 = ?");
+            $stmt->execute([hash('sha256', $contenuto)]);
+            $d = $stmt->fetchColumn();
+            return $d ? (string)$d : null;
+        } catch (Throwable $e) {
             return null;
         }
     }

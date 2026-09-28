@@ -14,6 +14,34 @@ class P7m
     // OID 1.2.840.113549.1.7.1 (id-data), codificato DER
     private const OID_DATA = "\x06\x09\x2A\x86\x48\x86\xF7\x0D\x01\x07\x01";
 
+    /**
+     * XML di una fattura da un file .xml o firmato .xml.p7m (contenuto binario del file).
+     * Stringa vuota se non si riesce a leggerlo.
+     */
+    public static function xmlDaFile(string $raw): string
+    {
+        if ($raw === '') return '';
+        if (ltrim($raw)[0] === '<') return $raw;
+        // Busta CAdES (p7m): a volte è a sua volta in base64
+        if (preg_match('/^[A-Za-z0-9+\/=\r\n]+$/', $raw)) $raw = base64_decode($raw) ?: $raw;
+        $xml = '';
+        if (function_exists('openssl_cms_verify')) {
+            // Si estrae solo il contenuto: la validità della firma non serve per registrare il documento
+            $dir = sys_get_temp_dir();
+            $in = tempnam($dir, 'p7m');
+            $out = tempnam($dir, 'xml');
+            file_put_contents($in, $raw);
+            if (@openssl_cms_verify($in, OPENSSL_CMS_NOVERIFY | OPENSSL_CMS_NOSIGS | OPENSSL_CMS_BINARY, null, [], null, $out, null, null, OPENSSL_ENCODING_DER)) {
+                $xml = (string)file_get_contents($out);
+            }
+            @unlink($in);
+            @unlink($out);
+        }
+        // Riserva (busta che openssl non legge): estrazione diretta dalla struttura ASN.1
+        if ($xml === '') $xml = (string)self::contenuto($raw);
+        return $xml;
+    }
+
     public static function contenuto(string $der): ?string
     {
         $pos = strpos($der, self::OID_DATA);
