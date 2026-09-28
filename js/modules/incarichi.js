@@ -184,9 +184,7 @@ const ModIncarichi = (() => {
 
     async function importPdf(file) {
         if (!file||file.type!=='application/pdf') { UI.toast('Seleziona un PDF valido','error'); return; }
-        const btn = document.getElementById('btn-import-pdf-incarico');
-        const prev = btn.innerHTML;
-        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Lettura…'; btn.disabled = true;
+        UI.toast('Lettura della lettera d\'incarico…');
         try {
             // Testo con pdf.js per il metodo a regole di riserva; il PDF intero va all'AI
             const ab = await file.arrayBuffer();
@@ -210,7 +208,6 @@ const ModIncarichi = (() => {
                 setTimeout(() => { initClienteWatch(); if(res.cliente_id) loadSotto(res.cliente_id, res.sottocliente_id); }, 100);
             }
         } catch(e) { UI.toast('Errore lettura PDF: '+e.message,'error'); }
-        finally { btn.innerHTML = prev; btn.disabled = false; }
     }
 
     function initFilters() {

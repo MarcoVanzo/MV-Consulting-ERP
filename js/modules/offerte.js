@@ -44,8 +44,7 @@ const ModOfferte = (() => {
             .map(([v, l]) => `<span class="filter-chip ${_filtro === v ? 'active' : ''}" data-f="${v}">${l}</span>`).join('');
         box.innerHTML = `
             <div class="comm-toolbar">
-                <button class="btn btn-ghost" id="off-import"><i class="ph ph-magic-wand"></i> Importa da Cowork</button>
-                <input type="file" id="off-import-file" accept=".pdf,.docx,.txt,.md" class="hidden">
+                <button class="btn btn-ghost" data-importa><i class="ph ph-upload-simple"></i> Importa offerta</button>
                 <button class="btn btn-primary" id="off-new"><i class="ph ph-plus"></i> Nuova offerta</button>
             </div>
             <div class="kpi-grid">
@@ -64,9 +63,6 @@ const ModOfferte = (() => {
 
         box.querySelectorAll('.filter-chip').forEach(c => c.addEventListener('click', () => { _filtro = c.dataset.f; load(); }));
         document.getElementById('off-new').addEventListener('click', openNew);
-        const inp = document.getElementById('off-import-file');
-        document.getElementById('off-import').addEventListener('click', () => inp.click());
-        inp.addEventListener('change', e => { if (e.target.files[0]) importa(e.target.files[0]); e.target.value = ''; });
         box.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => azione(b.dataset.act, parseInt(b.dataset.id, 10))));
     }
 
@@ -391,26 +387,6 @@ const ModOfferte = (() => {
                 }
             }
         } catch (e) { UI.toast(e.message || 'Errore', 'error'); }
-    }
-
-    async function importa(file) {
-        const btn = document.getElementById('off-import');
-        const prev = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Lettura in corso…';
-        try {
-            const fd = new FormData();
-            fd.append('file', file);
-            const res = await Store.upload('importa', 'offerte', fd);
-            UI.toast('Offerta importata in bozza: verificala');
-            await Promise.all([load(), ModClienti.load()]);
-            if (res?.id) edit(res.id);
-        } catch (e) {
-            UI.toast(e.message || 'Import non riuscito', 'error');
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = prev;
-        }
     }
 
     return { load, edit, openNew };

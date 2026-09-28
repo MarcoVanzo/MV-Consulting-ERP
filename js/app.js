@@ -144,73 +144,11 @@ function initApplication(userData) {
     document.getElementById('btn-add-giornata').addEventListener('click', () => ModTrasferte.openNew());
     document.getElementById('btn-add-fattura').addEventListener('click', () => ModContabilita.openNew());
     
-    // ── PDF Import ──
-    const btnImportPdf = document.getElementById('btn-import-pdf-fatture');
-    const inputImportPdf = document.getElementById('input-pdf-fatture');
-    if (btnImportPdf && inputImportPdf) {
-        btnImportPdf.addEventListener('click', () => inputImportPdf.click());
-        inputImportPdf.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                ModContabilita.importPdf(e.target.files[0]);
-                e.target.value = ''; // Reset
-            }
-        });
-    }
-
-    // ── XML Import ──
-    const btnImportXml = document.getElementById('btn-import-xml-fatture');
-    const inputImportXml = document.getElementById('input-xml-fatture');
-    if (btnImportXml && inputImportXml) {
-        btnImportXml.addEventListener('click', () => inputImportXml.click());
-        inputImportXml.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                ModContabilita.importXml(Array.from(e.target.files));
-                e.target.value = ''; // Reset
-            }
-        });
-    }
+    // ── Importazione: un solo punto d'ingresso (pulsanti [data-importa] e file trascinati sulla finestra) ──
+    ModImporta.initTrascina();
 
     // ── Clienti nel conteggio di KPI e grafico ──
     document.getElementById('btn-filtro-clienti')?.addEventListener('click', () => ModContabilita.apriFiltroClienti());
-
-    // ── Lista fatture di Sistemi (.xlsx) ──
-    const btnImportLista = document.getElementById('btn-import-lista-fatture');
-    const inputImportLista = document.getElementById('input-lista-fatture');
-    if (btnImportLista && inputImportLista) {
-        btnImportLista.addEventListener('click', () => inputImportLista.click());
-        inputImportLista.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                ModContabilita.importLista(e.target.files[0]);
-                e.target.value = ''; // Reset
-            }
-        });
-    }
-
-    // ── Payment PDF Import ──
-    const btnImportPayment = document.getElementById('btn-import-payment-pdf');
-    const inputImportPayment = document.getElementById('input-payment-pdf');
-    if (btnImportPayment && inputImportPayment) {
-        btnImportPayment.addEventListener('click', () => inputImportPayment.click());
-        inputImportPayment.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                ModContabilita.importPaymentPdf(Array.from(e.target.files));
-                e.target.value = ''; // Reset
-            }
-        });
-    }
-
-    // ── Incarichi PDF Import ──
-    const btnImportIncPdf = document.getElementById('btn-import-pdf-incarico');
-    const inputImportIncPdf = document.getElementById('input-pdf-incarico');
-    if (btnImportIncPdf && inputImportIncPdf) {
-        btnImportIncPdf.addEventListener('click', () => inputImportIncPdf.click());
-        inputImportIncPdf.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                ModIncarichi.importPdf(e.target.files[0]);
-                e.target.value = '';
-            }
-        });
-    }
 
     // ── Nuovo Incarico ──
     const btnAddIncarico = document.getElementById('btn-add-incarico');

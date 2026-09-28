@@ -30,8 +30,7 @@ const ModPartner = (() => {
             .map(([v, l]) => `<span class="filter-chip ${_filtro === v ? 'active' : ''}" data-f="${v}">${l}</span>`).join('');
         box.innerHTML = `
             <div class="comm-toolbar">
-                <button class="btn btn-ghost" id="pa-import"><i class="ph ph-file-code"></i> Importa fatture fornitori (XML/p7m)</button>
-                <input type="file" id="pa-import-file" accept=".xml,.p7m" multiple class="hidden">
+                <button class="btn btn-ghost" data-importa><i class="ph ph-upload-simple"></i> Importa file</button>
                 <button class="btn btn-ghost" id="pa-new-fatt"><i class="ph ph-plus"></i> Fattura fornitore</button>
                 <button class="btn btn-primary" id="pa-new"><i class="ph ph-plus"></i> Nuovo partner</button>
             </div>
@@ -52,9 +51,6 @@ const ModPartner = (() => {
         box.querySelectorAll('.filter-chip').forEach(c => c.addEventListener('click', () => { _filtro = c.dataset.f; load(); }));
         document.getElementById('pa-new').addEventListener('click', () => openFornitore({}));
         document.getElementById('pa-new-fatt').addEventListener('click', () => openPassiva({}));
-        const inp = document.getElementById('pa-import-file');
-        document.getElementById('pa-import').addEventListener('click', () => inp.click());
-        inp.addEventListener('change', e => { if (e.target.files.length) importXml(Array.from(e.target.files)); e.target.value = ''; });
         box.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', e => {
             e.preventDefault(); // i link hanno href="#": senza, cambierebbe l'hash e la pagina salterebbe in cima
             azione(b.dataset.act, parseInt(b.dataset.id, 10));
@@ -214,43 +210,6 @@ const ModPartner = (() => {
         };
         sel.addEventListener('change', () => loadCosti(sel.value));
         if (f.fornitore_id) loadCosti(f.fornitore_id, f.costo_id);
-    }
-
-    async function importXml(files) {
-        const btn = document.getElementById('pa-import');
-        const prev = btn.innerHTML;
-        btn.disabled = true;
-        const msgs = [];
-        let tot = 0;
-        try {
-            for (let i = 0; i < files.length; i++) {
-                btn.innerHTML = `<i class="ph ph-spinner ph-spin"></i> ${i + 1}/${files.length}…`;
-                const f = files[i];
-                const payload = { file_nome: f.name };
-                if (/\.p7m$/i.test(f.name)) {
-                    // File firmato: si manda in base64, il server estrae l'XML
-                    const buf = new Uint8Array(await f.arrayBuffer());
-                    let bin = '';
-                    for (let j = 0; j < buf.length; j += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(j, j + 0x8000));
-                    payload.file_b64 = btoa(bin);
-                } else {
-                    payload.xml = await f.text();
-                }
-                try {
-                    const res = await Store.api('import_xml', 'passive', payload);
-                    tot += res?.num_imported || 0;
-                    msgs.push(...(res?.messages || []));
-                } catch (e) {
-                    msgs.push(`${f.name}: ${e.message}`);
-                }
-            }
-            UI.openModal('Import fatture fornitori', `<p><b>${tot}</b> fatture importate</p>
-                <div style="max-height:300px;overflow-y:auto;font-size:0.85rem;line-height:1.8">${msgs.map(m => `<div>${UI.esc(m)}</div>`).join('')}</div>`, null, { readOnly: true });
-            load();
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = prev;
-        }
     }
 
     // ── Editor costi di commessa (offerta o incarico) ───

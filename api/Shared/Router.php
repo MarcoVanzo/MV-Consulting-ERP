@@ -97,11 +97,24 @@ class ApiRouter {
      * Dispatch della richiesta al controller appropriato.
      */
     public static function dispatch(string $module, string $action, array $data, bool $isDeployKeyAuth = false): void {
-        // Importazioni: il file originale si conserva prima di elaborarlo (non blocca mai l'import)
         if (isset(ArchivioImport::AZIONI[$module][$action])) {
             require_once __DIR__ . '/Database.php';
-            ArchivioImport::daRichiesta(Database::getConnection(), getenv('DB_PREFIX') ?: 'mv_', $module, $action, $data);
+            $pdo = Database::getConnection();
+            // Anteprima: l'import gira davvero e poi si annulla (Anteprima.php); niente archivio del file
+            if (($data['anteprima'] ?? '') === '1') {
+                require_once __DIR__ . '/Anteprima.php';
+                $gia = ArchivioImport::giaImportato($pdo, getenv('DB_PREFIX') ?: 'mv_', $module, $action, $data);
+                if ($gia) Avvisi::aggiungi('Questo file è già stato importato il ' . date('d/m/Y', strtotime($gia)) . ': quello che contiene risulterà già presente.');
+                $esito = Anteprima::esegui($pdo, fn() => self::instrada($module, $action, $data, $isDeployKeyAuth));
+                Response::json(true, 'Anteprima', ['anteprima' => true, 'esito' => $esito]);
+            }
+            // Import vero: il file originale si conserva prima di elaborarlo (non blocca mai l'import)
+            ArchivioImport::daRichiesta($pdo, getenv('DB_PREFIX') ?: 'mv_', $module, $action, $data);
         }
+        self::instrada($module, $action, $data, $isDeployKeyAuth);
+    }
+
+    private static function instrada(string $module, string $action, array $data, bool $isDeployKeyAuth): void {
         switch ($module) {
             case 'auth':
                 self::handleAuth($action, $data);
@@ -141,6 +154,11 @@ class ApiRouter {
                 break;
             case 'indicatori':
                 self::handleIndicatori($action, $data);
+                break;
+            case 'importa':
+                if ($action !== 'fattura') Response::json(false, "Azione importa non supportata: $action");
+                require_once __DIR__ . '/../Controllers/ImportaController.php';
+                (new ImportaController())->fattura($data);
                 break;
             case 'riconciliazione':
                 self::handleRiconciliazione($action, $data);

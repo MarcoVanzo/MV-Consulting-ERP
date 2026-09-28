@@ -1048,3 +1048,42 @@ button.filter-chip { font-family: inherit; }
 @media (max-width: 800px) {
   .andamento-grid { grid-template-columns: 1fr; }
 }
+
+/* ═══ Importa file (js/modules/importa.js) ═══ */
+button.nav-importa { width: 100%; background: none; border: 0; font: inherit; color: inherit; text-align: left; }
+.imp-drop {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+  padding: 28px 16px; border: 2px dashed var(--border-hover); border-radius: var(--radius);
+  background: var(--bg-surface); cursor: pointer; color: var(--text-secondary);
+}
+.imp-drop i { font-size: 2rem; color: var(--accent-primary); }
+.imp-drop strong { color: var(--text-primary); }
+.imp-drop span { font-size: 0.8rem; color: var(--text-muted); max-width: 52ch; }
+.imp-drop.attivo, .imp-drop:hover { border-color: var(--accent-primary); background: rgba(31, 136, 201, 0.08); }
+.imp-drop:focus-within { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.imp-lista { display: grid; gap: 10px; margin-top: 14px; }
+.imp-voce { border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 12px; display: grid; gap: 8px; }
+.imp-testa { display: flex; align-items: center; gap: 8px 10px; min-width: 0; flex-wrap: wrap; }
+.imp-testa > i { font-size: 1.3rem; color: var(--accent-primary); flex-shrink: 0; }
+.imp-nome { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.imp-tipo { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-secondary); }
+.imp-tipo select { max-width: 320px; }
+.imp-errore { color: #FCA5A5; font-size: 0.85rem; }
+.imp-riassunto { margin: 0; padding-left: 18px; font-size: 0.88rem; color: var(--text-secondary); display: grid; gap: 2px; }
+.imp-avvisi { font-size: 0.82rem; color: #FCD34D; }
+.imp-avvisi summary { cursor: pointer; }
+.imp-avvisi ul { margin: 6px 0 0; padding-left: 18px; max-height: 180px; overflow-y: auto; display: grid; gap: 2px; }
+.imp-mappa { font-size: 0.85rem; color: var(--text-secondary); display: grid; gap: 8px; }
+.imp-mappa-griglia { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.imp-mappa-griglia label { display: grid; gap: 4px; }
+.imp-esempio { color: var(--text-muted); overflow-wrap: anywhere; }
+body.trascina-file::after {
+  content: 'Rilascia i file per importarli'; position: fixed; inset: 12px; z-index: 3000;
+  display: flex; align-items: center; justify-content: center; font-size: 1.3rem; font-weight: 600;
+  border: 3px dashed var(--accent-primary); border-radius: var(--radius-lg);
+  background: rgba(11, 14, 20, 0.85); color: var(--text-primary); pointer-events: none;
+}
+@media (max-width: 600px) {
+  .imp-tipo { flex-direction: column; align-items: stretch; }
+  .imp-tipo select { max-width: none; }
+}

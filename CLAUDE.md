@@ -45,6 +45,16 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   `api/Shared/ArchivioImport.php`, che salva l'originale in `storage/import/<sha256>.<ext>` e lo
   registra in `import_file` (v077). Un import nuovo va aggiunto a `AZIONI` e il frontend manda il file
   nel campo `originale` quando al server arriva solo il testo estratto con pdf.js.
+- **Importazione unica** (`js/modules/importa.js`): ogni pulsante `[data-importa]` e i file trascinati sulla
+  finestra aprono la stessa finestra, che riconosce il tipo, chiede l'**anteprima** e poi importa. L'anteprima
+  è l'import vero eseguito dentro una transazione annullata (`api/Shared/Anteprima.php`): le transazioni
+  interne diventano savepoint (`MvPdo` in `Database.php`) e `Response::json` lancia `RispostaCatturata` invece
+  di uscire. Il codice con effetti fuori dal DB (AI, email) controlla `Anteprima::attiva()`.
+  Fatture XML/p7m entrano da `importa/fattura` (`ImportaController`: emessa o ricevuta da `AZIENDA_PARTITA_IVA`).
+  Estratti CSV/Excel: `EstrattoTabellare` (colonne scelte dall'utente salvate in settings per intestazione).
+  Le risposte AI sono in cache 7 giorni in `storage/cache/ai/`. Prova: `php tests/importa_cli.php`.
+- **Rate**: una fattura che non combacia con nessuna rata non si aggancia più alla prima libera: `Avvisi` lo segnala
+  e l'utente la collega a mano.
 - **Cliente o prospect** è calcolato in `ClientiController::list` (ha commesse o fatture → cliente), non salvato.
 - **Ricerca P.IVA** nel frontend solo con `UI.cercaPiva()`: segnala anche chi è già in anagrafica.
 - **Allegati**: mai in `uploads/` (sull'hosting il server statico può ignorare `.htaccess`). Si salvano con

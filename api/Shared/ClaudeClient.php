@@ -70,6 +70,13 @@ class ClaudeClient
             throw new RuntimeException('Documento non leggibile (codifica del testo)');
         }
 
+        // Stessa richiesta già fatta (es. anteprima e poi import dello stesso file): risposta dalla cache
+        $cache = self::fileCache($payload);
+        if (is_file($cache) && filemtime($cache) > time() - self::CACHE_TTL) {
+            $salvato = json_decode((string)file_get_contents($cache), true);
+            if (is_array($salvato)) return $salvato;
+        }
+
         // Il proxy di Aruba chiude le richieste dopo circa 100 s: tutto (tentativi compresi) sta sotto i 95 s
         $scadenza = microtime(true) + self::BUDGET_SECONDS;
         @set_time_limit(self::BUDGET_SECONDS + 15);
@@ -131,9 +138,31 @@ class ClaudeClient
         foreach ($response['content'] ?? [] as $block) {
             if (($block['type'] ?? '') === 'text') {
                 $data = json_decode($block['text'], true);
-                if (is_array($data)) return $data;
+                if (is_array($data)) {
+                    self::salvaCache($cache, $data);
+                    return $data;
+                }
             }
         }
         throw new RuntimeException('Risposta AI non interpretabile');
+    }
+
+    /** Durata della cache delle risposte (secondi). */
+    private const CACHE_TTL = 7 * 86400;
+
+    private static function fileCache(string $payload): string
+    {
+        return dirname(__DIR__, 2) . '/storage/cache/ai/' . hash('sha256', $payload) . '.json';
+    }
+
+    /** Salva la risposta e toglie quelle scadute; un errore di scrittura non blocca l'estrazione. */
+    private static function salvaCache(string $file, array $data): void
+    {
+        $dir = dirname($file);
+        if (!is_dir($dir) && !@mkdir($dir, 0750, true)) return;
+        @file_put_contents($file, json_encode($data, JSON_UNESCAPED_UNICODE), LOCK_EX);
+        foreach (glob($dir . '/*.json') ?: [] as $f) {
+            if (filemtime($f) < time() - self::CACHE_TTL) @unlink($f);
+        }
     }
 }

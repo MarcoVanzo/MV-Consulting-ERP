@@ -96,8 +96,9 @@ class EstrattoContoParser
             return ($n && $n->length) ? trim((string)$n->item(0)->textContent) : '';
         };
 
-        $stmts = $xp->query('//' . $el('Stmt'));
-        if (!$stmts || !$stmts->length) throw new RuntimeException('Non è un estratto conto CBI (manca Stmt)');
+        // camt.053 (Stmt), camt.052 (Rpt), camt.054 (Ntfctn): stessa struttura dei movimenti
+        $stmts = $xp->query('//' . $el('Stmt') . ' | //' . $el('Rpt') . ' | //' . $el('Ntfctn'));
+        if (!$stmts || !$stmts->length) throw new RuntimeException('Non è un estratto conto CBI/camt (manca Stmt)');
         $movimenti = [];
         $avvisi = [];
         $iban = '';
@@ -123,6 +124,9 @@ class EstrattoContoParser
                 // Causale: tutte le AddtlTxInf dei dettagli, altrimenti l'informazione della riga
                 $causali = [];
                 foreach ($xp->query('.//' . $el('AddtlTxInf'), $n) as $c) $causali[] = trim($c->textContent);
+                // camt standard: la causale del bonifico sta in RmtInf/Ustrd
+                foreach ($xp->query('.//' . $el('RmtInf') . '/' . $el('Ustrd'), $n) as $c) $causali[] = trim($c->textContent);
+                $causali = array_values(array_unique($causali));
                 $descr = trim(implode(' ', array_filter($causali))) ?: $testo($n, './' . $el('AddtlNtryInf'));
                 $parte = $testo($n, './/' . $el('RltdPties') . '/' . $el($dbit ? 'Cdtr' : 'Dbtr') . '/' . $el('Nm'))
                     ?: $testo($n, './/' . $el('RltdPties') . '//' . $el('Nm'));
