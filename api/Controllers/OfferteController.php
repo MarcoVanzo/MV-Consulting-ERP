@@ -232,16 +232,22 @@ class OfferteController {
             $this->pdo->rollBack();
             Response::json(false, 'Offerta già accettata o modificata nel frattempo: ricarica la pagina', null, 409);
         }
+        // Termini standard del cliente (se impostati) al posto di quelli dell'offerta; piano dell'offerta, o quello del cliente
+        $svc = new CommessaService($this->pdo, $p);
+        $standard = $svc->terminiCliente((int)$o['cliente_id']);
+        $giorni = $standard['giorni_pagamento'] ?? (int)$o['giorni_pagamento'];
+        if (!$piano && !empty($standard['piano'])) $piano = $standard['piano'];
         $this->pdo->prepare("INSERT INTO {$p}incarichi
                 (cliente_id, sottocliente_id, offerta_id, data_incarico, tipo_commessa, numero_protocollo, descrizione,
-                 num_giornate, importo_totale, giorni_pagamento, condizioni_pagamento, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                 num_giornate, importo_totale, giorni_pagamento, fine_mese, giorno_pagamento, condizioni_pagamento, note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             ->execute([$o['cliente_id'], $o['sottocliente_id'], $id, $dataAcc, $o['tipo_commessa'], $protocollo,
-                $o['oggetto'], $o['num_giornate'], $o['imponibile'], $o['giorni_pagamento'], $o['condizioni_pagamento'],
+                $o['oggetto'], $o['num_giornate'], $o['imponibile'], $giorni, $standard['fine_mese'] ?? 0,
+                $standard['giorno_pagamento'] ?? null, $o['condizioni_pagamento'],
                 'Da offerta ' . $o['numero'] . ($o['versione'] > 1 ? ' v' . $o['versione'] : '')]);
         $incaricoId = (int)$this->pdo->lastInsertId();
 
-        (new CommessaService($this->pdo, $p))->creaRateDaPiano($incaricoId, (float)$o['imponibile'], $piano, $dataAcc, (int)$o['giorni_pagamento']);
+        $svc->creaRateDaPiano($incaricoId, (float)$o['imponibile'], $piano, $dataAcc, $giorni);
         $this->pdo->prepare("UPDATE {$p}commessa_costi SET incarico_id = ? WHERE offerta_id = ? AND incarico_id IS NULL")->execute([$incaricoId, $id]);
         $this->pdo->prepare("UPDATE {$p}offerte SET incarico_id = ? WHERE id = ?")->execute([$incaricoId, $id]);
         $this->pdo->commit();

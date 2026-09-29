@@ -790,9 +790,10 @@ class ContabilitaController {
     }
 
     /**
-     * Import PDF di conferma pagamento (es. "Pagamento Fornitore")
-     * Parsing specifico per bonifici ricevuti da clienti (es. Unindustria)
-     * Aggiorna le fatture esistenti come "pagata"
+     * Import dell'avviso di pagamento del cliente («Pagamento Fornitore» di Unindustria).
+     * Ogni bonifico dell'avviso diventa un movimento atteso con le sue fatture (Riconciliatore::registraAvviso),
+     * che l'accredito sull'estratto conto poi conferma. Per ogni fattura si controlla anche il pagamento:
+     * importo, data del documento e valuta rispetto alla scadenza dei termini (CommessaService::scadenzaAttesa).
      */
     public function importPaymentPdf($data) {
         $pages = $data['pages'] ?? [];
@@ -800,216 +801,100 @@ class ContabilitaController {
             Response::json(false, 'Nessun dato di testo trovato');
             return;
         }
-
-        $fullText = implode(' ', $pages);
-        $fullText = preg_replace('/\s+/', ' ', $fullText);
-
-        $matched = 0;
-        $notFound = [];
-        $alreadyPaid = [];
-        $details = [];
-
-        // 1. Estrai la data del pagamento dalla riga "Treviso, DD/MM/YY"
-        $dataPagamento = date('Y-m-d');
-        if (preg_match('/(?:Treviso|Milano|Padova|Roma)[,\s]+(\d{1,2}\/\d{2}\/\d{2,4})/i', $fullText, $mData)) {
-            $parts = explode('/', trim($mData[1]));
-            if (count($parts) === 3) {
-                $day = str_pad($parts[0], 2, '0', STR_PAD_LEFT);
-                $month = $parts[1];
-                $year = $parts[2];
-                if (strlen($year) === 2) $year = '20' . $year;
-                $dataPagamento = "$year-$month-$day";
-            }
-        }
-
-        // 2. Estrai data valuta (dalla riga delle fatture, es. "10/04/26 Fissa")
-        $dataValuta = null;
-        if (preg_match('/(\d{2}\/\d{2}\/\d{2,4})\s+Fissa/i', $fullText, $mVal)) {
-            $parts = explode('/', trim($mVal[1]));
-            if (count($parts) === 3) {
-                $day = str_pad($parts[0], 2, '0', STR_PAD_LEFT);
-                $month = $parts[1];
-                $year = $parts[2];
-                if (strlen($year) === 2) $year = '20' . $year;
-                $dataValuta = "$year-$month-$day";
-            }
-        }
-
-        // Se abbiamo la data valuta, usiamola come data pagamento effettivo
-        if ($dataValuta) {
-            $dataPagamento = $dataValuta;
-        }
-
-        // 3. Estrai le righe della tabella
-        // Pattern: numero_fattura  data_doc  data_valuta Fissa  importo
-        // Es: "1    30/01/26        10/04/26 Fissa         7.960,50"
-        $righe = [];
-        if (preg_match_all('/\b(\d{1,4})\s+(\d{2}\/\d{2}\/\d{2,4})\s+\d{2}\/\d{2}\/\d{2,4}\s+Fissa\s+([\d\.,]+)/i', $fullText, $matches, PREG_SET_ORDER)) {
-            foreach ($matches as $m) {
-                $numFattura = trim($m[1]);
-                $importo = (float)str_replace(['.', ','], ['', '.'], $m[3]);
-                // Anno della fattura dalla data documento (es. 30/01/26 → 2026)
-                $annoFattura = null;
-                $dParts = explode('/', trim($m[2]));
-                if (count($dParts) === 3) {
-                    $annoFattura = strlen($dParts[2]) === 2 ? (int)('20' . $dParts[2]) : (int)$dParts[2];
-                }
-                $righe[] = [
-                    'numero' => $numFattura,
-                    'importo' => $importo,
-                    'anno' => $annoFattura
-                ];
-            }
-        }
-
-        // 4. Estrai anche il totale pagamento per verifica
-        $totalePagamento = 0;
-        if (preg_match('/TOTALE\s+PAGAMENTO\s*\*{0,3}\s*EURO\s+([\d\.,]+)/i', $fullText, $mTot)) {
-            $totalePagamento = (float)str_replace(['.', ','], ['', '.'], $mTot[1]);
-        }
-
-        if (empty($righe)) {
+        require_once __DIR__ . '/../Shared/AvvisoPagamentoParser.php';
+        require_once __DIR__ . '/../Shared/CommessaService.php';
+        require_once __DIR__ . '/RiconciliazioneController.php';
+        $avviso = AvvisoPagamentoParser::leggi($pages);
+        if (!$avviso['bonifici']) {
             Response::json(false, 'Nessuna riga di pagamento trovata nel PDF', [
-                'text_preview' => substr($fullText, 0, 500)
+                'text_preview' => mb_substr(preg_replace('/\s+/', ' ', implode(' ', $pages)), 0, 500)
             ]);
             return;
         }
+        if (!Riconciliatore::tabellePresenti($this->pdo, $this->prefix)) {
+            Response::json(false, 'Riconciliazione non attiva: lancia le migrazioni prima di importare gli avvisi');
+            return;
+        }
+        $ric = new Riconciliatore($this->pdo, $this->prefix, fn($id) => $this->recalculateLinkedIncarico($id));
+        $svc = new CommessaService($this->pdo, $this->prefix);
+        $userId = isset($GLOBALS['userContext']['id']) ? (int)$GLOBALS['userContext']['id'] : null;
+        $eur = fn($v) => '€' . number_format((float)$v, 2, ',', '.');
+        $gg = fn($v) => date('d/m/Y', strtotime($v));
 
-        // 5. Per ogni riga del PDF, cerca TUTTE le righe in DB con quel numero fattura
-        //    (la stessa fattura può avere più righe, una per sottocliente)
-        //    Confronta la SOMMA degli importi con l'importo del PDF
-        // Con la riconciliazione attiva (migrazione lanciata) l'avviso confluisce nei movimenti bancari
-        require_once __DIR__ . '/RiconciliazioneController.php';
-        $ric = Riconciliatore::tabellePresenti($this->pdo, $this->prefix)
-            ? new Riconciliatore($this->pdo, $this->prefix, fn($id) => $this->recalculateLinkedIncarico($id))
-            : null;
-        $docsAvviso = [];
-        $numeriAvviso = [];
-        $movimentoId = null;
+        $matched = 0;
+        $details = [];
+        $controlli = [];
+        $alreadyPaid = [];
+        $notFound = [];
+        $movimenti = [];
+        $numRighe = 0;
 
-        // Tutti gli aggiornamenti del PDF in un'unica transazione
         $this->pdo->beginTransaction();
         try {
-            foreach ($righe as $riga) {
-                $numFattura = $riga['numero'];
-                $importo = $riga['importo'];
-
-                // Cerca TUTTE le righe con questo numero fattura (match esatto, padding, suffisso, prefisso/001)
-                // limitate all'anno della fattura, se noto (la numerazione riparte ogni anno)
-                $numPadded = str_pad($numFattura, 3, '0', STR_PAD_LEFT);
-                $sqlCerca = "SELECT id, numero_fattura, importo_totale, stato, sottocliente_id, cliente_id
-                    FROM {$this->prefix}fatture 
-                    WHERE (numero_fattura = ? 
-                       OR numero_fattura = ? 
-                       OR numero_fattura LIKE ? 
-                       OR numero_fattura LIKE ?
-                       OR numero_fattura LIKE ?)";
-                $paramsCerca = [$numFattura, $numPadded, "%/$numFattura", "$numFattura/%", "$numPadded/%"];
-                if (!empty($riga['anno'])) {
-                    $sqlCerca .= " AND YEAR(data_emissione) = ?";
-                    $paramsCerca[] = $riga['anno'];
+            foreach ($avviso['bonifici'] as $bonifico) {
+                if (abs($bonifico['totale'] - $bonifico['somma_righe']) > 0.01) {
+                    $controlli[] = "⚠️ Bonifico del {$gg($bonifico['valuta'])}: totale {$eur($bonifico['totale'])} ma le righe sommano {$eur($bonifico['somma_righe'])}.";
                 }
-                $sqlCerca .= " ORDER BY id ASC";
-                $stmt = $this->pdo->prepare($sqlCerca);
-                $stmt->execute($paramsCerca);
-                $righeDb = $stmt->fetchAll();
-
-                if (empty($righeDb)) {
-                    $notFound[] = "Fattura n. $numFattura (€" . number_format($importo, 2, ',', '.') . "): non trovata in archivio.";
-                    continue;
-                }
-
-                // Calcola la somma totale di tutte le righe con questo numero fattura
-                $sommaTotaleDb = 0;
-                $numRigheDb = count($righeDb);
-                $tutteGiaPagate = true;
-                foreach ($righeDb as $r) {
-                    $sommaTotaleDb += floatval($r['importo_totale']);
-                    if ($r['stato'] !== 'pagata') $tutteGiaPagate = false;
-                }
-
-                // Se sono tutte già pagate
-                if ($tutteGiaPagate) {
-                    $alreadyPaid[] = "Fattura n. $numFattura ({$numRigheDb} righe, €" . number_format($sommaTotaleDb, 2, ',', '.') . "): tutte già segnate come pagate.";
-                    continue;
-                }
-
-                // Verifica che la somma corrisponda (tolleranza ±2€ per arrotondamenti)
-                $diff = abs($sommaTotaleDb - $importo);
-                if ($diff > 2.0) {
-                    $notFound[] = "Fattura n. $numFattura: importo PDF €" . number_format($importo, 2, ',', '.') . 
-                        " ≠ somma DB €" . number_format($sommaTotaleDb, 2, ',', '.') . 
-                        " ({$numRigheDb} righe, diff: €" . number_format($diff, 2, ',', '.') . ").";
-                    continue;
-                }
-
-                // Match trovato! Tutte le righe di questa fattura diventano pagate
-                if ($ric) {
-                    // Riconciliazione attiva: l'avviso diventa un movimento atteso con le sue riconciliazioni
-                    // (una voce per documento: le righe con lo stesso numero_fattura/anno/cliente)
-                    $numRighe = count(array_filter($righeDb, fn($r) => $r['stato'] !== 'pagata'));
-                    array_push($docsAvviso, ...$ric->vociAvviso($righeDb, $importo));
-                    $matched += $numRighe;
-                    $numeriAvviso[] = $numFattura;
-                    $details[] = "✅ Fattura n. {$numFattura} — €" . number_format($importo, 2, ',', '.') . " → {$numRighe} righe aggiornate come Pagate ({$dataPagamento})";
-                    continue;
-                }
-                $idsAggiornati = [];
-                foreach ($righeDb as $r) {
-                    if ($r['stato'] !== 'pagata') {
-                        $stmtUpd = $this->pdo->prepare("UPDATE {$this->prefix}fatture 
-                            SET stato = 'pagata', 
-                                data_pagamento = ?, 
-                                metodo_pagamento = 'bonifico'
-                            WHERE id = ?");
-                        $stmtUpd->execute([$dataPagamento, $r['id']]);
-                        Audit::log('UPDATE', 'fatture', $r['id'], null, null, [
-                            'azione' => 'pagamento_da_pdf',
-                            'stato' => 'pagata',
-                            'data_pagamento' => $dataPagamento,
-                            'importo_riga' => $r['importo_totale']
-                        ]);
-                        $idsAggiornati[] = $r['id'];
+                $docs = [];
+                $numeri = [];
+                $pagate = 0;
+                $esiti = [];
+                foreach ($bonifico['righe'] as $riga) {
+                    $numRighe++;
+                    $num = $riga['numero'];
+                    $righeDb = $this->fatturePerAvviso($riga);
+                    if (!$righeDb) {
+                        $notFound[] = "Fattura n. $num del {$gg($riga['data_documento'])} ({$eur($riga['importo'])}): non trovata in archivio.";
+                        continue;
                     }
-                }
-
-                $matched += count($idsAggiornati);
-                $details[] = "✅ Fattura n. {$numFattura} — €" . number_format($importo, 2, ',', '.') . " → {$numRigheDb} righe aggiornate come Pagate ({$dataPagamento})";
-
-                // Ricalcola incarichi collegati alle fatture pagate
-                foreach ($righeDb as $r) {
-                    if (in_array($r['id'], $idsAggiornati)) {
-                        $this->recalculateLinkedIncarico($r['id']);
+                    if ($righeDb[0]['data_emissione'] !== $riga['data_documento']) {
+                        $controlli[] = "⚠️ Fattura n. $num: nell'avviso è del {$gg($riga['data_documento'])}, in archivio del {$gg($righeDb[0]['data_emissione'])}.";
                     }
-                }
-            }
+                    $controlli[] = $this->controlloValuta($svc, (int)$righeDb[0]['id'], $num, $riga['valuta']);
 
-            // Avviso → movimento atteso + riconciliazioni; se l'accredito è già sull'estratto conto viene collegato
-            if ($ric && $docsAvviso) {
-                $totaleAvviso = $totalePagamento > 0 ? $totalePagamento : array_sum(array_column($righe, 'importo'));
+                    // La stessa fattura può avere più righe (una per sottocliente): conta la somma
+                    $somma = array_sum(array_map(fn($r) => (float)$r['importo_totale'], $righeDb));
+                    $aperte = array_filter($righeDb, fn($r) => $r['stato'] !== 'pagata');
+                    if (!$aperte) {
+                        $alreadyPaid[] = "Fattura n. $num (" . count($righeDb) . " righe, {$eur($somma)}): già segnata come pagata.";
+                        continue;
+                    }
+                    if (abs($somma - $riga['importo']) > 2.0) {
+                        $notFound[] = "Fattura n. $num: importo nell'avviso {$eur($riga['importo'])} ≠ in archivio {$eur($somma)}"
+                            . " (differenza " . $eur(abs($somma - $riga['importo'])) . "): non segnata pagata.";
+                        continue;
+                    }
+                    array_push($docs, ...$ric->vociAvviso($righeDb, $riga['importo']));
+                    $pagate += count($aperte);
+                    $numeri[] = $num;
+                    $esiti[] = "✅ Fattura n. $num — {$eur($riga['importo'])} → pagata con valuta {$gg($riga['valuta'])}";
+                }
+                if (!$docs) continue;
                 try {
-                    $movimentoId = $ric->registraAvviso([
-                        'data' => $dataPagamento,
-                        'importo' => $totaleAvviso,
-                        'descrizione' => 'Avviso di pagamento — fatture ' . implode(', ', $numeriAvviso),
+                    $movimenti[] = $ric->registraAvviso([
+                        'data' => $bonifico['valuta'],
+                        'importo' => $bonifico['totale'],
+                        'descrizione' => 'Avviso di pagamento — fatture ' . implode(', ', $numeri),
                         'file_nome' => trim((string)($data['file_nome'] ?? '')),
-                    ], $docsAvviso, isset($GLOBALS['userContext']['id']) ? (int)$GLOBALS['userContext']['id'] : null, 2.0);
+                    ], $docs, $userId, 2.0);
+                    $matched += $pagate;
+                    array_push($details, ...$esiti);
                 } catch (RuntimeException $e) {
-                    // Un documento incoerente non deve far fallire l'intero import: si segnala e basta
-                    $matched = 0;
-                    $details = [];
-                    $notFound[] = 'Pagamenti non registrati: ' . $e->getMessage();
-                    $docsAvviso = [];
+                    // Un documento incoerente non deve far fallire l'intero avviso: si segnala il bonifico e si prosegue
+                    $notFound[] = 'Bonifico del ' . $gg($bonifico['valuta']) . ' non registrato (fatture ' . implode(', ', $numeri) . '): ' . $e->getMessage();
                 }
             }
-            if ($ric && $movimentoId) {
+            if ($movimenti) {
                 // L'accredito collegato all'avviso diventa "Incassi clienti"
                 RiconciliazioneController::classifica($this->pdo, $this->prefix);
-                foreach ($ric->documenti()->delMovimento($movimentoId) as $d) {
-                    Audit::log('UPDATE', 'fatture', $d['id'], null, null, [
-                        'azione' => 'pagamento_da_pdf', 'stato' => 'pagata', 'data_pagamento' => $dataPagamento,
-                        'movimento_id' => $movimentoId, 'importo' => $d['importo'],
-                    ]);
+                foreach ($movimenti as $movimentoId) {
+                    $mov = $ric->movimento($movimentoId);
+                    foreach ($ric->documenti()->delMovimento($movimentoId) as $d) {
+                        Audit::log('UPDATE', 'fatture', $d['id'], null, null, [
+                            'azione' => 'pagamento_da_pdf', 'stato' => 'pagata', 'data_pagamento' => $mov['data_valuta'] ?? null,
+                            'movimento_id' => $movimentoId, 'importo' => $d['importo'],
+                        ]);
+                    }
                 }
             }
             $this->pdo->commit();
@@ -1022,18 +907,51 @@ class ContabilitaController {
             return;
         }
 
-        $messages = array_merge($details, $alreadyPaid, $notFound);
-
         Response::json(true, "Analisi pagamento PDF completata", [
             'num_matched' => $matched,
             'num_already_paid' => count($alreadyPaid),
             'num_not_found' => count($notFound),
-            'totale_pagamento' => $totalePagamento,
-            'data_pagamento' => $dataPagamento,
-            'num_righe_trovate' => count($righe),
-            'movimento_id' => $movimentoId,
-            'messages' => $messages
+            'totale_pagamento' => $avviso['totale'],
+            'data_pagamento' => max(array_column($avviso['bonifici'], 'valuta')),
+            'num_bonifici' => count($avviso['bonifici']),
+            'num_righe_trovate' => $numRighe,
+            'movimento_id' => $movimenti[0] ?? null,
+            'messages' => array_values(array_filter(array_merge($notFound, $controlli, $details, $alreadyPaid))),
         ]);
+    }
+
+    /**
+     * Righe in archivio della fattura di una riga dell'avviso: stesso numero (anche «29» ↔ «29/001» ↔ «029»)
+     * e stesso anno; se più documenti hanno quel numero, quello con la data dell'avviso.
+     */
+    private function fatturePerAvviso(array $riga): array {
+        $base = ltrim($riga['numero_base'], '0') ?: '0';
+        $pad = str_pad($base, 3, '0', STR_PAD_LEFT);
+        $stmt = $this->pdo->prepare("SELECT id, numero_fattura, data_emissione, importo_totale, stato, sottocliente_id, cliente_id
+            FROM {$this->prefix}fatture
+            WHERE importo_totale > 0 AND (numero_fattura IN (?, ?, ?) OR numero_fattura LIKE ? OR numero_fattura LIKE ? OR numero_fattura LIKE ?)
+              AND data_emissione BETWEEN ? AND ?
+            ORDER BY id");
+        $anno = substr((string)$riga['data_documento'], 0, 4);
+        $stmt->execute([$riga['numero'], $base, $pad, "$base/%", "$pad/%", "%/$base", "$anno-01-01", "$anno-12-31"]);
+        $righe = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stessaData = array_values(array_filter($righe, fn($r) => $r['data_emissione'] === $riga['data_documento']));
+        if ($stessaData) return $stessaData;
+        // Data diversa: va bene solo se il documento è uno (altrimenti non si sa quale)
+        return count(array_unique(array_column($righe, 'data_emissione'))) === 1 ? $righe : [];
+    }
+
+    /** Valuta del bonifico rispetto alla scadenza dei termini: puntuale, in anticipo o in ritardo. */
+    private function controlloValuta(CommessaService $svc, int $fatturaId, string $numero, string $valuta): ?string {
+        $attesa = $svc->scadenzaAttesa($fatturaId);
+        if (!$attesa) return null;
+        [$scadenza, $termini] = $attesa;
+        $giorni = (int)round((strtotime($valuta) - strtotime($scadenza)) / 86400);
+        if ($giorni === 0) return null;
+        $quando = date('d/m/Y', strtotime($scadenza));
+        return $giorni > 0
+            ? "⚠️ Fattura n. $numero: pagata $giorni gg in ritardo (valuta " . date('d/m/Y', strtotime($valuta)) . ", scadenza $quando, $termini)."
+            : "ℹ️ Fattura n. $numero: pagata " . (-$giorni) . " gg in anticipo (valuta " . date('d/m/Y', strtotime($valuta)) . ", scadenza $quando, $termini).";
     }
 
     /**

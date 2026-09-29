@@ -63,6 +63,7 @@ class Scadenzario
     private function rateDaFatturare(string $limite): array
     {
         $stmt = $this->pdo->prepare("SELECT r.id, r.incarico_id, r.descrizione, r.importo, r.data_prevista, r.giorni_pagamento,
+                i.fine_mese, i.giorno_pagamento,
                 i.tipo_commessa, i.descrizione AS incarico_descrizione, i.numero_protocollo,
                 c.ragione_sociale AS cliente_nome, c.partita_iva AS cliente_piva, c.codice_fiscale AS cliente_cf,
                 c.sdi AS cliente_sdi, c.pec AS cliente_pec, sc.nome AS sottocliente_nome,
@@ -83,6 +84,7 @@ class Scadenzario
                 'tipo_commessa' => $r['tipo_commessa'], 'offerta_numero' => $r['offerta_numero'],
                 'numero_protocollo' => $r['numero_protocollo'], 'sottocliente_nome' => $r['sottocliente_nome'],
             ], $r);
+            $r['termini'] = TerminiPagamento::descrivi(...TerminiPagamento::daRiga($r));
             if ($r['iva_percentuale'] === null) $r['iva_percentuale'] = 22;
             $r['senza_data'] = $r['data_prevista'] === null;
         }

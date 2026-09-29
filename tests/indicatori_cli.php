@@ -27,7 +27,8 @@ $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 foreach ([
     "CREATE TABLE {$p}settings (setting_key TEXT PRIMARY KEY, setting_value TEXT)",
-    "CREATE TABLE {$p}incarichi (id INTEGER PRIMARY KEY, cliente_id INT, data_incarico TEXT, importo_totale REAL, stato TEXT DEFAULT 'attivo')",
+    "CREATE TABLE {$p}incarichi (id INTEGER PRIMARY KEY, cliente_id INT, data_incarico TEXT, importo_totale REAL, stato TEXT DEFAULT 'attivo',
+        fine_mese INT DEFAULT 0, giorno_pagamento INT)",
     "CREATE TABLE {$p}incarichi_rate (id INTEGER PRIMARY KEY, incarico_id INT, importo REAL, data_prevista TEXT, fattura_id INT)",
     "CREATE TABLE {$p}fatture (id INTEGER PRIMARY KEY, numero_fattura TEXT, data_emissione TEXT, cliente_id INT, sottocliente_id INT,
         incarico_id INT, imponibile REAL, importo_totale REAL, stato TEXT DEFAULT 'emessa', data_scadenza TEXT)",

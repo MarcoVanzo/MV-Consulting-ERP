@@ -88,6 +88,13 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   Lettere d'incarico: lette quattro alla volta (`incarichi/import_pdf`, non salva) e riviste in **una tabella**,
   poi salvate con `incarichi/save`. Doppioni per protocollo (`CommessaService::chiaviProtocollo`: «820/2026» e
   «SZ.DPS.F011.26» sono chiavi della stessa lettera): esclusi in tabella e rifiutati dal `save`.
+- **Termini di pagamento** (dal 29/09/2026): scadenze solo da `api/Shared/TerminiPagamento.php` (giorni, fine mese,
+  giorno fisso: «60 gg d.f.f.m. al 10»). Colonne `fine_mese`/`giorno_pagamento` su `incarichi` e termini standard su
+  `clienti` (v096–v100; Unindustria: 60/fine mese/10 e piano `6_12`, 50% a 6 e 50% a 12 mesi dall'accettazione;
+  v101–v103 lo applicano alle commesse già registrate senza nulla di fatturato):
+  una commessa nuova li prende dal cliente (`CommessaService::terminiCliente`). Avviso «Pagamento Fornitore»:
+  `AvvisoPagamentoParser` (un movimento atteso per ogni «TOTALE PAGAMENTO»), con controllo di importo, data e valuta
+  rispetto a `CommessaService::scadenzaAttesa`. Prova: `php tests/termini_pagamento_cli.php`.
 - **Rate**: una fattura che non combacia con nessuna rata non si aggancia più alla prima libera: `Avvisi` lo segnala
   e l'utente la collega a mano.
 - **Cliente o prospect** è calcolato in `ClientiController::list` (ha commesse o fatture → cliente), non salvato.

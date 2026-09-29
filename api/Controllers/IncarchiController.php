@@ -106,6 +106,18 @@ class IncarchiController {
         if (empty($fields['cliente_id'])) {
             Response::json(false, 'Cliente obbligatorio');
         }
+        // Termini: una commessa nuova prende quelli standard del cliente (es. Unindustria 60 gg d.f.f.m. al 10),
+        // che vincono sui 30 giorni di default; in modifica si toccano solo se il modulo li manda
+        $standard = $id ? null : (new CommessaService($this->pdo, $p))->terminiCliente($fields['cliente_id']);
+        if ($standard) {
+            $fields['giorni_pagamento'] = $standard['giorni_pagamento'];
+            $fields['fine_mese'] = $standard['fine_mese'];
+            $fields['giorno_pagamento'] = $standard['giorno_pagamento'];
+        } elseif (array_key_exists('fine_mese', $data)) {
+            $fields['fine_mese'] = (int)!empty($data['fine_mese']);
+            $g = (int)($data['giorno_pagamento'] ?? 0);
+            $fields['giorno_pagamento'] = $g >= 1 && $g <= 31 ? $g : null;
+        }
         if ($fields['importo_totale'] <= 0) {
             Response::json(false, 'Importo totale deve essere maggiore di zero');
         }
@@ -169,9 +181,15 @@ class IncarchiController {
             $placeholders = implode(', ', array_fill(0, count($fields), '?'));
             $this->pdo->prepare("INSERT INTO {$p}incarichi ($cols) VALUES ($placeholders)")->execute(array_values($fields));
             $newId = (int)$this->pdo->lastInsertId();
-            $dataFatt = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($data['data_fatturazione'] ?? '')) ? $data['data_fatturazione'] : null;
-            $this->pdo->prepare("INSERT INTO {$p}incarichi_rate (incarico_id, ordine, descrizione, percentuale, importo, data_prevista, giorni_pagamento)
-                VALUES (?, 1, 'Saldo', 100, ?, ?, ?)")->execute([$newId, $fields['importo_totale'], $dataFatt, $fields['giorni_pagamento']]);
+            if (!empty($standard['piano'])) {
+                // Piano standard del cliente (es. 50% a 6 mesi e 50% a 12 mesi), contato dalla data della commessa
+                (new CommessaService($this->pdo, $p))->creaRateDaPiano($newId, $fields['importo_totale'], $standard['piano'],
+                    $fields['data_incarico'], $fields['giorni_pagamento']);
+            } else {
+                $dataFatt = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($data['data_fatturazione'] ?? '')) ? $data['data_fatturazione'] : null;
+                $this->pdo->prepare("INSERT INTO {$p}incarichi_rate (incarico_id, ordine, descrizione, percentuale, importo, data_prevista, giorni_pagamento)
+                    VALUES (?, 1, 'Saldo', 100, ?, ?, ?)")->execute([$newId, $fields['importo_totale'], $dataFatt, $fields['giorni_pagamento']]);
+            }
             // Ogni commessa nasce da un'offerta: qui la si registra già accettata (CommessaService::offertaRapida)
             (new CommessaService($this->pdo, $p))->offertaRapida($newId, $fields);
             $this->pdo->commit();

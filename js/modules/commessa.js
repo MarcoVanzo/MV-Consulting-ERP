@@ -50,7 +50,7 @@ const ModCommessa = (() => {
                 <div><div class="k">Offerta</div><div class="v">${i.offerta_numero ? UI.esc(i.offerta_numero) + (i.offerta_versione > 1 ? ' v' + UI.esc(i.offerta_versione) : '') : '—'}</div></div>
                 <div><div class="k">Protocollo cliente</div><div class="v">${UI.esc(i.numero_protocollo || '—')}</div></div>
                 <div><div class="k">Data incarico</div><div class="v">${UI.formatDate(i.data_incarico)}</div></div>
-                <div><div class="k">Pagamento</div><div class="v">${UI.esc(i.giorni_pagamento)} gg d.f.${i.condizioni_pagamento ? ' · ' + UI.esc(i.condizioni_pagamento) : ''}</div></div>
+                <div><div class="k">Pagamento</div><div class="v">${UI.esc(i.termini || i.giorni_pagamento + ' gg d.f.')}${i.condizioni_pagamento ? ' · ' + UI.esc(i.condizioni_pagamento) : ''}</div></div>
                 ${i.pdf_path ? `<div><div class="k">Documento</div><div class="v"><a href="#" id="cm-pdf"><i class="ph ph-file-pdf"></i> Lettera d'incarico</a></div></div>` : ''}
             </div>
 
@@ -109,6 +109,7 @@ const ModCommessa = (() => {
             }).join('')}</tbody></table></div>
             <div class="rows-total">
                 <button type="button" class="chip-btn" id="cm-add"><i class="ph ph-plus"></i> Rata</button>
+                <button type="button" class="chip-btn" id="cm-612" title="Metà a 6 mesi e metà a 12 mesi dalla data della commessa"><i class="ph ph-calendar"></i> 50% a 6 e 12 mesi</button>
                 <span>Totale rate <b id="cm-rate-tot" class="${Math.abs(somma - valore) > 0.01 ? 'text-danger' : 'text-ok'}">${UI.formatCurrency(somma)}</b> su ${UI.formatCurrency(valore)}</span>
                 <button type="button" class="btn btn-sm btn-primary" id="cm-save-rate"><i class="ph ph-floppy-disk"></i> Salva piano</button>
             </div>`;
@@ -127,6 +128,17 @@ const ModCommessa = (() => {
             const residuo = Math.max(0, num(_d.incarico.importo_totale) - _rate.reduce((a, r) => a + num(r.importo), 0));
             _rate.push({ descrizione: 'Rata', data_prevista: '', importo: residuo.toFixed(2), giorni_pagamento: _d.incarico.giorni_pagamento, stato: 'da_fatturare' });
             renderRate();
+        });
+        document.getElementById('cm-612').addEventListener('click', () => {
+            if (_rate.some(r => r.fattura_id)) { UI.toast('Ci sono rate già fatturate: modifica il piano a mano', 'error'); return; }
+            const tot = num(_d.incarico.importo_totale), meta = Math.round(tot * 50) / 100;
+            const gg = _d.incarico.giorni_pagamento, base = _d.incarico.data_incarico;
+            _rate = [
+                { id: _rate[0]?.id, descrizione: 'Acconto 50% a 6 mesi', data_prevista: piuMesi(base, 6), importo: meta.toFixed(2), giorni_pagamento: gg, stato: 'da_fatturare' },
+                { id: _rate[1]?.id, descrizione: 'Saldo 50% a 12 mesi', data_prevista: piuMesi(base, 12), importo: (tot - meta).toFixed(2), giorni_pagamento: gg, stato: 'da_fatturare' },
+            ];
+            renderRate();
+            UI.toast('Piano proposto: controlla e salva');
         });
         document.getElementById('cm-save-rate').addEventListener('click', async () => {
             try {
@@ -147,6 +159,15 @@ const ModCommessa = (() => {
         }));
     }
 
+    /** Come TerminiPagamento::piuMesi: 31/08 + 6 mesi = 28/02. */
+    function piuMesi(data, mesi) {
+        const [a, m, g] = String(data).slice(0, 10).split('-').map(Number);
+        const t = new Date(Date.UTC(a, m - 1 + mesi, 1));
+        const ultimo = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+        t.setUTCDate(Math.min(g, ultimo));
+        return t.toISOString().slice(0, 10);
+    }
+
     function testoSistemi(r) {
         const i = _d.incarico;
         const imp = num(r.importo);
@@ -156,7 +177,7 @@ const ModCommessa = (() => {
             i.cliente_sdi ? `Codice SDI: ${i.cliente_sdi}` : (i.cliente_pec ? `PEC: ${i.cliente_pec}` : ''),
             `Descrizione: ${r.testo_fattura || r.descrizione}`,
             `Imponibile: ${imp.toFixed(2).replace('.', ',')} €`,
-            `Pagamento: bonifico a ${r.giorni_pagamento ?? i.giorni_pagamento} gg data fattura`,
+            `Pagamento: bonifico ${r.termini || (r.giorni_pagamento ?? i.giorni_pagamento) + ' gg d.f.'}`,
         ].filter(Boolean).join('\n');
     }
 

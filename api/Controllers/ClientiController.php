@@ -59,6 +59,16 @@ class ClientiController {
         if (empty($fields['ragione_sociale'])) {
             Response::json(false, 'Ragione sociale obbligatoria');
         }
+        // Termini e piano standard per le commesse nuove (TerminiPagamento): giorni vuoti = nessuno standard
+        if (array_key_exists('giorni_pagamento', $data)) {
+            require_once __DIR__ . '/../Shared/TerminiPagamento.php';
+            $gg = trim((string)$data['giorni_pagamento']);
+            $giorno = (int)($data['giorno_pagamento'] ?? 0);
+            $fields['giorni_pagamento'] = $gg === '' ? null : max(0, (int)$gg);
+            $fields['fine_mese'] = (int)!empty($data['fine_mese']);
+            $fields['giorno_pagamento'] = $giorno >= 1 && $giorno <= 31 ? $giorno : null;
+            $fields['piano_fatturazione'] = isset(TerminiPagamento::PIANI[$data['piano_fatturazione'] ?? '']) ? $data['piano_fatturazione'] : null;
+        }
 
         if ($id) {
             $sets = [];

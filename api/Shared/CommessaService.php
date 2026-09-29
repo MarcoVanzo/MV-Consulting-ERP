@@ -10,6 +10,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/TerminiPagamento.php';
+
 class CommessaService
 {
     /** Tipi di commessa di offerte e incarichi: codice → etichetta (stesso elenco in js/core/ui.js). */
@@ -111,7 +113,7 @@ class CommessaService
     }
 
     /**
-     * Crea le rate di un incarico da un piano [{descrizione, percentuale, giorni_da_accettazione}].
+     * Crea le rate di un incarico da un piano [{descrizione, percentuale, giorni_da_accettazione | mesi_da_accettazione}].
      * L'ultima rata assorbe gli arrotondamenti, così la somma torna al centesimo.
      */
     public function creaRateDaPiano(int $incaricoId, float $totale, array $piano, string $dataBase, int $giorniPagamento): void
@@ -130,7 +132,9 @@ class CommessaService
             $importo = $i === $n - 1 ? round($totale - $assegnato, 2) : round($totale * $perc / 100, 2);
             $assegnato += $importo;
             $giorni = $r['giorni_da_accettazione'] ?? null;
-            $data = ($giorni === null || $giorni === '') ? null : date('Y-m-d', strtotime($dataBase . ' +' . (int)$giorni . ' days'));
+            $mesi = $r['mesi_da_accettazione'] ?? null;
+            $data = ($mesi !== null && $mesi !== '') ? TerminiPagamento::piuMesi($dataBase, (int)$mesi)
+                : (($giorni === null || $giorni === '') ? null : date('Y-m-d', strtotime($dataBase . ' +' . (int)$giorni . ' days')));
             $ins->execute([$incaricoId, $i + 1, trim((string)($r['descrizione'] ?? 'Rata ' . ($i + 1))) ?: 'Rata ' . ($i + 1),
                 $perc, $importo, $data, $giorniPagamento]);
         }
@@ -185,7 +189,8 @@ class CommessaService
             }
         }
         if (!$f['data_scadenza']) {
-            $scad = date('Y-m-d', strtotime($f['data_emissione'] . ' +' . (int)$scelta['giorni_pagamento'] . ' days'));
+            $scad = TerminiPagamento::scadenza((string)$f['data_emissione'], ...TerminiPagamento::daRiga(
+                $this->terminiIncarico((int)$f['incarico_id']), (int)$scelta['giorni_pagamento']));
             $this->pdo->prepare("UPDATE {$this->p}fatture SET data_scadenza = ? WHERE id = ?")->execute([$scad, $fatturaId]);
         }
         return (int)$scelta['id'];
@@ -230,6 +235,54 @@ class CommessaService
             if ($id) return (int)$id;
         }
         return null;
+    }
+
+    /** Termini di pagamento della commessa (giorni_pagamento, fine_mese, giorno_pagamento). */
+    public function terminiIncarico(int $incaricoId): array
+    {
+        $stmt = $this->pdo->prepare("SELECT giorni_pagamento, fine_mese, giorno_pagamento FROM {$this->p}incarichi WHERE id = ?");
+        $stmt->execute([$incaricoId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * Termini e piano standard del cliente, se impostati (giorni_pagamento non nullo), altrimenti null.
+     * Valgono per le commesse nuove del cliente: vincono sui 30 giorni di default della lettera o del modulo.
+     */
+    public function terminiCliente(?int $clienteId): ?array
+    {
+        if (!$clienteId) return null;
+        $stmt = $this->pdo->prepare("SELECT giorni_pagamento, fine_mese, giorno_pagamento, piano_fatturazione FROM {$this->p}clienti WHERE id = ?");
+        $stmt->execute([$clienteId]);
+        $c = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$c || $c['giorni_pagamento'] === null) return null;
+        return [
+            'giorni_pagamento' => (int)$c['giorni_pagamento'],
+            'fine_mese' => (int)!empty($c['fine_mese']),
+            'giorno_pagamento' => $c['giorno_pagamento'] ? (int)$c['giorno_pagamento'] : null,
+            'piano' => TerminiPagamento::PIANI[$c['piano_fatturazione'] ?? ''] ?? null,
+        ];
+    }
+
+    /**
+     * Quando la fattura andava pagata secondo i termini: quelli della rata e della commessa, poi quelli standard
+     * del cliente, infine la scadenza registrata. Restituisce [scadenza, descrizione dei termini] o null.
+     */
+    public function scadenzaAttesa(int $fatturaId): ?array
+    {
+        $stmt = $this->pdo->prepare("SELECT f.data_emissione, f.data_scadenza, f.cliente_id, f.incarico_id,
+                (SELECT r.giorni_pagamento FROM {$this->p}incarichi_rate r WHERE r.fattura_id = f.id ORDER BY r.ordine LIMIT 1) AS giorni_rata
+            FROM {$this->p}fatture f WHERE f.id = ?");
+        $stmt->execute([$fatturaId]);
+        $f = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$f) return null;
+        $termini = $f['incarico_id'] ? $this->terminiIncarico((int)$f['incarico_id']) : null;
+        if (!$termini) $termini = $this->terminiCliente($f['cliente_id'] ? (int)$f['cliente_id'] : null);
+        if ($termini) {
+            $t = TerminiPagamento::daRiga($termini, $f['giorni_rata'] !== null ? (int)$f['giorni_rata'] : null);
+            return [TerminiPagamento::scadenza((string)$f['data_emissione'], ...$t), TerminiPagamento::descrivi(...$t)];
+        }
+        return $f['data_scadenza'] ? [(string)$f['data_scadenza'], 'scadenza della fattura'] : null;
     }
 
     /** Rate dell'incarico con lo stato derivato dalla fattura collegata. */
@@ -287,9 +340,11 @@ class CommessaService
         $stmt->execute([$incaricoId]);
         $passive = $stmt->fetchAll();
 
+        $inc['termini'] = TerminiPagamento::descrivi(...TerminiPagamento::daRiga($inc));
         $rate = $this->rate($incaricoId);
         foreach ($rate as &$r) {
             $r['testo_fattura'] = $this->testoFattura($inc, $r);
+            $r['termini'] = TerminiPagamento::descrivi(...TerminiPagamento::daRiga($inc, (int)$r['giorni_pagamento']));
         }
         unset($r);
 
