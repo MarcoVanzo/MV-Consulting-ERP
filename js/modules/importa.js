@@ -450,7 +450,7 @@ const ModImporta = (() => {
                 break;
             case 'avviso':
                 righe.push(`${n(d.num_matched, 'fattura segnata pagata', 'fatture segnate pagate')}, ${d.num_already_paid ?? 0} già pagate, ${d.num_not_found ?? 0} non trovate`);
-                if (d.totale_pagamento) righe.push(`Totale ${UI.formatCurrency(d.totale_pagamento)}${d.data_pagamento ? ' del ' + UI.formatDate(d.data_pagamento) : ''}`);
+                if (d.totale_pagamento) righe.push(`Totale ${UI.formatCurrency(d.totale_pagamento)}${d.num_bonifici > 1 ? ` in ${d.num_bonifici} bonifici` : ''}${d.data_pagamento ? ', valuta ' + UI.formatDate(d.data_pagamento) : ''}`);
                 avvisi.push(...(d.messages || []).filter(m => typeof m === 'string'));
                 break;
             case 'lista_passive':

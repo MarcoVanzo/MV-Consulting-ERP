@@ -759,6 +759,45 @@ return [
         ADD COLUMN segno_incerto TINYINT(1) NOT NULL DEFAULT 0,
         ADD COLUMN abbinamento_annullato TINYINT(1) NOT NULL DEFAULT 0",
     "UPDATE {$prefix}movimenti_banca SET abbinamento_annullato = 1
-        WHERE id IN (SELECT CAST(record_id AS UNSIGNED) FROM {$prefix}audit_logs WHERE action = 'ANNULLA' AND table_name = 'movimenti_banca')"
+        WHERE id IN (SELECT CAST(record_id AS UNSIGNED) FROM {$prefix}audit_logs WHERE action = 'ANNULLA' AND table_name = 'movimenti_banca')",
+
+    // v096–v100: termini di pagamento a fine mese con giorno fisso (TerminiPagamento) e piano di fatturazione del cliente.
+    // Unindustria: 60 gg d.f.f.m. al 10, fatturazione 50% a 6 mesi e 50% a 12 mesi dall'accettazione.
+    // Sulle commesse esistenti cambiano solo i termini (anche delle rate non ancora fatturate), non il piano
+    "ALTER TABLE {$prefix}clienti
+        ADD COLUMN giorni_pagamento INT DEFAULT NULL COMMENT 'Termini standard: NULL = quelli della commessa',
+        ADD COLUMN fine_mese TINYINT(1) NOT NULL DEFAULT 0,
+        ADD COLUMN giorno_pagamento TINYINT DEFAULT NULL COMMENT 'Giorno fisso del mese di pagamento',
+        ADD COLUMN piano_fatturazione VARCHAR(20) DEFAULT NULL COMMENT 'Chiave di TerminiPagamento::PIANI'",
+    "ALTER TABLE {$prefix}incarichi
+        ADD COLUMN fine_mese TINYINT(1) NOT NULL DEFAULT 0 AFTER giorni_pagamento,
+        ADD COLUMN giorno_pagamento TINYINT DEFAULT NULL AFTER fine_mese",
+    "UPDATE {$prefix}clienti SET giorni_pagamento = 60, fine_mese = 1, giorno_pagamento = 10, piano_fatturazione = '6_12'
+        WHERE LOWER(ragione_sociale) LIKE '%unindustria%'",
+    "UPDATE {$prefix}incarichi i JOIN {$prefix}clienti c ON c.id = i.cliente_id
+        SET i.giorni_pagamento = c.giorni_pagamento, i.fine_mese = c.fine_mese, i.giorno_pagamento = c.giorno_pagamento
+        WHERE c.giorni_pagamento IS NOT NULL",
+    "UPDATE {$prefix}incarichi_rate r JOIN {$prefix}incarichi i ON i.id = r.incarico_id JOIN {$prefix}clienti c ON c.id = i.cliente_id
+        SET r.giorni_pagamento = c.giorni_pagamento
+        WHERE c.giorni_pagamento IS NOT NULL AND r.fattura_id IS NULL",
+
+    // v101–v103: commesse già registrate dei clienti col piano 6_12 → 50% a 6 mesi e 50% a 12 mesi dalla data della
+    // commessa (DATE_ADD tiene il fine mese, come TerminiPagamento::piuMesi). Solo se niente è ancora fatturato:
+    // nessuna rata con fattura e nessuna fattura sulla commessa. Le rate nuove entrano con ordine 101–102,
+    // poi si tolgono le vecchie e si rinumera
+    "INSERT INTO {$prefix}incarichi_rate (incarico_id, ordine, descrizione, percentuale, importo, data_prevista, giorni_pagamento)
+        SELECT i.id, 100 + n.k, IF(n.k = 1, 'Acconto 50% a 6 mesi', 'Saldo 50% a 12 mesi'), 50,
+            IF(n.k = 1, ROUND(i.importo_totale / 2, 2), i.importo_totale - ROUND(i.importo_totale / 2, 2)),
+            DATE_ADD(i.data_incarico, INTERVAL 6 * n.k MONTH), i.giorni_pagamento
+        FROM {$prefix}incarichi i
+        JOIN {$prefix}clienti c ON c.id = i.cliente_id AND c.piano_fatturazione = '6_12'
+        JOIN (SELECT 1 AS k UNION ALL SELECT 2) n
+        WHERE i.importo_totale > 0
+          AND NOT EXISTS (SELECT 1 FROM {$prefix}incarichi_rate r WHERE r.incarico_id = i.id AND (r.fattura_id IS NOT NULL OR r.ordine > 100))
+          AND NOT EXISTS (SELECT 1 FROM {$prefix}fatture f WHERE f.incarico_id = i.id)",
+    "DELETE r FROM {$prefix}incarichi_rate r
+        JOIN (SELECT DISTINCT incarico_id FROM {$prefix}incarichi_rate WHERE ordine > 100) n ON n.incarico_id = r.incarico_id
+        WHERE r.ordine <= 100 AND r.fattura_id IS NULL",
+    "UPDATE {$prefix}incarichi_rate SET ordine = ordine - 100 WHERE ordine > 100"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];

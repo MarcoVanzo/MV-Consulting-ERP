@@ -68,7 +68,7 @@ const ModCommerciale = (() => {
         return `<div class="scad-item"><div class="scad-main">
             <div class="scad-title">${UI.esc(r.cliente_nome || '—')}${r.sottocliente_nome ? ' / ' + UI.esc(r.sottocliente_nome) : ''}</div>
             <div class="scad-sub">${UI.esc(r.testo_fattura)}</div>
-            <div class="scad-sub ${inRitardo ? 'text-danger' : ''}">Da emettere il ${UI.formatDate(r.data_prevista)} · pagamento a ${UI.esc(r.giorni_pagamento)} gg</div>
+            <div class="scad-sub ${inRitardo ? 'text-danger' : ''}">Da emettere il ${UI.formatDate(r.data_prevista)} · pagamento ${UI.esc(r.termini || r.giorni_pagamento + ' gg d.f.')}</div>
             <div class="scad-actions">
                 <button class="btn btn-sm btn-primary" data-act="copia-rata" data-i="${i}"><i class="ph ph-copy"></i> Copia per Sistemi</button>
                 <button class="btn btn-sm btn-ghost" data-act="apri-commessa-rata" data-i="${i}"><i class="ph ph-folder-open"></i> Commessa</button>
@@ -138,7 +138,7 @@ const ModCommerciale = (() => {
             `Imponibile: ${imp.toFixed(2).replace('.', ',')} €`,
             `IVA ${iva}%: ${(imp * iva / 100).toFixed(2).replace('.', ',')} €`,
             `Totale: ${(imp * (1 + iva / 100)).toFixed(2).replace('.', ',')} €`,
-            `Pagamento: bonifico a ${r.giorni_pagamento} gg data fattura`,
+            `Pagamento: bonifico ${r.termini || r.giorni_pagamento + ' gg d.f.'}`,
         ].filter(Boolean).join('\n');
     }
 

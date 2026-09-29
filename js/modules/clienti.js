@@ -162,6 +162,24 @@ const ModClienti = (() => {
                     <label>Telefono</label>
                     <input type="tel" class="form-control" id="f-telefono" value="${UI.esc(data.telefono || '')}">
                 </div>
+                <div class="form-group">
+                    <label>Pagamento standard (gg)</label>
+                    <input type="number" min="0" class="form-control" id="f-giorni-pag" placeholder="dalla commessa" value="${UI.esc(data.giorni_pagamento ?? '')}">
+                </div>
+                <div class="form-group">
+                    <label>Fine mese · giorno fisso</label>
+                    <div class="flex" style="gap:8px;align-items:center">
+                        <label style="margin:0"><input type="checkbox" id="f-fine-mese" ${+data.fine_mese ? 'checked' : ''}> fine mese</label>
+                        <input type="number" min="1" max="31" class="form-control" id="f-giorno-pag" placeholder="giorno" value="${UI.esc(data.giorno_pagamento ?? '')}" style="max-width:90px">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Piano di fatturazione</label>
+                    <select class="form-control" id="f-piano-fatt">
+                        <option value="">Rata unica a saldo</option>
+                        <option value="6_12" ${data.piano_fatturazione === '6_12' ? 'selected' : ''}>50% a 6 mesi, 50% a 12 mesi</option>
+                    </select>
+                </div>
                 <div class="form-group full-width">
                     <label>Note</label>
                     <textarea class="form-control" id="f-note">${UI.esc(data.note || '')}</textarea>
@@ -235,7 +253,11 @@ const ModClienti = (() => {
             sdi: document.getElementById('f-sdi').value,
             email: document.getElementById('f-email').value,
             telefono: document.getElementById('f-telefono').value,
-            note: document.getElementById('f-note').value
+            note: document.getElementById('f-note').value,
+            giorni_pagamento: document.getElementById('f-giorni-pag').value,
+            fine_mese: document.getElementById('f-fine-mese').checked ? 1 : 0,
+            giorno_pagamento: document.getElementById('f-giorno-pag').value,
+            piano_fatturazione: document.getElementById('f-piano-fatt').value
         };
 
         try {

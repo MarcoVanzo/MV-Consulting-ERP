@@ -16,6 +16,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/TerminiPagamento.php';
+
 class Indicatori
 {
     private $pdo;
@@ -259,13 +261,13 @@ class Indicatori
             WHERE stato <> 'pagata' AND importo_totale > 0 AND data_scadenza IS NOT NULL AND data_scadenza <= ?");
         $stmt->execute([$fine]);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) $metti((string)$r['data_scadenza'], (float)$r['importo_totale'], 'fatturate');
-        $stmt = $this->pdo->prepare("SELECT r.data_prevista, r.importo, r.giorni_pagamento, o.iva_percentuale
+        $stmt = $this->pdo->prepare("SELECT r.data_prevista, r.importo, r.giorni_pagamento, i.fine_mese, i.giorno_pagamento, o.iva_percentuale
             FROM {$this->p}incarichi_rate r JOIN {$this->p}incarichi i ON i.id = r.incarico_id
             LEFT JOIN {$this->p}offerte o ON o.id = i.offerta_id
             WHERE r.fattura_id IS NULL AND r.data_prevista IS NOT NULL AND " . $this->rataAperta('r'));
         $stmt->execute();
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $incasso = date('Y-m-d', strtotime($r['data_prevista'] . ' +' . (int)($r['giorni_pagamento'] ?? 30) . ' days'));
+            $incasso = TerminiPagamento::scadenza((string)$r['data_prevista'], ...TerminiPagamento::daRiga($r));
             $iva = $r['iva_percentuale'] === null ? 22.0 : (float)$r['iva_percentuale'];
             // Una rata non fatturata non è mai "scaduta" come incasso: se la data è passata, va nella settimana corrente
             $metti(max($incasso, $this->oggi), (float)$r['importo'] * (1 + $iva / 100), 'da_fatturare');
