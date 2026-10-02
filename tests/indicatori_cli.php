@@ -89,10 +89,19 @@ check('da fatturare mai negativo', uguale($c['da_fatturare'], 4000 + 2000), $c);
 check('commesse con qualcosa da fatturare', $c['num_da_fatturare'] === 2, $c);
 check('anno precedente separato', uguale($ind->commesse(2025)['valore'], 500));
 $an = $ind->anzianitaCrediti(2026, []);
-check('anzianità crediti: la somma è il da incassare', uguale(array_sum($an), $ind->fatture(2026, [])['da_incassare']), [$an, $ind->fatture(2026, [])]);
-$pt = $ind->ponteFatturato(2026);
+$fa = $ind->fatture(2026, []);
+// Il cliente 3 ha solo una nota di credito aperta (-244): credito residuo, non un incasso atteso
+check('anzianità crediti: fasce − credito residuo = da incassare', uguale($an['a_scadere'] + $an['giorni_1_30'] + $an['giorni_31_60'] + $an['oltre_60'] - $an['note_credito_residue'], $fa['da_incassare']), [$an, $fa]);
+check('anzianità crediti: le fasce scadute sono lo scaduto', uguale($an['giorni_1_30'] + $an['giorni_31_60'] + $an['oltre_60'], $fa['scaduto']), [$an, $fa]);
+check('anzianità crediti: nessuna fascia negativa', min($an['a_scadere'], $an['giorni_1_30'], $an['giorni_31_60'], $an['oltre_60']) >= 0 && uguale($an['note_credito_residue'], 244), $an);
+$pt = $ind->ponteFatturato(2026, []);
 check('ponte Vendite → Fatture: i termini tornano', uguale($pt['su_commesse'] - $pt['fuori_anno'] + $pt['commesse_altri_anni'] + $pt['senza_commessa'], $pt['fatturato']), $pt);
 check('ponte: fatture dell\'anno di tutti i clienti', uguale($pt['fatturato'], (float)$pdo->query("SELECT SUM(imponibile) FROM {$p}fatture WHERE data_emissione LIKE '2026%'")->fetchColumn()), $pt);
+// Clienti esclusi in Fatture (il 3, nota di credito senza commessa): stesso filtro, stesso totale della vista Fatture
+$pte = $ind->ponteFatturato(2026);
+check('ponte con i clienti esclusi: totale = fatturato di Fatture', uguale($pte['fatturato'], $ind->fatture(2026)['fatturato']) && $pte['num_esclusi'] === 1, $pte);
+check('ponte con i clienti esclusi: senza commessa = quello di Fatture', uguale($pte['senza_commessa'], $ind->fatture(2026, null, null, true)['fatturato']), $pte);
+check('ponte con i clienti esclusi: i termini tornano', uguale($pte['su_commesse'] - $pte['fuori_anno'] + $pte['commesse_altri_anni'] + $pte['senza_commessa'], $pte['fatturato']), $pte);
 
 echo "Rate, offerte, partner\n";
 $r = $ind->rateDaFatturare(30);
@@ -146,6 +155,7 @@ $tot = array_sum(array_column($ia['settimane'], 'fatturate'));
 check('fattura in scadenza il 31/10 nella sua settimana', abs($tot - 3660) < 0.01 && abs($ia['settimane'][4]['fatturate'] - 3660) < 0.01, $ia['settimane']);
 // rata 4000 prevista 15/10 + 30 gg = 14/11, IVA 22% → settimana del 9/11 (indice 6)
 check('rata da fatturare alla data di incasso con IVA', abs($ia['settimane'][6]['da_fatturare'] - 4880) < 0.01, $ia['settimane'][6]);
+$pdo->exec("INSERT INTO {$p}clienti (id, citta) VALUES (1, 'Treviso'), (2, 'Padova')");
 $pdo->exec("INSERT INTO {$p}trasferte (data_trasferta, cliente_id, km_andata, km_ritorno) VALUES
     ('2026-09-02', 1, 50, 50), ('2026-09-03', 2, 30, 30), ('2026-09-04', NULL, 10, 10), ('2026-08-30', 1, 99, 99)");
 // Le spese stanno nella loro tabella: vitto il 3 (riduce l'indennità), un pedaggio il 4, una spesa eliminata
@@ -168,6 +178,25 @@ $t0 = $ind->trasferte('2026-09-01', '2026-09-30', null);
 check('senza costo generale: solo i km del mezzo con costo, gli altri segnalati', abs($t0['rimborso_km'] - 80) < 0.01 && $t0['km_senza_costo'] === true, $t0);
 $pdo->exec("UPDATE {$p}trasferte SET mezzo_id = NULL");
 check('nessun costo noto: rimborso km non calcolato', $ind->trasferte('2026-09-01', '2026-09-30', null)['rimborso_km'] === null);
+// Pieno di tasca propria nel giorno con rimborso km: già nella tariffa ACI, fuori da da_rimborsare
+$pdo->exec("INSERT INTO {$p}spese (data, categoria, importo, metodo) VALUES ('2026-09-02', 'carburante', 60, 'carta_personale')");
+$tcd = $ind->trasferte('2026-09-01', '2026-09-30', 0.5);
+check('carburante doppio: rendicontato ma non rimborsato', uguale($tcd['carburante_doppio'], 60) && uguale($tcd['spese'], 82.5)
+    && uguale($tcd['da_rimborsare'], 90 + 46.48 + 30.99 + 15), $tcd);
+$tnc = $ind->trasferte('2026-09-01', '2026-09-30', null);
+check('senza costo al km il pieno si rimborsa (nessun rimborso km)', uguale($tnc['carburante_doppio'], 0) && uguale($tnc['spese_da_rimborsare'], 75), $tnc);
+$pdo->exec("INSERT INTO {$p}mezzi (id, costo_km) VALUES (2, 0)");
+$pdo->exec("UPDATE {$p}trasferte SET mezzo_id = 2 WHERE data_trasferta = '2026-09-02'");
+check('mezzo con costo zero: nessun rimborso km, il pieno si rimborsa', uguale($ind->trasferte('2026-09-01', '2026-09-30', 0.5)['carburante_doppio'], 0));
+$pdo->exec("UPDATE {$p}trasferte SET mezzo_id = NULL");
+$pdo->exec("DELETE FROM {$p}spese WHERE categoria = 'carburante'");
+// Cliente senza città: giornata da verificare, indennità sospesa (sede ricavata da BASE_ADDRESS: Zero Branco)
+$pdo->exec("UPDATE {$p}clienti SET citta = NULL WHERE id = 2");
+$tv = $ind->trasferte('2026-09-01', '2026-09-30', 0.5);
+check('cliente senza città: indennità da verificare', $tv['num_da_verificare'] === 1 && uguale($tv['indennita'], 46.48), $tv);
+$pdo->exec("UPDATE {$p}clienti SET citta = '31059 ZERO BRANCO (TV)' WHERE id = 2");
+check('cliente nel comune della sede (scritto in altro modo): niente indennità', uguale($ind->trasferte('2026-09-01', '2026-09-30', 0.5)['indennita'], 46.48));
+$pdo->exec("UPDATE {$p}clienti SET citta = 'Padova' WHERE id = 2");
 
 echo "Casi limite\n";
 // Nota di credito aperta che storna una fattura scaduta dello stesso cliente (stesso numero)
@@ -185,6 +214,35 @@ $pdo->exec("INSERT INTO {$p}fatture (numero_fattura, data_emissione, cliente_id,
 date_default_timezone_set('Europe/Rome');
 $iaDst = (new Indicatori($pdo, $p, '2027-03-10'))->incassiAttesi(4);
 check('settimana giusta dopo il cambio dell\'ora', abs($iaDst['settimane'][3]['fatturate'] - 122) < 0.01 && $iaDst['settimane'][3]['dal'] === '2027-03-29', $iaDst['settimane']);
+$pdo->exec("DELETE FROM {$p}fatture WHERE numero_fattura = '70'");
+
+echo "Anzianità del da incassare\n";
+// Ora legale il 29/03/2026: tra il 29 e il 30 passano 23 ore, ma è un giorno di ritardo (in fatture() è già scaduta)
+$pdo->exec("DELETE FROM {$p}fatture");
+$pdo->exec("INSERT INTO {$p}fatture (numero_fattura, data_emissione, cliente_id, imponibile, importo_totale, stato, data_scadenza) VALUES
+    ('80', '2026-02-01', 20, 100, 100, 'emessa', '2026-03-29'), ('81', '2026-02-01', 20, 100, 200, 'emessa', '2026-03-30'),
+    ('82', '2026-01-01', 20, 100, 300, 'emessa', '2026-02-20')");
+$indDst = new Indicatori($pdo, $p, '2026-03-30');
+$ad = $indDst->anzianitaCrediti(2026, []);
+check('scaduta ieri col cambio dell\'ora: 1 giorno di ritardo', uguale($ad['giorni_1_30'], 100) && uguale($ad['a_scadere'], 200) && uguale($ad['giorni_31_60'], 300), $ad);
+check('fasce scadute = scaduto di fatture()', uguale($ad['giorni_1_30'] + $ad['giorni_31_60'] + $ad['oltre_60'], $indDst->fatture(2026, [])['scaduto']), [$ad, $indDst->fatture(2026, [])]);
+// Nota di credito aperta senza scadenza del cliente 20 (−250): toglie dallo scaduto quanto supera il da incassare,
+// a partire dalle fasce più vecchie; il resto riduce le non scadute. Da incassare 350 = 0 non scadute + 350 scadute
+$pdo->exec("INSERT INTO {$p}fatture (numero_fattura, data_emissione, cliente_id, imponibile, importo_totale, stato, data_scadenza) VALUES
+    ('NC1', '2026-03-01', 20, -100, -250, 'emessa', NULL)");
+$an2 = $indDst->anzianitaCrediti(2026, []);
+$f2 = $indDst->fatture(2026, []);
+check('nota di credito compensata per cliente, nessuna fascia negativa', uguale($an2['a_scadere'], 0) && uguale($an2['giorni_1_30'] + $an2['giorni_31_60'], 350)
+    && min($an2['a_scadere'], $an2['giorni_1_30'], $an2['giorni_31_60'], $an2['oltre_60']) >= 0, $an2);
+check('nota di credito: fasce scadute = scaduto di fatture() (stesso tetto)', uguale($an2['giorni_1_30'] + $an2['giorni_31_60'] + $an2['oltre_60'], $f2['scaduto'])
+    && uguale(array_sum(array_intersect_key($an2, array_flip(['a_scadere', 'giorni_1_30', 'giorni_31_60', 'oltre_60']))), $f2['da_incassare']), [$an2, $f2]);
+// Nota più grande di tutto l'aperto: si taglia prima la fascia più vecchia
+$pdo->exec("UPDATE {$p}fatture SET importo_totale = -450 WHERE numero_fattura = 'NC1'");
+$an3 = $indDst->anzianitaCrediti(2026, []);
+check('taglio dalle fasce più vecchie', uguale($an3['giorni_31_60'], 50) && uguale($an3['giorni_1_30'], 100) && uguale($an3['a_scadere'], 0), $an3);
+$pdo->exec("UPDATE {$p}fatture SET importo_totale = -900 WHERE numero_fattura = 'NC1'");
+$an4 = $indDst->anzianitaCrediti(2026, []);
+check('credito oltre l\'aperto: fasce a zero, credito residuo a parte', uguale($an4['giorni_1_30'] + $an4['giorni_31_60'] + $an4['a_scadere'], 0) && uguale($an4['note_credito_residue'], 300), $an4);
 
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);

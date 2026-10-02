@@ -32,7 +32,10 @@ docker run --rm -v "$PWD":/app -w /app php:8.2-cli sh -c 'for t in tests/*_cli.p
 Migrazioni DB: partono **da sole a ogni deploy**, subito dopo l'FTP (step di `deploy-ftp.yml`, secret
 `DEPLOY_KEY`); il controllo di salute fallisce se ne resta qualcuna (`api/health.php` → `migrazioni_pendenti`).
 Per rilanciarle a mano: workflow `migrazione.yml`. L'elenco sta in `api/Shared/migrazioni.php` (lo usano
-`api/migrate.php` e `health.php`): si aggiunge **solo in coda**, la versione è la posizione. Devono essere
+`api/migrate.php` e `health.php`): si aggiunge **solo in coda**, la versione è la posizione; una migrazione già
+applicata non si modifica (si aggiunge una nuova in coda). Un `MODIFY ... ENUM(...)` mette i **valori nuovi sempre in
+fondo all'elenco**: inserirli in mezzo (come v104–v105, `viaggio`/`noleggio` prima di `altro`) cambia la posizione dei
+valori esistenti e obbliga MySQL a ricopiare la tabella, invece della modifica istantanea. Devono essere
 **additive e ripetibili** (il codice vecchio gira ancora per qualche secondo; in CI `test.yml` le lancia due volte
 su MySQL 8 e la seconda non deve applicare niente).
 Backup: `.github/workflows/backup.yml` ogni notte; per migrazioni rischiose lancialo a mano prima.
@@ -175,3 +178,8 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
 - Sync Google: `api/Shared/TrasferteSync.php` + `CalendarioMatcher.php`. Le righe con `modifica_manuale = 1` non vengono
   riscritte né eliminate; le righe senza più un evento si eliminano solo se il calendario è stato letto per intero.
 - Costo al km nella tabella `settings` (chiave `trasferte_costo_km`). Migrazioni v067–v069. Prova: `php tests/trasferte_cli.php`.
+- Indennità solo con almeno un cliente fuori dal comune della sede (`BASE_COMUNE`, altrimenti da `BASE_ADDRESS`); città
+  mancante = giornata «da verificare», senza indennità (`TrasferteRegole::giornate`, regole in `docs/indicatori.md`).
+  Carburante di tasca propria nei giorni con rimborso km: escluso da da_rimborsare (`Spese::carburanteDoppio`).
+  Un mese con nota presentata mostra in Viaggi e nel PDF i totali congelati di `rimborsi` e avvisa se il ricalcolo
+  differisce (`TrasferteController::notePresentate`).

@@ -75,7 +75,7 @@ const ModContabilita = (() => {
         box.innerHTML = [
             Grafici.barre('Da quanto aspetti i soldi', 'Da incassare per giorni dalla scadenza · IVA inclusa', [
                 { etichetta: 'Non ancora scadute', valore: parseFloat(a.a_scadere) || 0, colore: 'var(--accent-green)' },
-                { etichetta: 'Scadute da 1–30 giorni', valore: parseFloat(a.giorni_0_30) || 0, colore: 'var(--accent-warm)' },
+                { etichetta: 'Scadute da 1–30 giorni', valore: parseFloat(a.giorni_1_30) || 0, colore: 'var(--accent-warm)' },
                 { etichetta: 'Scadute da 31–60 giorni', valore: parseFloat(a.giorni_31_60) || 0, colore: 'var(--accent-purple)' },
                 { etichetta: 'Scadute da oltre 60 giorni', valore: parseFloat(a.oltre_60) || 0, colore: 'var(--accent-red)', evidenzia: (parseFloat(a.oltre_60) || 0) > 0 },
             ], { vuoto: 'Nessuna fattura da incassare' }),

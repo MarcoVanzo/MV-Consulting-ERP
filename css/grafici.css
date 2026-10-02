@@ -26,7 +26,7 @@
 .graf-ciambella .graf-legenda { flex: 1 1 180px; margin: 0; }
 .graf-ciambella .graf-legenda li { overflow: hidden; white-space: nowrap; }
 .graf-c1 { font-size: 18px; font-weight: 700; fill: var(--text-primary); }
-.graf-c2 { font-size: 7px; fill: var(--text-muted); }
+.graf-c2 { font-size: 9px; fill: var(--text-secondary); }
 
 .graf-div-testa { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-muted); margin-bottom: 6px; }
 .graf-div { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }

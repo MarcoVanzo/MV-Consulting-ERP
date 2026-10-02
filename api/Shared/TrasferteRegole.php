@@ -138,8 +138,12 @@ class TrasferteRegole
      * Riepilogo per giornata delle righe di list(): cliente presente, spese, indennità.
      * È l'unico punto in cui si calcola l'indennità (tabella, KPI e PDF la leggono da qui).
      * Nel comune della sede l'indennità non è esente (art. 51 c. 5 TUIR): spetta solo se almeno un
-     * cliente della giornata è fuori da $comuneSede (città di sottocliente o cliente; senza città
-     * si considera fuori). $comuneSede vuoto: nessuna esclusione.
+     * cliente della giornata è fuori da $comuneSede (città del sottocliente, o del cliente se la trasferta
+     * non ha sottocliente). Una città mancante non si indovina: se nessun cliente è sicuramente fuori e uno
+     * non ha la città, la giornata è «da verificare» e l'indennità resta a zero finché non si inserisce.
+     * Il sottocliente senza città non prende quella del cliente: è un'altra sede (le aziende associate di
+     * Unindustria stanno ovunque), la città della sede del cliente direbbe «fuori» anche quando non lo è.
+     * $comuneSede vuoto: nessuna esclusione.
      */
     public static function giornate(array $righe, string $comuneSede = ''): array
     {
@@ -147,26 +151,40 @@ class TrasferteRegole
         $g = [];
         foreach ($righe as $r) {
             $d = $r['data_trasferta'];
-            $g[$d] ??= ['con_cliente' => false, 'fuori_comune' => false, 'vitto' => 0.0, 'alloggio' => 0.0];
+            $g[$d] ??= ['con_cliente' => false, 'fuori_comune' => false, 'da_verificare' => false, 'vitto' => 0.0, 'alloggio' => 0.0];
             if (!empty($r['cliente_id']) || !empty($r['sottocliente_id'])) {
                 $g[$d]['con_cliente'] = true;
-                $citta = self::normaComune((string)(($r['sottocliente_citta'] ?? '') ?: ($r['cliente_citta'] ?? '')));
-                if ($sede === '' || $citta === '' || $citta !== $sede) $g[$d]['fuori_comune'] = true;
+                $citta = self::normaComune((string)(!empty($r['sottocliente_id']) ? ($r['sottocliente_citta'] ?? '') : ($r['cliente_citta'] ?? '')));
+                if ($sede === '' || ($citta !== '' && $citta !== $sede)) $g[$d]['fuori_comune'] = true;
+                elseif ($citta === '') $g[$d]['da_verificare'] = true;
             }
             $g[$d]['vitto'] += (float)($r['vitto'] ?? 0);
             $g[$d]['alloggio'] += (float)($r['alloggio'] ?? 0);
         }
         foreach ($g as $d => $v) {
+            // Basta un cliente sicuramente fuori comune: la città mancante di un altro non cambia nulla
+            if ($v['fuori_comune']) $g[$d]['da_verificare'] = false;
             $g[$d]['indennita'] = self::indennitaGiornata($v['con_cliente'] && $v['fuori_comune'], $v['vitto'], $v['alloggio']);
         }
         return $g;
     }
 
-    /** «Zero Branco (TV)» → «zero branco» */
-    private static function normaComune(string $c): string
+    /**
+     * Nome del comune confrontabile: «31059 Zero Branco (TV)», «ZERO-BRANCO TV», «Zero Branco, TV» → «zero branco».
+     * Toglie CAP iniziale, sigla della provincia finale (tra parentesi, oppure in maiuscolo dopo spazio, virgola
+     * o trattino), accenti, apostrofi e trattini.
+     */
+    public static function normaComune(string $c): string
     {
-        $c = preg_replace('/\(.*?\)/u', '', mb_strtolower($c, 'UTF-8'));
-        return trim((string)preg_replace('/\s+/u', ' ', (string)$c));
+        $c = trim((string)preg_replace('/\(.*?\)/u', ' ', $c));
+        $c = (string)preg_replace('/^\d{5}[\s,\-]*/u', '', $c);
+        // Sigla finale solo se in maiuscolo («Zero Branco TV»): un comune che finisce con due lettere minuscole resta com'è
+        $c = (string)preg_replace('/[\s,\-]+[A-Z]{2}\s*$/u', '', $c);
+        $c = mb_strtolower($c, 'UTF-8');
+        $c = strtr($c, ['à' => 'a', 'á' => 'a', 'â' => 'a', 'è' => 'e', 'é' => 'e', 'ê' => 'e', 'ì' => 'i', 'í' => 'i', 'î' => 'i',
+            'ò' => 'o', 'ó' => 'o', 'ô' => 'o', 'ù' => 'u', 'ú' => 'u', 'û' => 'u', 'ä' => 'a', 'ö' => 'o', 'ü' => 'u', 'ç' => 'c']);
+        $c = (string)preg_replace("/[\-'’`.,]+/u", ' ', $c);
+        return trim((string)preg_replace('/\s+/u', ' ', $c));
     }
 
     /** Controllo dei campi di una trasferta: restituisce il messaggio d'errore o null */

@@ -86,7 +86,21 @@ check('giornata con un cliente e il vitto', $gg['2026-05-04']['indennita'] === 3
 $gs = fn(?string $citta) => TrasferteRegole::giornate([['data_trasferta' => '2026-05-04', 'cliente_id' => 1, 'cliente_citta' => $citta]], 'Zero Branco')['2026-05-04']['indennita'];
 check('cliente nel comune della sede: niente indennità', $gs('Zero Branco (TV)') === 0.0);
 check('cliente fuori comune: indennità piena', $gs('Treviso') === 46.48);
-check('cliente senza città: si considera fuori', $gs(null) === 46.48);
+check('cliente senza città: indennità da verificare (non pagata)', $gs(null) === 0.0);
+check('stesso comune scritto con CAP, sigla e trattino', $gs('31059 ZERO-BRANCO TV') === 0.0 && $gs('Zero Branco, TV') === 0.0);
+check('accenti e maiuscole', TrasferteRegole::normaComune('SAN DONÀ DI PIAVE (VE)') === TrasferteRegole::normaComune('San Donà di Piave'));
+check('comune che finisce con due lettere minuscole intatto', TrasferteRegole::normaComune('Castel di Sangro') === 'castel di sangro');
+$gv = TrasferteRegole::giornate([['data_trasferta' => '2026-05-04', 'cliente_id' => 1, 'cliente_citta' => '']], 'Zero Branco');
+check('città vuota: giornata da verificare', $gv['2026-05-04']['da_verificare'] === true && $gv['2026-05-04']['fuori_comune'] === false, $gv);
+$gv = TrasferteRegole::giornate([
+    ['data_trasferta' => '2026-05-04', 'cliente_id' => 1, 'cliente_citta' => null],
+    ['data_trasferta' => '2026-05-04', 'cliente_id' => 2, 'cliente_citta' => 'Treviso'],
+], 'Zero Branco');
+check('un cliente sicuramente fuori basta: niente da verificare', $gv['2026-05-04']['indennita'] === 46.48 && $gv['2026-05-04']['da_verificare'] === false, $gv);
+// Sottocliente senza città: non si prende la città del cliente (sede diversa), resta da verificare
+$gv = TrasferteRegole::giornate([['data_trasferta' => '2026-05-04', 'cliente_id' => 2, 'sottocliente_id' => 7, 'cliente_citta' => 'Treviso', 'sottocliente_citta' => '']], 'Zero Branco');
+check('sottocliente senza città: da verificare, non la città del cliente', $gv['2026-05-04']['da_verificare'] === true && $gv['2026-05-04']['indennita'] === 0.0, $gv);
+check('senza comune della sede: nessuna esclusione', TrasferteRegole::giornate([['data_trasferta' => '2026-05-04', 'cliente_id' => 1]], '')['2026-05-04']['indennita'] === 46.48);
 $gg = TrasferteRegole::giornate([
     ['data_trasferta' => '2026-05-04', 'cliente_id' => 1, 'cliente_citta' => 'zero branco'],
     ['data_trasferta' => '2026-05-04', 'cliente_id' => 2, 'sottocliente_id' => 7, 'cliente_citta' => 'Zero Branco', 'sottocliente_citta' => 'Padova'],
@@ -94,6 +108,9 @@ $gg = TrasferteRegole::giornate([
 check('basta un cliente fuori comune (conta la città del sottocliente)', $gg['2026-05-04']['indennita'] === 46.48, $gg);
 putenv('BASE_ADDRESS=Via Manzoni 5, 31059 Zero Branco, TV');
 check('comune della sede ricavato dall\'indirizzo', Percorsi::comuneBase() === 'Zero Branco', Percorsi::comuneBase());
+putenv('BASE_COMUNE=Treviso');
+check('BASE_COMUNE dal .env prevale sull\'indirizzo', Percorsi::comuneBase() === 'Treviso');
+putenv('BASE_COMUNE');
 putenv('BASE_ADDRESS=Base');
 
 echo "Validazione\n";

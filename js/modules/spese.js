@@ -51,6 +51,8 @@ const ModSpese = (() => {
                     <div><b>${UI.formatCurrency(v.totale)}</b><span>da rimborsare</span></div>
                 </div>
                 ${!rb && t.spese_aziendali > 0 ? `<p class="td-sub">Più ${UI.formatCurrency(t.spese_aziendali)} di spese pagate dalla società (carta aziendale, bonifico): rendicontate, non si rimborsano.</p>` : ''}
+                ${!rb && t.carburante_doppio > 0 ? `<p class="td-sub">Esclusi ${UI.formatCurrency(t.carburante_doppio)} di carburante pagato di tasca propria nei giorni con rimborso km: la tariffa ACI lo comprende già.</p>` : ''}
+                ${!rb && t.num_da_verificare > 0 ? `<p class="td-sub oggi-rosso">${UI.plurale(t.num_da_verificare, 'giornata', 'giornate')} senza indennità finché non inserisci la città del cliente o del sottocliente (serve a sapere se è fuori dal comune della sede).</p>` : ''}
                 ${t.km_senza_costo && !rb ? '<p class="td-sub">Alcuni km non hanno un costo: imposta il costo €/km generale o quello ACI del mezzo.</p>' : ''}
                 ${rb ? '<p class="td-sub">Totali congelati alla presentazione: per cambiare le spese riapri la nota.</p>' : ''}
                 <div class="sp-azioni">

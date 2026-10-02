@@ -329,24 +329,39 @@ const UI = (() => {
 
     /**
      * Tabelle .tabella-schede: su telefono diventano schede impilate (css/viste.css). Ogni cella prende
-     * come data-label l'intestazione della sua colonna; un osservatore lo rifà a ogni nuovo render.
+     * come data-label l'intestazione della sua colonna; un osservatore lo rifà sulle sole tabelle toccate
+     * dai nodi aggiunti (non su tutto il documento a ogni modifica del DOM).
      */
-    function etichettaTabelle(root = document) {
-        root.querySelectorAll('table.tabella-schede').forEach(t => {
-            const nomi = [...t.querySelectorAll('thead th')].map(th => th.textContent.trim());
-            t.querySelectorAll('tbody tr').forEach(tr => {
-                if (tr.children.length !== nomi.length) return; // righe vuote con colspan
-                [...tr.children].forEach((td, i) => { if (nomi[i]) td.dataset.label = nomi[i]; else td.classList.add('senza-etichetta'); });
-            });
+    function etichettaTabella(t) {
+        const nomi = [...t.querySelectorAll('thead th')].map(th => th.textContent.trim());
+        t.querySelectorAll('tbody tr').forEach(tr => {
+            if (tr.children.length !== nomi.length) return; // righe vuote con colspan
+            [...tr.children].forEach((td, i) => { if (nomi[i]) td.dataset.label = nomi[i]; else td.classList.add('senza-etichetta'); });
         });
+    }
+    function etichettaTabelle(root = document) {
+        root.querySelectorAll('table.tabella-schede').forEach(etichettaTabella);
     }
     function initTabelleSchede() {
         etichettaTabelle();
+        const daFare = new Set();
         let attesa = false;
-        new MutationObserver(() => {
-            if (attesa) return;
+        new MutationObserver(mutazioni => {
+            for (const m of mutazioni) {
+                for (const n of m.addedNodes) {
+                    if (n.nodeType !== Node.ELEMENT_NODE) continue;
+                    const dentro = n.closest('table.tabella-schede');
+                    if (dentro) daFare.add(dentro);
+                    n.querySelectorAll('table.tabella-schede').forEach(t => daFare.add(t));
+                }
+            }
+            if (!daFare.size || attesa) return;
             attesa = true;
-            requestAnimationFrame(() => { attesa = false; etichettaTabelle(); });
+            requestAnimationFrame(() => {
+                attesa = false;
+                daFare.forEach(t => { if (t.isConnected) etichettaTabella(t); });
+                daFare.clear();
+            });
         }).observe(document.body, { childList: true, subtree: true });
     }
 
