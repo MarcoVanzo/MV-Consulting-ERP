@@ -27,6 +27,7 @@ situazione di oggi gli incassi aperti si vedono tutti.
 | Scaduto (per cliente) | non supera mai quanto resta da incassare a quel cliente: una nota di credito aperta lo riduce. Una nota di credito che storna per intero fatture aperte le chiude all'import (DatiFattureCollegate) | IVA inclusa |
 | Valore commesse | somma di `incarichi.importo_totale` | netto IVA |
 | Fatturato commesse | imponibile delle fatture collegate alla commessa | netto IVA |
+| Fatturato senza commessa | fatturato dell'anno (stessa definizione e stessi clienti esclusi di «Fatturato») delle fatture non collegate a una commessa: è il motivo per cui «Fatturato su commesse» in Vendite non coincide con «Fatturato» in Incassi, insieme alle date (commessa dell'anno vs fattura dell'anno) | netto IVA |
 | Incassato commesse | imponibile delle fatture collegate e pagate | netto IVA |
 | Da fatturare (commesse) | valore della commessa non ancora coperto da fatture, mai negativo | netto IVA |
 | Rate da fatturare | rate senza fattura con data prevista entro l'orizzonte (le rate senza data contano sempre), escluse quelle di commesse già fatturate per intero | netto IVA |

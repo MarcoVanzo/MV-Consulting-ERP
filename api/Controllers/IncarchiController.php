@@ -239,6 +239,8 @@ class IncarchiController {
             if (isset($chiavi[$r['stato']])) $kpis[$chiavi[$r['stato']]] = (int)$r['n'];
         }
         $kpisFatture = $ind->fatture((int)$year, $ind->clientiEsclusi());
+        // Fatturato dell'anno che la card «Fatturato su commesse» non vede: spiega la differenza con Incassi
+        $kpis['fatturato_senza_commessa'] = $ind->fatture((int)$year, null, null, true)['fatturato'];
 
         // Per tipo commessa
         $stmt2 = $this->pdo->prepare("SELECT 
