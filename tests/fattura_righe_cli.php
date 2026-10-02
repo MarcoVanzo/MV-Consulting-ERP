@@ -140,5 +140,13 @@ $xp = str_replace(['<IdCodice>01234567897</IdCodice>', '<Anagrafica><Denominazio
 $r = risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => $xp]));
 check('cliente creato con nome e cognome', $pdo->query("SELECT ragione_sociale FROM {$p}clienti WHERE partita_iva = '12345678903'")->fetchColumn() === 'Mario Rossi', $r);
 
+echo "Cliente estero con partita IVA fittizia\n";
+$estero = fn(string $codice, string $num) => str_replace(['<IdPaese>IT</IdPaese><IdCodice>01234567897</IdCodice>', 'Associazione Esempio Servizi'],
+    [$codice, 'Example Sports LLC'], xml($num, '2026-06-30', [['Servizi', 1000]]));
+$r1 = risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => $estero('<IdPaese>US</IdPaese><IdCodice>US000000</IdCodice>', '1AV')]));
+risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => $estero('<IdPaese>US</IdPaese><IdCodice>00000000</IdCodice>', '2AV')]));
+check('un solo cliente per due codici fittizi diversi', (int)$pdo->query("SELECT COUNT(*) FROM {$p}clienti WHERE ragione_sociale = 'Example Sports LLC'")->fetchColumn() === 1);
+check('le due fatture sullo stesso cliente', (int)$pdo->query("SELECT COUNT(DISTINCT cliente_id) FROM {$p}fatture WHERE numero_fattura IN ('1AV','2AV')")->fetchColumn() === 1);
+
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);
