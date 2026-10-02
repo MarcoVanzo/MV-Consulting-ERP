@@ -79,7 +79,7 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   Estratti CSV/Excel: `EstrattoTabellare` (colonne scelte dall'utente salvate in settings per intestazione).
   Le risposte AI sono in cache 7 giorni in `storage/cache/ai/`. Prova: `php tests/importa_cli.php`.
 - **Da FattureWeb** (dal 02/10/2026): pulsante da trascinare nei preferiti (`js/modules/fattureweb.js`, link nella
-  finestra Importa file). Premuto sulla lista «Fatture di vendita» di FattureWeb scarica la FatturaPA di ogni fattura
+  finestra Importa file). Premuto sulla lista «Fatture di vendita» di FattureWeb scarica la FatturaPA di ogni fattura già inviata allo SDI
   mostrata (`option=saveXML`) nella sessione dell'utente (il login ha un reCAPTCHA: niente accesso dal server) e la passa
   all'ERP con `postMessage` (`index.html?da=fattureweb`, origine controllata) → Importa file. Nell'import XML ogni riga
   va alla sua commessa con `CommessaService::incaricoDellaRiga` (chiavi di `chiaviProtocollo`: basta il codice SZ.DPS o

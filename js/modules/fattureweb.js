@@ -5,7 +5,7 @@
  *
  * Il pulsante «Da FattureWeb» (nella finestra Importa file) si trascina nella barra dei preferiti.
  * Premuto sulla lista «Fatture di vendita» di FattureWeb, scarica la FatturaPA (XML) di ogni fattura
- * mostrata — con le righe, dove stanno i protocolli e i codici SZ.DPS delle commesse — e apre l'ERP,
+ * mostrata e già inviata allo SDI (icona di stato nella riga; le bozze e le non inviate si saltano) — con le righe, dove stanno i protocolli e i codici SZ.DPS delle commesse — e apre l'ERP,
  * che le mette nella finestra Importa file: anteprima, poi import (abbinamento alle commesse riga per riga).
  *
  * Il login di FattureWeb ha un reCAPTCHA: l'ERP non ci entra da solo, lavora nella sessione già aperta.
@@ -55,9 +55,11 @@ if (pag && +pag > 1) {
   if (sel) { sel.value = [...sel.options].find(o => o.text.trim() === 'Tutti').value; sel.dispatchEvent(new Event('change', { bubbles: true }));
     await new Promise(r => setTimeout(r, 4000)); }
 }
-const ids = [...new Set([...document.querySelectorAll('a[href*="option=saveXML"]')]
-  .map(a => (a.getAttribute('href').match(/[?&]id=(\\d+)/) || [])[1]).filter(Boolean))];
-if (!ids.length) { alert('Nessuna fattura nella lista.'); w.close(); return; }
+const link = [...document.querySelectorAll('a[href*="option=saveXML"]')];
+const inviate = link.filter(a => { const tr = a.closest('tr'); return tr && tr.querySelector('i.response'); });
+const saltate = link.length - inviate.length;
+const ids = [...new Set(inviate.map(a => (a.getAttribute('href').match(/[?&]id=(\\d+)/) || [])[1]).filter(Boolean))];
+if (!ids.length) { alert('Nessuna fattura inviata allo SDI nella lista.'); w.close(); return; }
 const box = document.createElement('div');
 box.style.cssText = 'position:fixed;top:12px;right:12px;z-index:99999;background:#1e293b;color:#fff;padding:12px 16px;border-radius:8px;font:14px sans-serif';
 document.body.appendChild(box);
@@ -71,7 +73,8 @@ const uno = async () => { while (i < ids.length) { const id = ids[i++];
     if (/<(\\w+:)?FatturaElettronica[\\s>]/.test(t)) out.push({ nome: 'fattureweb-' + id, xml: t }); else err.push(id);
   } catch (e) { err.push(id); } } };
 await Promise.all([uno(), uno(), uno(), uno()]);
-box.textContent = out.length + ' fatture inviate all\\'ERP' + (err.length ? ' (' + err.length + ' senza XML: bozze o non generate)' : '');
+box.textContent = out.length + ' fatture inviate all\\'ERP' + (saltate ? ' · ' + saltate + ' saltate perché non ancora inviate allo SDI' : '')
+  + (err.length ? ' · ' + err.length + ' senza XML' : '');
 setTimeout(() => box.remove(), 8000);
 dati = out; manda();
 })();`;
