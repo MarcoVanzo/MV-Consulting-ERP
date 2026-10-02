@@ -430,7 +430,11 @@ class ContabilitaController {
         $this->pdo->beginTransaction();
         try {
             if (!$clienteId && ($clientePartitaIva || $clienteCodiceFiscale)) {
-                $ragioneSociale = (string)($header->CessionarioCommittente->DatiAnagrafici->Anagrafica->Denominazione ?? 'Cliente Sconosciuto');
+                // Società: Denominazione; persona fisica: Nome e Cognome
+                $anag = $header->CessionarioCommittente->DatiAnagrafici->Anagrafica;
+                $ragioneSociale = trim((string)($anag->Denominazione ?? ''))
+                    ?: trim((string)($anag->Nome ?? '') . ' ' . (string)($anag->Cognome ?? ''))
+                    ?: 'Cliente Sconosciuto';
                 $indirizzo = (string)($header->CessionarioCommittente->Sede->Indirizzo ?? '');
                 $cap = (string)($header->CessionarioCommittente->Sede->CAP ?? '');
                 $comune = (string)($header->CessionarioCommittente->Sede->Comune ?? '');
