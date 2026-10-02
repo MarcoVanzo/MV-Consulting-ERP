@@ -520,6 +520,15 @@ class CommessaService
         }
 
         foreach ($note as $n) {
+            // Il protocollo citato nella nota vince: è la commessa della fattura stornata anche se quella non è qui
+            $inc = self::incaricoDellaRiga((string)$n['descrizione'], $this->commesseDelCliente((int)$n['cliente_id']),
+                $n['sottocliente_id'] ? (int)$n['sottocliente_id'] : null);
+            if ($inc) {
+                $this->collegaFatturaACommessa((int)$n['id'], (int)$inc['id']);
+                $esito['collegate']++;
+                $esito['commesse'][(int)$inc['id']] = true;
+                continue;
+            }
             $orig = $this->fatturaStornata($n);
             if ($orig && $orig['incarico_id']) {
                 $this->collegaFatturaACommessa((int)$n['id'], (int)$orig['incarico_id']);
