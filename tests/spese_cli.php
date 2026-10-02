@@ -37,7 +37,8 @@ $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 $pdo->sqliteCreateFunction('NOW', fn() => date('Y-m-d H:i:s'), 0);
 foreach ([
-    "CREATE TABLE {$p}clienti (id INTEGER PRIMARY KEY, ragione_sociale TEXT)",
+    "CREATE TABLE {$p}clienti (id INTEGER PRIMARY KEY, ragione_sociale TEXT, citta TEXT)",
+    "CREATE TABLE {$p}sottoclienti (id INTEGER PRIMARY KEY, citta TEXT)",
     "CREATE TABLE {$p}settings (setting_key TEXT PRIMARY KEY, setting_value TEXT)",
     "CREATE TABLE {$p}mezzi (id INTEGER PRIMARY KEY, costo_km REAL)",
     "CREATE TABLE {$p}trasferte (id INTEGER PRIMARY KEY, data_trasferta TEXT, cliente_id INT, sottocliente_id INT, mezzo_id INT,
@@ -64,6 +65,17 @@ $taxi = array_values(array_filter($el, fn($s) => $s['categoria'] === 'taxi'))[0]
 $ped = array_values(array_filter($el, fn($s) => $s['categoria'] === 'pedaggio'))[0];
 check('taxi in contanti da segnalare (non tracciabile)', $taxi['da_segnalare'] === true && $taxi['tracciabile'] === false);
 check('pedaggio con carta: tracciabile', $ped['da_segnalare'] === false && $ped['tracciabile'] === true);
+// Carburante di tasca propria nel giorno del rimborso km: già compreso nel costo ACI
+$pdo->exec("INSERT INTO {$p}trasferte (data_trasferta, cliente_id, km_andata) VALUES ('2026-09-07', 1, 40)");
+$pdo->exec("INSERT INTO {$p}spese (data, categoria, importo, metodo) VALUES ('2026-09-07', 'carburante', 60, 'carta_personale'),
+    ('2026-09-07', 'carburante', 50, 'carta'), ('2026-09-08', 'carburante', 30, 'contanti')");
+$carb = array_values(array_filter($sp->elenco('2026-09-01', '2026-09-30'), fn($s) => $s['categoria'] === 'carburante'));
+$doppio = array_column($carb, 'carburante_doppio', 'metodo');
+check('carburante di tasca propria nel giorno con km: segnalato', $doppio['carta_personale'] === true, $doppio);
+check('carburante con carta aziendale: non segnalato', $doppio['carta'] === false, $doppio);
+check('carburante in un giorno senza km: non segnalato', $doppio['contanti'] === false, $doppio);
+$pdo->exec("DELETE FROM {$p}spese WHERE categoria = 'carburante'");
+$pdo->exec("DELETE FROM {$p}trasferte");
 
 echo "Carta\n";
 $pdo->exec("INSERT INTO {$p}movimenti_banca (id, origine, importo, data_operazione, descrizione, controparte) VALUES

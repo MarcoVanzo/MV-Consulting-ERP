@@ -104,18 +104,26 @@ class TrasferteRegole
     }
 
     /**
-     * Km per trasferta: il totale si divide in parti uguali fra le $n tappe da aggiornare.
-     * Si parte da fuori se la notte prima si è dormito fuori; si rientra se il percorso di oggi
-     * torna alla base. Restituisce [km_andata, km_ritorno] per ciascuna tappa.
+     * Km per trasferta: il totale si divide fra le $n tappe da aggiornare. Si parte da fuori se la
+     * notte prima si è dormito fuori; si rientra se il percorso di oggi torna alla base.
+     * Restituisce [km_andata, km_ritorno] per ciascuna tappa. Si conta in decimi di km e i decimi
+     * avanzati vanno alle prime tappe: la somma delle righe è esattamente il totale del percorso
+     * (arrotondando ogni quota, tre tappe su 40 km davano 40,2 km).
      */
     public static function ripartisciKm(float $totKm, int $n, bool $partenzaDaFuori, bool $rientro): array
     {
-        if ($n <= 0) return [0.0, 0.0];
-        $quota = $totKm / $n;
-        if ($partenzaDaFuori && $rientro) return [0.0, round($quota, 1)];
-        if (!$rientro) return [round($quota, 1), 0.0];
-        $meta = round($quota / 2, 1);
-        return [$meta, $meta];
+        if ($n <= 0) return [];
+        $decimi = (int)round(max(0.0, $totKm) * 10);
+        $base = intdiv($decimi, $n);
+        $resto = $decimi % $n;
+        $out = [];
+        for ($i = 0; $i < $n; $i++) {
+            $q = $base + ($i < $resto ? 1 : 0);
+            if ($partenzaDaFuori && $rientro) $out[] = [0.0, $q / 10.0];
+            elseif (!$rientro) $out[] = [$q / 10.0, 0.0];
+            else $out[] = [intdiv($q, 2) / 10.0, ($q - intdiv($q, 2)) / 10.0];
+        }
+        return $out;
     }
 
     /** Indennità di una giornata: spetta solo se nella giornata c'è almeno un cliente */
@@ -129,21 +137,36 @@ class TrasferteRegole
     /**
      * Riepilogo per giornata delle righe di list(): cliente presente, spese, indennità.
      * È l'unico punto in cui si calcola l'indennità (tabella, KPI e PDF la leggono da qui).
+     * Nel comune della sede l'indennità non è esente (art. 51 c. 5 TUIR): spetta solo se almeno un
+     * cliente della giornata è fuori da $comuneSede (città di sottocliente o cliente; senza città
+     * si considera fuori). $comuneSede vuoto: nessuna esclusione.
      */
-    public static function giornate(array $righe): array
+    public static function giornate(array $righe, string $comuneSede = ''): array
     {
+        $sede = self::normaComune($comuneSede);
         $g = [];
         foreach ($righe as $r) {
             $d = $r['data_trasferta'];
-            $g[$d] ??= ['con_cliente' => false, 'vitto' => 0.0, 'alloggio' => 0.0];
-            if (!empty($r['cliente_id']) || !empty($r['sottocliente_id'])) $g[$d]['con_cliente'] = true;
+            $g[$d] ??= ['con_cliente' => false, 'fuori_comune' => false, 'vitto' => 0.0, 'alloggio' => 0.0];
+            if (!empty($r['cliente_id']) || !empty($r['sottocliente_id'])) {
+                $g[$d]['con_cliente'] = true;
+                $citta = self::normaComune((string)(($r['sottocliente_citta'] ?? '') ?: ($r['cliente_citta'] ?? '')));
+                if ($sede === '' || $citta === '' || $citta !== $sede) $g[$d]['fuori_comune'] = true;
+            }
             $g[$d]['vitto'] += (float)($r['vitto'] ?? 0);
             $g[$d]['alloggio'] += (float)($r['alloggio'] ?? 0);
         }
         foreach ($g as $d => $v) {
-            $g[$d]['indennita'] = self::indennitaGiornata($v['con_cliente'], $v['vitto'], $v['alloggio']);
+            $g[$d]['indennita'] = self::indennitaGiornata($v['con_cliente'] && $v['fuori_comune'], $v['vitto'], $v['alloggio']);
         }
         return $g;
+    }
+
+    /** «Zero Branco (TV)» → «zero branco» */
+    private static function normaComune(string $c): string
+    {
+        $c = preg_replace('/\(.*?\)/u', '', mb_strtolower($c, 'UTF-8'));
+        return trim((string)preg_replace('/\s+/u', ' ', (string)$c));
     }
 
     /** Controllo dei campi di una trasferta: restituisce il messaggio d'errore o null */

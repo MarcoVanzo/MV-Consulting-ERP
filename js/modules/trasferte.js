@@ -179,6 +179,9 @@ const ModTrasferte = (() => {
             const spese = g.vitto + g.alloggio + g.altre - g.aziendali;
             const rimborsoTotale = g.rimborso_km + indennita + spese;
             const dataAttr = UI.esc(g.data);
+            // Una spesa di alloggio vale come notte fuori anche senza il pulsante (così calcola il server)
+            const daAlloggio = !g.pernottamento && g.alloggio > 0;
+            const notte = g.pernottamento || daAlloggio;
 
             return `
             <tr>
@@ -190,8 +193,8 @@ const ModTrasferte = (() => {
                 <td class="text-right fw-600" title="${spese ? 'Comprende ' + UI.esc(UI.formatCurrency(spese)) + ' di spese da rimborsare (scheda Spese)' : ''}${g.aziendali ? ' · ' + UI.esc(UI.formatCurrency(g.aziendali)) + ' pagati dalla società' : ''}">${UI.formatCurrency(rimborsoTotale)}</td>
                 <td>
                     <div class="flex gap-2 justify-end" style="align-items: center;">
-                        <button type="button" class="btn btn-sm ${g.pernottamento ? 'btn-primary' : 'btn-ghost'}" style="margin-right: 10px; display: flex; align-items: center; gap: 6px; ${g.pernottamento ? 'box-shadow: 0 0 8px var(--accent);' : ''}" title="Dormo fuori" onclick="ModTrasferte.togglePernottamento('${dataAttr}', ${!g.pernottamento}, this)">
-                            <i class="ph ${g.pernottamento ? 'ph-moon-stars' : 'ph-moon'}"></i> Dormo fuori
+                        <button type="button" class="btn btn-sm ${notte ? 'btn-primary' : 'btn-ghost'}" style="margin-right: 10px; display: flex; align-items: center; gap: 6px; ${notte ? 'box-shadow: 0 0 8px var(--accent);' : ''}" ${daAlloggio ? 'disabled title="Notte fuori: c\'è una spesa di alloggio in questa giornata"' : 'title="Dormo fuori"'} onclick="ModTrasferte.togglePernottamento('${dataAttr}', ${!g.pernottamento}, this)">
+                            <i class="ph ${notte ? 'ph-moon-stars' : 'ph-moon'}"></i> Dormo fuori
                         </button>
                         <button class="btn btn-sm btn-ghost" title="Calcola KM per questa giornata" onclick="ModTrasferte.calcolaKm('${dataAttr}')"><i class="ph ph-map-pin-line"></i></button>
                     </div>
@@ -675,7 +678,7 @@ const ModTrasferte = (() => {
     ${speseMese.length ? `<table>
         <thead><tr><th>Data</th><th>Spesa</th><th>Esercente / descrizione</th><th>Pagamento</th><th>Giustificativo</th><th style="text-align:right">Importo</th><th style="text-align:right">Da rimborsare</th></tr></thead>
         <tbody>${speseMese.slice().reverse().map(sp => `<tr><td>${UI.formatDate(sp.data)}</td><td>${UI.esc(sp.categoria)}</td>
-            <td>${UI.esc(sp.esercente || sp.descrizione || '—')}</td><td>${UI.esc(sp.metodo)}${sp.da_segnalare ? ' (non tracciabile)' : ''}</td>
+            <td>${UI.esc(sp.esercente || sp.descrizione || '—')}</td><td>${UI.esc(sp.metodo)}${sp.da_segnalare ? ' (non tracciabile)' : ''}${sp.carburante_doppio ? ' (già nel rimborso km)' : ''}</td>
             <td>${sp.ha_documento ? 'allegato' : 'manca'}</td><td class="num">${UI.formatCurrency(sp.importo)}</td>
             <td class="num">${sp.rimborsabile ? UI.formatCurrency(sp.importo) : 'pagata dalla società'}</td></tr>`).join('')}</tbody>
     </table>` : ''}

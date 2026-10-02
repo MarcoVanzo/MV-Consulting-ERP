@@ -292,8 +292,12 @@ class Indicatori
     {
         require_once __DIR__ . '/TrasferteRegole.php';
         require_once __DIR__ . '/Spese.php';
-        $stmt = $this->pdo->prepare("SELECT t.data_trasferta, t.cliente_id, t.sottocliente_id, t.km_andata, t.km_ritorno, m.costo_km
+        require_once __DIR__ . '/Percorsi.php';
+        $stmt = $this->pdo->prepare("SELECT t.data_trasferta, t.cliente_id, t.sottocliente_id, t.km_andata, t.km_ritorno, m.costo_km,
+                c.citta AS cliente_citta, sc.citta AS sottocliente_citta
             FROM {$this->p}trasferte t LEFT JOIN {$this->p}mezzi m ON m.id = t.mezzo_id
+            LEFT JOIN {$this->p}clienti c ON c.id = t.cliente_id
+            LEFT JOIN {$this->p}sottoclienti sc ON sc.id = t.sottocliente_id
             WHERE t.data_trasferta BETWEEN ? AND ?");
         $stmt->execute([$dal, $al]);
         $spese = new Spese($this->pdo, $this->p);
@@ -311,7 +315,7 @@ class Indicatori
         }
         $totSpese = array_sum(array_map(fn($g) => $g['vitto'] + $g['alloggio'] + $g['altre'], $perGiorno));
         $metodo = $spese->perMetodo($dal, $al);
-        $giornate = TrasferteRegole::giornate($righe);
+        $giornate = TrasferteRegole::giornate($righe, Percorsi::comuneBase());
         $indennita = array_sum(array_column($giornate, 'indennita'));
         $rimborsoKm = $senzaCosto && $rimborsoKm == 0.0 ? null : round($rimborsoKm, 2);
         return [
