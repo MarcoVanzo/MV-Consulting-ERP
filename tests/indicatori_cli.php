@@ -76,6 +76,8 @@ echo "Clienti esclusi\n";
 $pdo->prepare("INSERT INTO {$p}settings VALUES (?, ?)")->execute([Indicatori::chiaveClientiEsclusi(), json_encode([3])]);
 check('esclusione letta dalle impostazioni', $ind->clientiEsclusi() === [3]);
 check('cliente escluso fuori dal fatturato', uguale($ind->fatture(2026)['fatturato'], 6000));
+check('senza commessa: solo le fatture non collegate', uguale($ind->fatture(2026, [], null, true)['fatturato'], -200));
+check('senza commessa: clienti esclusi tolti', uguale($ind->fatture(2026, null, null, true)['fatturato'], 0));
 check('situazione di oggi: nessuna esclusione', uguale($ind->riepilogo()['fatture']['da_incassare'], 2440 + 3660 + 122 - 244));
 
 echo "Commesse\n";

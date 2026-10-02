@@ -55,8 +55,9 @@ class Indicatori
      * fatturato = imponibile · totale = IVA inclusa · incassato/da_incassare/scaduto = IVA inclusa (quello che paga il cliente)
      * Documento = numero + cliente + anno + segno (una nota di credito con lo stesso numero è un altro documento).
      * Lo scaduto di un cliente non supera mai quanto gli resta da incassare: una nota di credito aperta lo riduce.
+     * $senzaCommessa: solo le fatture non collegate a una commessa (la parte che le Commesse non vedono).
      */
-    public function fatture(?int $anno = null, ?array $esclusi = null, ?int $clienteId = null): array
+    public function fatture(?int $anno = null, ?array $esclusi = null, ?int $clienteId = null, bool $senzaCommessa = false): array
     {
         $esclusi = $esclusi ?? $this->clientiEsclusi();
         [$where, $params] = $this->periodo('data_emissione', $anno);
@@ -66,6 +67,9 @@ class Indicatori
         if ($clienteId !== null) {
             $where .= ' AND cliente_id = ?';
             $params[] = $clienteId;
+        }
+        if ($senzaCommessa) {
+            $where .= ' AND incarico_id IS NULL';
         }
         $sql = "SELECT
                 COALESCE(SUM(imponibile), 0) AS fatturato,
