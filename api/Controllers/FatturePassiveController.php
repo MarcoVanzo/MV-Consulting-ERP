@@ -130,14 +130,20 @@ class FatturePassiveController {
         $upd = $this->pdo->prepare("UPDATE {$this->prefix}fatture_passive SET stato = 'pagata', data_pagamento = ?, note = ? WHERE id = ? AND stato = 'da_pagare'");
         $fatte = 0;
         $this->pdo->beginTransaction();
-        foreach ($ids as $id) {
-            $nota->execute([$id]);
-            $prima = $nota->fetchColumn();
-            if ($prima === false) continue;
-            $upd->execute([$dataPag, trim((string)$prima . ' Segnata pagata a mano (pagamento fuori dagli estratti caricati).'), $id]);
-            $fatte++;
+        try {
+            foreach ($ids as $id) {
+                $nota->execute([$id]);
+                $prima = $nota->fetchColumn();
+                if ($prima === false) continue;
+                $upd->execute([$dataPag, trim((string)$prima . ' Segnata pagata a mano (pagamento fuori dagli estratti caricati).'), $id]);
+                $fatte++;
+            }
+            $this->pdo->commit();
+        } catch (Throwable $e) {
+            $this->pdo->rollBack();
+            error_log('[FatturePassive::setPagate] ' . $e->getMessage());
+            Response::json(false, 'Pagamenti non registrati: ' . $e->getMessage());
         }
-        $this->pdo->commit();
         Audit::log('UPDATE', 'fatture_passive', null, null, ['ids' => $ids, 'data_pagamento' => $dataPag, 'pagate' => $fatte]);
         Response::json(true, "$fatte fatture segnate pagate", ['pagate' => $fatte]);
     }

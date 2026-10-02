@@ -97,7 +97,7 @@ check('Alfa: nessun bonifico riconosciuto (nome in banca diverso)', $alfa && !$a
 check('i bonifici di Alfa sono tra i liberi', count(array_filter($r['liberi'], fn($m) => in_array($m['id'], [1, 2], true))) === 2);
 $gamma = $gruppo($r, 2);
 check('Gamma: bonifico trovato per parola, da verificare', count($gamma['movimenti']) === 1 && $gamma['movimenti'][0]['come'] === 'parola', $gamma['movimenti']);
-check('Gamma: differenza 40 € chiudibile', abs($gamma['differenza'] - 40) < 0.001 && $gamma['chiudibile'], $gamma);
+check('Gamma: trovato per parola → non spuntato, non automatico', !$gamma['movimenti'][0]['proposto'] && !$gamma['chiudibile'], $gamma);
 $delta = $gruppo($r, 3);
 check('Delta: due bonifici per nome, il vecchio fuori finestra', array_column($delta['movimenti'], 'id') === [4, 5] && $delta['movimenti'][0]['come'] === 'nome', $delta['movimenti']);
 
@@ -145,6 +145,25 @@ try {
 }
 $pdo->rollBack();
 check('… e niente registrato', $stato(9) === 'da_pagare' && $movStato(9) === 'da_riconciliare');
+
+echo "Canone: ogni bolletta col suo bonifico, non col più vecchio\n";
+$ins("INSERT INTO {$p}fornitori (id, ragione_sociale) VALUES (?, ?)", [5, 'Zeta Telefonia Srl']);
+foreach ([[20, 'Z-7', '2026-07-01'], [21, 'Z-8', '2026-08-01'], [22, 'Z-9', '2026-09-01']] as [$id, $num, $data]) $fattura($id, 5, $num, $data, 7.26);
+foreach (['03', '04', '05', '06', '07', '08', '09'] as $k => $mese) $mov(30 + $k, "2026-$mese-25", -7.26, "*ZETA TELEFONIA SRL      Addebito ID.BON:z$k");
+$pf = new PagamentiFornitore($pdo, $p, new Riconciliatore($pdo, $p)); // anagrafiche ricaricate, come a ogni richiesta
+$zeta = $gruppo($pf->riepilogo(), 5);
+$prop = array_column(array_filter($zeta['movimenti'], fn($m) => $m['proposto']), 'data');
+check('proposti i bonifici di giugno, luglio e agosto (i più vicini)', $prop === ['2026-06-25', '2026-07-25', '2026-08-25'], $prop);
+check('… e il totale torna pari', abs($zeta['totale_bonifici'] - 21.78) < 0.001 && $zeta['differenza'] == 0, $zeta);
+$pdo->beginTransaction();
+$e = $pf->abbina(5, [36, 33, 34], [20, 21, 22], false, null);   // giugno, luglio, settembre
+$pdo->commit();
+check('ogni bolletta pagata da un solo bonifico', $e['fatture_saldate'] === 3 && (int)$pdo->query("SELECT COUNT(*) FROM {$p}riconciliazioni WHERE documento_id IN (20, 21, 22)")->fetchColumn() === 3, $e);
+check('Z-9 col bonifico di settembre (stesso importo, il più vicino)', (int)$pdo->query("SELECT movimento_id FROM {$p}riconciliazioni WHERE documento_id = 22")->fetchColumn() === 36);
+$viaggio = PagamentiFornitore::proposti([['id' => 1, 'data_emissione' => '2026-07-20', 'residuo' => 1000.0]], [
+    ['id' => 1, 'data' => '2026-05-01', 'importo' => 400.0, 'come' => 'nome'], ['id' => 2, 'data' => '2026-07-10', 'importo' => 600.0, 'come' => 'nome'],
+    ['id' => 3, 'data' => '2026-01-10', 'importo' => 300.0, 'come' => 'nome'], ['id' => 4, 'data' => '2026-07-18', 'importo' => 50.0, 'come' => 'parola']]);
+check('viaggio: acconto e saldo proposti, il bonifico di gennaio e quello per parola no', array_keys($viaggio) === [2, 1], array_keys($viaggio));
 
 echo "Avanzo e annullamento\n";
 $pdo->beginTransaction();
