@@ -9,6 +9,7 @@ const ModIncarichi = (() => {
             _kpis = ov?.kpis || {};
             renderKpis(ov);
             renderDaCollegare();
+            renderGrafici(ov);
             const list = await Store.api('list', 'incarichi', { year });
             _incarichi = list || [];
             renderTable();
@@ -21,17 +22,54 @@ const ModIncarichi = (() => {
             <div class="kpi-card kpi-blue"><div class="kpi-label">Valore commesse</div><div class="kpi-value">${UI.formatCurrency(k.valore)}</div><div class="kpi-sub">imponibile · ${UI.plurale(k.num_commesse,'commessa','commesse')}</div></div>
             <div class="kpi-card kpi-green"><div class="kpi-label">Fatturato su commesse</div><div class="kpi-value">${UI.formatCurrency(k.fatturato)}</div><div class="kpi-sub">${UI.plurale(k.num_fatturati,'completamente fatturata','completamente fatturate')}</div></div>
             <div class="kpi-card kpi-yellow"><div class="kpi-label">Da fatturare</div><div class="kpi-value">${UI.formatCurrency(k.da_fatturare)}</div><div class="kpi-sub">${UI.plurale(k.num_da_fatturare,'commessa','commesse')}</div></div>
-            <div class="kpi-card kpi-purple"><div class="kpi-label">Margine previsto</div><div class="kpi-value">${UI.formatCurrency(k.margine_previsto)}</div><div class="kpi-sub">${k.costi_previsti > 0 ? `dopo ${UI.formatCurrency(k.costi_previsti)} di costi partner` : 'nessun costo partner previsto'}</div></div>`;
+            ${margineKpi(k)}`;
+    }
+
+    // Grafici di Vendite (js/core/grafici.js): dove sta il valore, quanto resta da fatturare, numero contro valore
+    function renderGrafici(ov) {
+        const box = document.getElementById('incarichi-grafici');
+        if (!box || !window.Grafici) return;
+        const tipi = (ov?.per_tipo || []).map(t => ({ etichetta: UI.tipoCommessa(t.tipo_commessa), valore: parseFloat(t.totale) || 0,
+            n: parseInt(t.conteggio) || 0 })).filter(t => t.valore > 0 || t.n > 0);
+        const k = _kpis, valore = parseFloat(k.valore) || 0, daFatt = parseFloat(k.da_fatturare) || 0;
+        box.innerHTML = [
+            Grafici.impilata('Quanto resta da fatturare', `Sul valore delle commesse del ${UI.anno()}`, [
+                { etichetta: 'Fatturato', valore: Math.max(0, valore - daFatt), colore: 'var(--accent-green)' },
+                { etichetta: 'Da fatturare', valore: daFatt, colore: 'var(--accent-purple)' },
+            ]),
+            Grafici.barre('Dove sta il valore', 'Valore delle commesse per tipo', tipi.map(t => ({ ...t, nota: `${t.n} ${t.n === 1 ? 'commessa' : 'commesse'}` }))),
+            Grafici.divergenti('Quante commesse e quanto valgono', 'Per tipo: quota sul numero delle commesse e sul valore', tipi,
+                { sinistra: 'commesse', destra: 'valore' }),
+        ].join('');
+    }
+
+    // Il margine dice qualcosa solo sulle commesse con i costi registrati: sulle altre sarebbe il 100%
+    function margineKpi(k) {
+        const n = k.num_con_costi || 0;
+        if (!n) return `<div class="kpi-card kpi-purple"><div class="kpi-label">Margine previsto</div><div class="kpi-value">—</div><div class="kpi-sub">nessuna commessa ha costi partner registrati</div></div>`;
+        const m = (parseFloat(k.valore_con_costi) || 0) - (parseFloat(k.costi_previsti) || 0);
+        const pct = k.valore_con_costi > 0 ? Math.round(m / k.valore_con_costi * 100) : 0;
+        return `<div class="kpi-card kpi-purple"><div class="kpi-label">Margine previsto</div><div class="kpi-value">${UI.formatCurrency(m)} <span class="kpi-pct">${pct}%</span></div>
+            <div class="kpi-sub">su ${UI.plurale(n, 'commessa', 'commesse')} con costi registrati (${UI.formatCurrency(k.valore_con_costi)}); le altre ${k.num_commesse - n} non hanno costi</div></div>`;
     }
 
     // ── Fatture senza commessa: avviso sotto i KPI e finestra per collegarle ──
     function renderDaCollegare() {
         const box = document.getElementById('incarichi-da-collegare');
-        const senza = parseFloat(_kpis.fatturato_senza_commessa) || 0;
-        if (Math.abs(senza) < 0.01) { box.innerHTML = ''; return; }
-        box.innerHTML = `<div class="notice da-collegare"><span><b>${UI.formatCurrency(senza)}</b> fatturati nel ${UI.esc(UI.anno())} non sono collegati a una commessa: qui sopra non li vedi.</span>
-            <button class="btn btn-sm btn-primary" type="button" id="btn-da-collegare"><i class="ph ph-link"></i> Collega alle commesse</button></div>`;
-        document.getElementById('btn-da-collegare').addEventListener('click', apriCollega);
+        const pt = _kpis.ponte || {};
+        const senza = parseFloat(pt.senza_commessa ?? _kpis.fatturato_senza_commessa) || 0;
+        const fuori = parseFloat(pt.fuori_anno) || 0, altri = parseFloat(pt.commesse_altri_anni) || 0;
+        const anno = UI.esc(UI.anno());
+        // Ponte con Fatture: stesse fatture, ma qui si parte dalle commesse dell'anno
+        const voce = (segno, v, testo) => Math.abs(v) < 0.01 ? '' : `<span class="ponte-voce"><b>${segno} ${UI.formatCurrency(Math.abs(v))}</b> ${testo}</span>`;
+        const ponte = pt.fatturato === undefined ? '' : `<div class="ponte"><span class="ponte-voce"><b>${UI.formatCurrency(pt.su_commesse)}</b> fatturati sulle commesse del ${anno}</span>
+            ${voce('−', fuori, 'emessi in altri anni')}
+            ${voce('+', altri, `su commesse degli anni prima`)}
+            ${voce(senza < 0 ? '−' : '+', senza, senza < 0 ? 'di note di credito senza commessa' : 'senza commessa')}
+            <span class="ponte-voce ponte-tot">= <b>${UI.formatCurrency(pt.fatturato)}</b> imponibile in Fatture ${anno}</span></div>`;
+        box.innerHTML = ponte + (Math.abs(senza) < 0.01 ? '' : `<div class="notice da-collegare"><span><b>${UI.formatCurrency(senza)}</b> fatturati nel ${anno} non sono collegati a una commessa.</span>
+            <button class="btn btn-sm btn-primary" type="button" id="btn-da-collegare"><i class="ph ph-link"></i> Collega alle commesse</button></div>`);
+        document.getElementById('btn-da-collegare')?.addEventListener('click', apriCollega);
     }
 
     let _dc = { fatture: [], commesse: {} };
@@ -153,14 +191,16 @@ const ModIncarichi = (() => {
             const pctF = Math.min(fatt / (valore || 1) * 100, 100).toFixed(0);
             const margine = valore - (parseFloat(i.costi_previsti) || 0);
             const cliente = UI.esc(i.cliente_nome||'—') + (i.sottocliente_nome ? ` <span style="color:var(--text-muted)">/ ${UI.esc(i.sottocliente_nome)}</span>` : '');
+            const desc = i.descrizione ? `<div class="cella-desc" title="${UI.esc(i.descrizione)}">${UI.esc(i.descrizione)}</div>` : '';
+            const conCosti = (parseFloat(i.costi_previsti) || 0) > 0;
             const protLabel = i.numero_protocollo ? `<span style="font-size:0.7rem;color:var(--accent-secondary);opacity:0.8" title="Protocollo"><i class="ph ph-hash"></i> ${UI.esc(i.numero_protocollo)}</span>` : '';
             return `<tr data-id="${UI.esc(i.id)}">
                 <td>${protLabel}</td>
-                <td class="td-primary cella-titolo">${cliente}</td>
+                <td class="td-primary cella-titolo">${cliente}${desc}</td>
                 <td>${tipoBadge(i.tipo_commessa)}</td>
                 <td>${UI.formatDate(i.data_incarico)}</td>
                 <td class="text-right td-primary">${UI.formatCurrency(valore)}</td>
-                <td class="text-right">${UI.formatCurrency(margine)}${valore > 0 && margine < valore ? ` <span style="color:var(--text-muted)">${Math.round(margine / valore * 100)}%</span>` : ''}</td>
+                <td class="text-right">${conCosti ? `${UI.formatCurrency(margine)}${valore > 0 ? ` <span style="color:var(--text-muted)">${Math.round(margine / valore * 100)}%</span>` : ''}` : '<span style="color:var(--text-muted)" title="Nessun costo partner registrato">—</span>'}</td>
                 <td style="min-width:120px">
                     <div style="display:flex;align-items:center;gap:6px;font-size:0.7rem" title="${UI.esc(UI.formatCurrency(fatt))} fatturati">
                         <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">

@@ -26,10 +26,12 @@ class ContabilitaController {
 
         $sql = "SELECT f.*, 
                 c.ragione_sociale as cliente_nome,
-                sc.nome as sottocliente_nome
+                sc.nome as sottocliente_nome,
+                i.descrizione AS commessa_descrizione, i.tipo_commessa AS commessa_tipo, YEAR(i.data_incarico) AS commessa_anno
             FROM {$this->prefix}fatture f
             LEFT JOIN {$this->prefix}clienti c ON c.id = f.cliente_id
             LEFT JOIN {$this->prefix}sottoclienti sc ON sc.id = f.sottocliente_id
+            LEFT JOIN {$this->prefix}incarichi i ON i.id = f.incarico_id
             WHERE YEAR(f.data_emissione) = ?";
         $params = [$year];
 
@@ -197,6 +199,7 @@ class ContabilitaController {
             'kpis' => $kpis,
             'mensile' => $monthly,
             'top_clienti' => $topClienti,
+            'anzianita' => (new Indicatori($this->pdo, $p))->anzianitaCrediti((int)$year, $esclusi),
             'clienti' => $clientiAnno,
             'esclusi' => $esclusi,
             'anno' => $year

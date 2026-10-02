@@ -166,6 +166,12 @@
 
 /* Vendite › Commesse: fatture senza commessa */
 .notice.da-collegare { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; white-space: normal; margin-top: 4px; }
+.ponte { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; font-size: 0.8rem; color: var(--text-muted);
+    padding: 10px 14px; margin-top: 4px; border: 1px solid var(--border-color, rgba(255,255,255,0.08)); border-radius: 10px; }
+.ponte b { color: var(--text-primary, inherit); font-weight: 600; }
+.ponte-tot { margin-left: auto; }
+.cella-desc { font-size: 0.75rem; color: var(--text-muted); font-weight: 400; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kpi-pct { font-size: 0.9rem; color: var(--text-muted); font-weight: 500; }
 .dc-intro { color: var(--text-muted); font-size: 0.85rem; margin: 0 0 12px; }
 .dc-tutte { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 14px; }
 .dc-tutte span { color: var(--text-muted); font-size: 0.8rem; flex: 1 1 260px; }
@@ -180,3 +186,6 @@
 .dc-crea { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); }
 .dc-crea h4 { font-size: 0.9rem; margin: 0 0 8px; }
 .dc-crea h4 span { color: var(--text-muted); font-weight: 500; }
+
+.cella-commessa { font-size: 0.8rem; max-width: 260px; }
+.cella-commessa a { color: var(--accent-secondary); text-decoration: none; }

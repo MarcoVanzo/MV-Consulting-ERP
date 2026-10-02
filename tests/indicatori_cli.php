@@ -88,6 +88,11 @@ check('incassato commesse netto IVA', uguale($c['incassato_netto'], 1000), $c);
 check('da fatturare mai negativo', uguale($c['da_fatturare'], 4000 + 2000), $c);
 check('commesse con qualcosa da fatturare', $c['num_da_fatturare'] === 2, $c);
 check('anno precedente separato', uguale($ind->commesse(2025)['valore'], 500));
+$an = $ind->anzianitaCrediti(2026, []);
+check('anzianità crediti: la somma è il da incassare', uguale(array_sum($an), $ind->fatture(2026, [])['da_incassare']), [$an, $ind->fatture(2026, [])]);
+$pt = $ind->ponteFatturato(2026);
+check('ponte Vendite → Fatture: i termini tornano', uguale($pt['su_commesse'] - $pt['fuori_anno'] + $pt['commesse_altri_anni'] + $pt['senza_commessa'], $pt['fatturato']), $pt);
+check('ponte: fatture dell\'anno di tutti i clienti', uguale($pt['fatturato'], (float)$pdo->query("SELECT SUM(imponibile) FROM {$p}fatture WHERE data_emissione LIKE '2026%'")->fetchColumn()), $pt);
 
 echo "Rate, offerte, partner\n";
 $r = $ind->rateDaFatturare(30);

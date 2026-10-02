@@ -450,7 +450,7 @@ class CommessaService
     {
         foreach ([
             '/\bnis\s?2\b/i' => 'nis2', '/\bdpo\b|privacy|gdpr/i' => 'dpo', '/formazion|\bcorso\b/i' => 'formazione',
-            '/noleggi|\bcanone\b/i' => 'noleggio', '/viaggi|trasport|\bvolo\b|hotel|soggiorn/i' => 'viaggio',
+            '/noleggi|\bcanone\b/i' => 'noleggio', '/viaggi|trasport|\bvolo\b|hotel|soggiorn|\btrip\b|travel/i' => 'viaggio',
             '/sviluppo|software|\bapp\b|sito web/i' => 'sviluppo_software', '/assistenz|supporto/i' => 'assistenza',
         ] as $re => $tipo) {
             if (preg_match($re, $testo)) return $tipo;
@@ -463,16 +463,19 @@ class CommessaService
      *  1. collega quelle con una proposta sicura (protocollo, riferimento all'offerta, rata di pari importo);
      *  2. quelle per cui la proposta è solo «unica commessa con residuo» restano da confermare a mano;
      *  3. le altre diventano commesse: un canone (stesso cliente, sottocliente e importo almeno 3 volte) fa una
-     *     commessa ricorrente che copre tutti i mesi fatturati (almeno 12), ogni altra fattura una commessa singola.
-     * Note di credito e fatture senza cliente restano fuori. Da chiamare dentro una transazione;
-     * il ricalcolo dei totali delle commesse toccate resta a chi chiama.
+     *     commessa ricorrente che copre tutti i mesi fatturati (almeno 12); le fatture con la stessa intestazione
+     *     (il testo prima dei due punti: acconto e saldo dello stesso viaggio) fanno una commessa sola; ogni altra
+     *     fattura una commessa singola.
+     * Una nota di credito va con la fattura che storna (numero citato o stesso importo): sulla sua commessa, o nel
+     * gruppo che la crea; un gruppo stornato per intero non diventa commessa. Fatture senza cliente restano fuori.
+     * Da chiamare dentro una transazione; il ricalcolo dei totali delle commesse toccate resta a chi chiama.
      * @return array{collegate:int, create:int, ricorrenti:int, da_scegliere:int, saltate:int, commesse:int[]}
      */
     public function creaCommesseMancanti(?array $fatturaIds = null): array
     {
         $esito = ['collegate' => 0, 'create' => 0, 'ricorrenti' => 0, 'da_scegliere' => 0, 'saltate' => 0, 'commesse' => []];
         // La ricorrenza si giudica su tutte le fatture senza commessa del cliente, anche fuori dall'elenco indicato
-        $tutte = $this->pdo->query("SELECT id, cliente_id, sottocliente_id, data_emissione, imponibile, descrizione
+        $tutte = $this->pdo->query("SELECT id, numero_fattura, cliente_id, sottocliente_id, data_emissione, imponibile, descrizione
             FROM {$this->p}fatture WHERE incarico_id IS NULL ORDER BY cliente_id, data_emissione, id")->fetchAll(PDO::FETCH_ASSOC);
         $scelte = $fatturaIds === null ? null : array_flip(array_map('intval', $fatturaIds));
         $chiave = fn($f) => $f['cliente_id'] . '|' . (int)$f['sottocliente_id'] . '|' . round((float)$f['imponibile'], 2);
@@ -482,9 +485,12 @@ class CommessaService
         }
 
         $daCreare = [];
+        $gruppoDi = [];
+        $note = [];
         foreach ($tutte as $f) {
             if ($scelte !== null && !isset($scelte[(int)$f['id']])) continue;
-            if (!$f['cliente_id'] || (float)$f['imponibile'] <= 0) { $esito['saltate']++; continue; }
+            if (!$f['cliente_id'] || abs((float)$f['imponibile']) < 0.005) { $esito['saltate']++; continue; }
+            if ((float)$f['imponibile'] < 0) { $note[] = $f; continue; }
             $f['ricorrente'] = count($gruppi[$chiave($f)]) >= 3;
             $prop = $this->proposta($f, $this->commesseDelCliente((int)$f['cliente_id']));
             if ($prop && $prop['motivo'] !== self::MOTIVO_DEBOLE) {
@@ -494,28 +500,78 @@ class CommessaService
             } elseif ($prop) {
                 $esito['da_scegliere']++;
             } else {
-                $daCreare[$f['ricorrente'] ? 'r' . $chiave($f) : 's' . $f['id']][] = $f;
+                $intestazione = self::intestazione((string)$f['descrizione']);
+                $g = $f['ricorrente'] ? 'r' . $chiave($f)
+                    : (mb_strlen($intestazione) >= 30 ? 'v' . $f['cliente_id'] . '|' . (int)$f['sottocliente_id'] . '|' . mb_strtolower($intestazione) : 's' . $f['id']);
+                $daCreare[$g][] = $f;
+                $gruppoDi[(int)$f['id']] = $g;
+            }
+        }
+
+        foreach ($note as $n) {
+            $orig = $this->fatturaStornata($n);
+            if ($orig && $orig['incarico_id']) {
+                $this->collegaFatturaACommessa((int)$n['id'], (int)$orig['incarico_id']);
+                $esito['collegate']++;
+                $esito['commesse'][(int)$orig['incarico_id']] = true;
+            } elseif ($orig && isset($gruppoDi[(int)$orig['id']])) {
+                $daCreare[$gruppoDi[(int)$orig['id']]][] = $n;
+            } else {
+                $esito['saltate']++;
             }
         }
 
         foreach ($daCreare as $k => $fatture) {
-            $prima = trim((string)preg_replace('/^\[Nota di credito\]\s*/', '', strtok((string)$fatture[0]['descrizione'], "\n") ?: ''));
+            $positive = array_values(array_filter($fatture, fn($f) => (float)$f['imponibile'] > 0));
+            // Fattura stornata per intero (e magari riemessa altrove): niente commessa
+            if (array_sum(array_map(fn($f) => (float)$f['imponibile'], $fatture)) < 0.005) { $esito['saltate'] += count($fatture); continue; }
+            $prima = self::intestazione((string)$positive[0]['descrizione']);
             $testo = implode("\n", array_column($fatture, 'descrizione'));
             if ($k[0] === 'r') {
-                $date = array_column($fatture, 'data_emissione');
+                $date = array_column($positive, 'data_emissione');
                 $mesi = ((int)substr(max($date), 0, 4) - (int)substr(min($date), 0, 4)) * 12
                     + (int)substr(max($date), 5, 2) - (int)substr(min($date), 5, 2) + 1;
                 $id = $this->creaDaFatture(array_column($fatture, 'id'), ['ricorrente' => true, 'mesi' => max(12, $mesi),
                     'tipo_commessa' => self::tipoDalTesto($testo), 'descrizione' => mb_substr('Canone ' . $prima, 0, 120)]);
                 $esito['ricorrenti']++;
             } else {
-                $id = $this->creaDaFatture([$fatture[0]['id']], ['tipo_commessa' => self::tipoDalTesto($testo), 'descrizione' => mb_substr($prima, 0, 120)]);
+                $id = $this->creaDaFatture(array_column($fatture, 'id'), ['tipo_commessa' => self::tipoDalTesto($testo), 'descrizione' => mb_substr($prima, 0, 120)]);
             }
             $esito['create']++;
             $esito['commesse'][$id] = true;
         }
         $esito['commesse'] = array_keys($esito['commesse']);
         return $esito;
+    }
+
+    /** Intestazione di una fattura: la prima riga fino ai due punti, senza «[Nota di credito]» e l'articolo «the». */
+    private static function intestazione(string $descrizione): string
+    {
+        $t = preg_replace('/^\s*\[Nota di credito\]\s*/u', '', $descrizione);
+        $t = (string)preg_split('/[:\r\n]/', $t)[0];
+        return trim((string)preg_replace(['/\s+/u', '/^the\s+/i', '/[\s.]+$/'], [' ', '', ''], $t));
+    }
+
+    /**
+     * Fattura emessa che una nota di credito storna: quella col numero citato nel testo («storno fattura n.12AV»),
+     * altrimenti l'unica dello stesso cliente con lo stesso importo, emessa non dopo la nota. Null se non è certa.
+     */
+    private function fatturaStornata(array $nota): ?array
+    {
+        $stmt = $this->pdo->prepare("SELECT id, numero_fattura, data_emissione, imponibile, incarico_id FROM {$this->p}fatture
+            WHERE cliente_id = ? AND imponibile > 0 AND data_emissione <= ? ORDER BY data_emissione DESC, id DESC");
+        $stmt->execute([(int)$nota['cliente_id'], (string)$nota['data_emissione']]);
+        $fatture = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $norm = fn($x) => preg_replace('/[^A-Z0-9]/', '', mb_strtoupper((string)$x));
+        if (preg_match_all('/\bf(?:at)?t(?:ura)?\.?\s*(?:n(?:r|um)?\.?\s*|numero\s*)?([A-Z0-9][A-Z0-9\/-]*)/i', (string)$nota['descrizione'], $m)) {
+            foreach ($m[1] as $numero) {
+                $stessa = array_values(array_filter($fatture, fn($f) => $norm($f['numero_fattura']) === $norm($numero)));
+                if ($stessa) return $stessa[0];
+            }
+        }
+        $importo = -(float)$nota['imponibile'];
+        $pari = array_values(array_filter($fatture, fn($f) => abs((float)$f['imponibile'] - $importo) < 0.01));
+        return count($pari) === 1 ? $pari[0] : null;
     }
 
     /** Commesse del cliente con il residuo da fatturare, nel formato di proposta(). */

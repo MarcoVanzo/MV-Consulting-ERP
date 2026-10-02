@@ -11,7 +11,7 @@ const ModContabilita = (() => {
         try {
             const ov = await Store.api('overview','contabilita',{year});
             _kpis = ov?.kpis||{}; _mensile = ov?.mensile||[]; _clienti = ov?.clienti||[]; _esclusi = (ov?.esclusi||[]).map(Number);
-            renderKpis(); renderChart(); renderFiltroClienti();
+            renderKpis(); renderChart(); renderFiltroClienti(); renderGrafici(ov);
             const params = {year}; if (_statoFilter) params.stato = _statoFilter;
             const list = await Store.api('list','contabilita',params);
             _fatture = list||[]; renderTable();
@@ -61,6 +61,28 @@ const ModContabilita = (() => {
         UI.closeModal(); UI.toast('Scelta salvata'); load();
     }
 
+    // Grafici di Fatture (js/core/grafici.js): da quanto aspettiamo i soldi e quanto pesa ogni cliente
+    function renderGrafici(ov) {
+        const box = document.getElementById('contabilita-grafici');
+        if (!box || !window.Grafici) return;
+        const a = ov?.anzianita || {};
+        const tot = parseFloat(_kpis.fatturato) || 0;
+        const top = (ov?.top_clienti || []).map((c, i) => ({ etichetta: c.ragione_sociale || 'Senza cliente', valore: parseFloat(c.fatturato) || 0,
+            colore: Grafici.PALETTE[i] }));
+        const altri = tot - top.reduce((x, c) => x + c.valore, 0);
+        if (altri > 0.5) top.push({ etichetta: 'Tutti gli altri', valore: altri, colore: 'var(--text-muted)' });
+        const primo = tot > 0 && top.length ? Math.round(top[0].valore / tot * 100) : 0;
+        box.innerHTML = [
+            Grafici.barre('Da quanto aspetti i soldi', 'Da incassare per giorni dalla scadenza · IVA inclusa', [
+                { etichetta: 'Non ancora scadute', valore: parseFloat(a.a_scadere) || 0, colore: 'var(--accent-green)' },
+                { etichetta: 'Scadute da 1–30 giorni', valore: parseFloat(a.giorni_0_30) || 0, colore: 'var(--accent-warm)' },
+                { etichetta: 'Scadute da 31–60 giorni', valore: parseFloat(a.giorni_31_60) || 0, colore: 'var(--accent-purple)' },
+                { etichetta: 'Scadute da oltre 60 giorni', valore: parseFloat(a.oltre_60) || 0, colore: 'var(--accent-red)', evidenzia: (parseFloat(a.oltre_60) || 0) > 0 },
+            ], { vuoto: 'Nessuna fattura da incassare' }),
+            Grafici.ciambella('Quanto pesa ogni cliente', `Fatturato ${UI.anno()} · imponibile`, top, { testo: primo + '%', sotto: 'primo cliente' }),
+        ].join('');
+    }
+
     function renderChart() {
         const container = document.getElementById('contabilita-chart');
         if (!_mensile.length) { container.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;padding:40px;text-align:center">Nessun dato</div>'; return; }
@@ -84,7 +106,7 @@ const ModContabilita = (() => {
             <td class="td-mono">${UI.esc(f.numero_fattura)}</td>
             <td>${UI.formatDate(f.data_emissione)}</td>
             <td class="td-primary cella-titolo">${UI.esc(f.cliente_nome||'—')}${f.sottocliente_nome?` <span style="color:var(--text-muted)">/ ${UI.esc(f.sottocliente_nome)}</span>`:''}</td>
-            <td style="font-size:0.8rem;color:var(--text-muted)">${f.incarico_id?'<i class="ph ph-link" style="color:var(--accent-secondary)"></i> #'+UI.esc(f.incarico_id):'—'}</td>
+            <td class="cella-commessa">${f.incarico_id ? `<a href="#" onclick="event.preventDefault();ModCommessa.open(${+f.incarico_id})" title="${UI.esc(f.commessa_descrizione || '')}"><i class="ph ph-link"></i> ${UI.esc((f.commessa_descrizione || UI.tipoCommessa(f.commessa_tipo) || '#' + f.incarico_id).slice(0, 40))}</a>${f.commessa_anno && String(f.commessa_anno) !== String(UI.anno()) ? ` <span class="badge badge-gray" title="Commessa di un altro anno">${UI.esc(f.commessa_anno)}</span>` : ''}` : '<span class="text-muted">—</span>'}</td>
             <td class="text-right">${UI.formatCurrency(f.imponibile)}</td>
             <td class="text-right td-primary">${UI.formatCurrency(f.importo_totale)}</td>
             <td>${UI.statoBadge(f.stato)}</td>

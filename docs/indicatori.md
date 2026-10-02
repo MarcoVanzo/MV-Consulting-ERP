@@ -29,6 +29,9 @@ situazione di oggi gli incassi aperti si vedono tutti.
 | Valore commesse | somma di `incarichi.importo_totale` | netto IVA |
 | Fatturato commesse | imponibile delle fatture collegate alla commessa | netto IVA |
 | Fatturato senza commessa | fatturato dell'anno (stessa definizione e stessi clienti esclusi di «Fatturato») delle fatture non collegate a una commessa: è il motivo per cui «Fatturato su commesse» in Vendite non coincide con l'imponibile del «Fatturato» in Fatture, insieme alle date (commessa dell'anno vs fattura dell'anno) | netto IVA |
+| Ponte Vendite → Fatture | `ponteFatturato`: fatturato dell'anno (imponibile, tutti i clienti) = fatturato sulle commesse dell'anno − la parte emessa in altri anni + fatture dell'anno su commesse di altri anni + fatture senza commessa | netto IVA |
+| Anzianità del da incassare | `anzianitaCrediti`: da incassare dell'anno diviso per giorni dalla scadenza (non scadute, 1–30, 31–60, oltre 60); la somma è il «Da incassare» | IVA inclusa |
+| Margine previsto (scheda) | mostrato solo sulle commesse con costi partner registrati: sulle altre sarebbe il 100% | netto IVA |
 | Incassato commesse | imponibile delle fatture collegate e pagate (non più mostrato in Vendite, che si ferma alla fattura) | netto IVA |
 | Margine previsto (Vendite) | valore delle commesse dell'anno − costi partner previsti (`CommessaService::margini`) | netto IVA |
 | Da fatturare (commesse) | valore della commessa non ancora coperto da fatture, mai negativo | netto IVA |
