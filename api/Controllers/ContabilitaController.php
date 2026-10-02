@@ -4,9 +4,14 @@
  */
 
 require_once __DIR__ . '/../Shared/Indicatori.php';
+require_once __DIR__ . '/../Shared/CommessaService.php';
 
 class ContabilitaController {
     private const STATI_FATTURA = ['emessa', 'inviata', 'pagata', 'scaduta'];
+    /** Descrizione delle fatture entrate da un elenco Excel: solo i totali, le righe arrivano con l'XML. */
+    public const DA_ELENCO = 'Importata dall\'elenco fatture';
+    /** Stessa cosa, scritta dal vecchio import della Lista Fatture di Sistemi. */
+    private const DA_ELENCO_VECCHIO = 'Importata dalla lista fatture di Sistemi';
     private $pdo;
     private $prefix;
 
@@ -486,9 +491,12 @@ class ContabilitaController {
                     $protocolloRiga = preg_replace('/\s+/', '', trim($mProt[1]));
                 }
 
-                // Tentiamo di validare in DB tra i sottoclienti del cliente individuato
-                $sottoclienteId = null;
-                if ($clienteId) {
+                // Commessa della riga dai protocolli scritti nel testo: se ha un sottocliente, è quello della riga
+                $incRiga = CommessaService::incaricoDellaRiga($descrizione, $allIncarichi);
+                $sottoclienteId = $incRiga && $incRiga['sottocliente_id'] ? (int)$incRiga['sottocliente_id'] : null;
+
+                // Altrimenti tentiamo di validare in DB tra i sottoclienti del cliente individuato
+                if ($clienteId && !$sottoclienteId) {
                     if ($sotto_nome_trovato) {
                         // Search existing with the exact string found in regex
                         $searchSotto = strtolower(str_replace([' ', '.', ','], '', $sotto_nome_trovato));
@@ -545,12 +553,14 @@ class ContabilitaController {
                     }
                 }
 
-                // Prepariamo una chiave per accumulare importi dello stesso sottocliente.
-                // Se nessun sottocliente -> ID = 'none' (finisce nel blocco principale senza sottocliente)
-                $groupKey = $sottoclienteId ? $sottoclienteId : 'none';
+                // Un record per sottocliente e commessa: due commesse dello stesso sottocliente restano separate.
+                // Senza sottocliente → 'none' (blocco principale), senza commessa → 0
+                $groupKey = ($sottoclienteId ?: 'none') . '|' . ($incRiga ? (int)$incRiga['id'] : 0);
 
                 if (!isset($raggruppamenti[$groupKey])) {
                     $raggruppamenti[$groupKey] = [
+                        'sottocliente_id' => $sottoclienteId ? (int)$sottoclienteId : null,
+                        'incarico_id' => $incRiga ? (int)$incRiga['id'] : null,
                         'imponibile' => 0.0,
                         'iva' => 0.0,
                         'aliquote' => [],
@@ -592,9 +602,21 @@ class ContabilitaController {
                 $raggruppamenti[$lastKey]['iva'] = round($raggruppamenti[$lastKey]['iva'] + ($riepImposta - $sumIva), 2);
             }
 
-            // 3. Eseguiamo gli Insert/Update su `fatture`, con match incarico tramite protocollo
-            foreach ($raggruppamenti as $sk => $data) {
-                $sid = ($sk === 'none') ? null : (int)$sk;
+            // 3. Il documento c'è già? Se è entrato solo dall'elenco Excel (totale senza righe) lo si completa
+            //    tenendo il suo id (pagamenti e riconciliazioni restano agganciati); se è già dettagliato si salta.
+            $esistenti = $this->righeDocumento($numeroFattura, $dataEmissione, $clienteId ? (int)$clienteId : null, $segno, $tipoDocumento, $conTipoDoc);
+            $soloElenco = $esistenti && !array_filter($esistenti, fn($r) => !self::daElenco((string)$r['descrizione']));
+            if ($esistenti && !$soloElenco) {
+                $errors[] = "Fattura n. $numeroFattura già presente, caricamento ignorato.";
+                $raggruppamenti = [];
+            }
+            $daRiusare = $soloElenco ? $esistenti : [];
+            if ($soloElenco) $errors[] = "Fattura n. $numeroFattura: era entrata dall'elenco, completata con le righe della fattura.";
+
+            // 3a. Insert (o completamento della riga dall'elenco), con la commessa trovata riga per riga
+            foreach ($raggruppamenti as $data) {
+                $sid = $data['sottocliente_id'];
+                $incaricoId = $data['incarico_id'];
                 $imponibile = round($segno * $data['imponibile'], 2);
                 $importoIva = round($segno * $data['iva'], 2);
                 $importoTotale = round($imponibile + $importoIva, 2);
@@ -606,34 +628,17 @@ class ContabilitaController {
                     $ivaPerc = $data['imponibile'] != 0 ? round($data['iva'] / $data['imponibile'] * 100, 2) : 0.0;
                 }
                 $testoDesc = ($isNotaCredito ? "[Nota di credito]\n" : '') . implode("\n", $data['descrizioni']);
-
-                // 3a. Cerchiamo l'incarico corrispondente tramite protocollo
-                $incaricoId = null;
                 $protocolliTrovati = array_keys($data['protocolli'] ?? []);
-                if (!empty($protocolliTrovati) && !empty($allIncarichi)) {
-                    foreach ($protocolliTrovati as $prot) {
-                        $protNorm = preg_replace('/\s+/', '', strtolower($prot));
-                        foreach ($allIncarichi as $inc) {
-                            $incProtNorm = preg_replace('/\s+/', '', strtolower($inc['numero_protocollo']));
-                            if ($protNorm === $incProtNorm) {
-                                // Match trovato! Verifica anche il sottocliente se presente
-                                if ($sid && $inc['sottocliente_id'] && $sid != $inc['sottocliente_id']) {
-                                    continue; // Sottocliente diverso, skip
-                                }
-                                $incaricoId = $inc['id'];
-                                $errors[] = "Fattura n. $numeroFattura collegata automaticamente all'incarico #$incaricoId (Prot. $prot).";
-                                break 2;
-                            }
-                        }
-                    }
-                    if (!$incaricoId && !empty($protocolliTrovati)) {
-                        $errors[] = "Fattura n. $numeroFattura: protocollo trovato (" . implode(', ', $protocolliTrovati) . ") ma nessun incarico corrispondente in archivio.";
-                    }
+
+                if ($incaricoId) {
+                    $errors[] = "Fattura n. $numeroFattura collegata automaticamente all'incarico #$incaricoId"
+                        . ($protocolliTrovati ? ' (Prot. ' . implode(', ', $protocolliTrovati) . ')' : '') . '.';
+                } elseif ($protocolliTrovati) {
+                    $errors[] = "Fattura n. $numeroFattura: protocollo trovato (" . implode(', ', $protocolliTrovati) . ") ma nessun incarico corrispondente in archivio.";
                 }
 
-                // 3a-bis. Riferimento all'offerta ("Rif. OFF-2026-004"), suggerito dall'ERP nel testo della fattura
+                // Riferimento all'offerta ("Rif. OFF-2026-004"), suggerito dall'ERP nel testo della fattura
                 if (!$incaricoId) {
-                    require_once __DIR__ . '/../Shared/CommessaService.php';
                     $incaricoId = (new CommessaService($this->pdo, $this->prefix))
                         ->trovaIncaricoPerRiferimento(implode("\n", $data['descrizioni']), $clienteId ? (int)$clienteId : null);
                     if ($incaricoId) {
@@ -641,54 +646,39 @@ class ContabilitaController {
                     }
                 }
 
-                // 3b. Verifica esistenza di questa riga (Fattura + Cliente + EventualSottocliente)
-                $chkSql = "SELECT id FROM {$this->prefix}fatture WHERE numero_fattura = ? AND YEAR(data_emissione) = YEAR(?)";
-                $chkParams = [$numeroFattura, $dataEmissione];
-            
-                if ($clienteId) {
-                    $chkSql .= " AND cliente_id = ?";
-                    $chkParams[] = $clienteId;
-                }
-            
-                if ($sid) {
-                    $chkSql .= " AND sottocliente_id = ?";
-                    $chkParams[] = $sid;
+                $vecchia = array_shift($daRiusare);
+                if ($vecchia) {
+                    $this->pdo->prepare("UPDATE {$this->prefix}fatture SET cliente_id = ?, sottocliente_id = ?, incarico_id = ?, imponibile = ?,
+                        iva_percentuale = ?, importo_iva = ?, importo_totale = ?, descrizione = ?, data_scadenza = COALESCE(?, data_scadenza)"
+                        . ($conTipoDoc ? ', tipo_documento = ?' : '') . " WHERE id = ?")
+                        ->execute(array_merge([$clienteId, $sid, $incaricoId, $imponibile, $ivaPerc, $importoIva, $importoTotale, $testoDesc, $dataScadenza],
+                            $conTipoDoc ? [$tipoDocumento] : [], [$vecchia['id']]));
+                    $fatturaId = (int)$vecchia['id'];
                 } else {
-                    $chkSql .= " AND sottocliente_id IS NULL";
-                }
-
-                // Stesso numero ma tipo diverso (fattura / nota di credito): documenti diversi
-                if ($conTipoDoc) {
-                    $chkSql .= " AND (tipo_documento = ? OR (tipo_documento IS NULL AND importo_totale " . ($segno < 0 ? '<' : '>=') . " 0))";
-                    $chkParams[] = $tipoDocumento;
-                } else {
-                    $chkSql .= " AND importo_totale " . ($segno < 0 ? '<' : '>=') . " 0";
-                }
-
-                $stmtCheck = $this->pdo->prepare($chkSql);
-                $stmtCheck->execute($chkParams);
-                $existing = $stmtCheck->fetchColumn();
-
-                if ($existing) {
-                    // Skip
-                    $errors[] = "Fattura n. $numeroFattura già presente, caricamento ignorato.";
-                } else {
-                    // Insert con eventuale incarico_id collegato
+                    // Una fattura già pagata (dall'elenco) resta pagata anche nelle parti nuove
+                    $base = $soloElenco ? $esistenti[0] : ['stato' => 'emessa', 'data_pagamento' => null];
                     $stmtIns = $this->pdo->prepare("INSERT INTO {$this->prefix}fatture 
-                        (numero_fattura, data_emissione, cliente_id, sottocliente_id, incarico_id, imponibile, iva_percentuale, importo_iva, importo_totale, stato, descrizione, data_scadenza"
+                        (numero_fattura, data_emissione, cliente_id, sottocliente_id, incarico_id, imponibile, iva_percentuale, importo_iva, importo_totale, stato, data_pagamento, descrizione, data_scadenza"
                         . ($conTipoDoc ? ', tipo_documento' : '') . ")
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'emessa', ?, ?" . ($conTipoDoc ? ', ?' : '') . ")");
-                    $valori = [$numeroFattura, $dataEmissione, $clienteId, $sid, $incaricoId, $imponibile, $ivaPerc, $importoIva, $importoTotale, $testoDesc, $dataScadenza];
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?" . ($conTipoDoc ? ', ?' : '') . ")");
+                    $valori = [$numeroFattura, $dataEmissione, $clienteId, $sid, $incaricoId, $imponibile, $ivaPerc, $importoIva, $importoTotale,
+                        $base['stato'] ?: 'emessa', $base['data_pagamento'] ?? null, $testoDesc, $dataScadenza];
                     if ($conTipoDoc) $valori[] = $tipoDocumento;
                     $stmtIns->execute($valori);
-                    $newFatturaId = $this->pdo->lastInsertId();
+                    $fatturaId = (int)$this->pdo->lastInsertId();
                     $imported++;
-
-                    // Ricalcola l'incarico collegato (se trovato)
-                    if ($incaricoId) {
-                        $this->recalculateLinkedIncarico($newFatturaId);
-                    }
                 }
+
+                // Ricalcola l'incarico collegato (se trovato)
+                if ($incaricoId) {
+                    $this->recalculateLinkedIncarico($fatturaId);
+                }
+            }
+            // Righe dall'elenco avanzate (raro: più righe per lo stesso documento): le riconciliazioni passano alla prima
+            foreach ($daRiusare as $r) {
+                $this->pdo->prepare("UPDATE {$this->prefix}riconciliazioni SET documento_id = ? WHERE tipo = 'fattura' AND documento_id = ?")
+                    ->execute([(int)$esistenti[0]['id'], (int)$r['id']]);
+                $this->pdo->prepare("DELETE FROM {$this->prefix}fatture WHERE id = ?")->execute([(int)$r['id']]);
             }
 
             // Nota di credito che storna per intero fatture aperte dello stesso cliente: si chiudono entrambe,
@@ -771,7 +761,7 @@ class ContabilitaController {
                     $out['num_without_client']++;
                 }
                 $ivaPerc = abs($d['imponibile']) > 0.004 ? round($d['iva'] / $d['imponibile'] * 100, 2) : 0.0;
-                $descr = ($d['nota_credito'] ? "[Nota di credito]\n" : '') . 'Importata dall\'elenco fatture'
+                $descr = ($d['nota_credito'] ? "[Nota di credito]\n" : '') . self::DA_ELENCO
                     . ($d['registro'] !== '' ? " (registro {$d['registro']})" : '');
                 $valori = [$d['numero'], $d['data'], $clienteId, $d['imponibile'], $ivaPerc, $d['iva'], $d['totale'], $descr];
                 if ($conTipoDoc) $valori[] = $d['nota_credito'] ? 'TD04' : 'TD01';
@@ -1010,6 +1000,32 @@ class ContabilitaController {
     }
 
     /** Colonna fatture.tipo_documento presente? (migrazione v065) */
+    private static function daElenco(string $descrizione): bool {
+        return str_contains($descrizione, self::DA_ELENCO) || str_contains($descrizione, self::DA_ELENCO_VECCHIO);
+    }
+
+    /**
+     * Record già presenti dello stesso documento (numero, anno, fattura o nota di credito): quelli del cliente
+     * e quelli entrati dall'elenco, che possono avere un cliente diverso (creato dal nome) o nessuno.
+     * Il numero comprende il registro («69/001»), quindi non si confonde tra registri.
+     */
+    private function righeDocumento(string $numero, string $data, ?int $clienteId, int $segno, string $tipo, bool $conTipoDoc): array {
+        $sql = "SELECT id, descrizione, cliente_id, stato, data_pagamento FROM {$this->prefix}fatture
+            WHERE numero_fattura = ? AND YEAR(data_emissione) = YEAR(?)";
+        $par = [$numero, $data];
+        if ($conTipoDoc) {
+            $sql .= " AND (tipo_documento = ? OR (tipo_documento IS NULL AND importo_totale " . ($segno < 0 ? '<' : '>=') . " 0))";
+            $par[] = $tipo;
+        } else {
+            $sql .= " AND importo_totale " . ($segno < 0 ? '<' : '>=') . " 0";
+        }
+        $sql .= " ORDER BY id";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($par);
+        return array_values(array_filter($stmt->fetchAll(PDO::FETCH_ASSOC),
+            fn($r) => ($clienteId && (int)$r['cliente_id'] === $clienteId) || self::daElenco((string)$r['descrizione'])));
+    }
+
     private function colonnaTipoDocumento(): bool {
         try {
             $this->pdo->query("SELECT tipo_documento FROM {$this->prefix}fatture WHERE 1 = 0");

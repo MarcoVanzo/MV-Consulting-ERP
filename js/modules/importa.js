@@ -51,7 +51,9 @@ const ModImporta = (() => {
             </label>
             <input type="file" id="imp-input" multiple class="visually-hidden"
                 accept=".xml,.p7m,.csv,.xlsx,.pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp">
+            ${window.ModFattureWeb ? ModFattureWeb.link() : ''}
             <div id="imp-lista" class="imp-lista" aria-live="polite"></div>`, azione, { wide: true });
+        if (window.ModFattureWeb) ModFattureWeb.collega(document.getElementById('imp-drop').parentElement);
         const input = document.getElementById('imp-input');
         // Da tastiera: Invio o spazio sulla zona aprono la scelta dei file
         document.getElementById('imp-drop').addEventListener('keydown', e => {

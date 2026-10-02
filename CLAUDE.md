@@ -78,6 +78,14 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   Fatture XML/p7m entrano da `importa/fattura` (`ImportaController`: emessa o ricevuta da `AZIENDA_PARTITA_IVA`).
   Estratti CSV/Excel: `EstrattoTabellare` (colonne scelte dall'utente salvate in settings per intestazione).
   Le risposte AI sono in cache 7 giorni in `storage/cache/ai/`. Prova: `php tests/importa_cli.php`.
+- **Da FattureWeb** (dal 02/10/2026): pulsante da trascinare nei preferiti (`js/modules/fattureweb.js`, link nella
+  finestra Importa file). Premuto sulla lista «Fatture di vendita» di FattureWeb scarica la FatturaPA di ogni fattura
+  mostrata (`option=saveXML`) nella sessione dell'utente (il login ha un reCAPTCHA: niente accesso dal server) e la passa
+  all'ERP con `postMessage` (`index.html?da=fattureweb`, origine controllata) → Importa file. Nell'import XML ogni riga
+  va alla sua commessa con `CommessaService::incaricoDellaRiga` (chiavi di `chiaviProtocollo`: basta il codice SZ.DPS o
+  uno dei due numeri di protocollo); un record per sottocliente **e** commessa; un documento già entrato dall'elenco
+  Excel (`ContabilitaController::DA_ELENCO`) si completa tenendo l'id, uno già dettagliato si salta.
+  Prova: `php tests/fattura_righe_cli.php`.
 - **Elenchi di fatture Excel** (dal 28/09/2026): `importa/lista` (`ImportaController::lista`) legge Lista Fatture di
   Sistemi ed elenchi del portale; il verso lo dà l'intestazione (colonna Fornitore → ricevute in `fatture_passive`,
   Cliente → emesse). Clienti e fornitori mancanti si creano col solo nome (`piva_ricerca = 'da_cercare'`, v088–v089)

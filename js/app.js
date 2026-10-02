@@ -204,4 +204,7 @@ function initApplication(userData) {
     const [v0, p0] = location.hash.slice(1).split('/');
     apriVista(v0 || 'oggi', p0, { storia: false });
     history.replaceState(null, '', location.hash || '#oggi');
+
+    // Aperto dal pulsante «Da FattureWeb»: riceve le fatture e apre Importa file
+    ModFattureWeb.init();
 }
