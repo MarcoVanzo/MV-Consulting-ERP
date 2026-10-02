@@ -140,7 +140,10 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   46,48 / 30,99 / 15,49 €) in `api/Shared/TrasferteRegole.php`: l'indennità si calcola solo lì, il JS la legge da `list`.
 - Percorso della giornata: partenza dalla base o dal luogo del pernottamento della notte prima → tutte le tappe
   (mattino, intere, pomeriggio) → base, salvo notte fuori con trasferta il giorno dopo. Ogni modifica ricalcola
-  anche il giorno prima e quello dopo (`ricalcolaIntorno`).
+  anche il giorno prima e quello dopo (`ricalcolaIntorno`). I km si dividono in decimi: la somma delle righe è il
+  totale del percorso. Tappa = indirizzo del sottocliente/cliente, altrimenti `luogo_arrivo` (non i link di call).
+  Notte fuori = pulsante o spesa di alloggio (la colonna `trasferte.alloggio` è obsoleta). Nessun ricalcolo e
+  nessuna sync Google toccano un mese con nota spese presentata.
 - Coordinate in cache nella tabella `geocache` (`api/Shared/Percorsi.php`); routing su `OSRM_URL` (default: server demo pubblico).
 - Sync Google: `api/Shared/TrasferteSync.php` + `CalendarioMatcher.php`. Le righe con `modifica_manuale = 1` non vengono
   riscritte né eliminate; le righe senza più un evento si eliminano solo se il calendario è stato letto per intero.

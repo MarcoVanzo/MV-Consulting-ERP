@@ -64,10 +64,14 @@ $ord = array_column(TrasferteRegole::ordinaTappe([
 check('mattino, intere, pomeriggio', $ord === [9, 1, 3, 5], $ord);
 
 echo "Ripartizione km\n";
-check('andata e ritorno da casa', TrasferteRegole::ripartisciKm(100, 2, false, true) === [25.0, 25.0]);
-check('si dorme fuori stasera', TrasferteRegole::ripartisciKm(100, 2, false, false) === [50.0, 0.0]);
-check('si rientra dopo la notte fuori', TrasferteRegole::ripartisciKm(100, 1, true, true) === [0.0, 100.0]);
-check('seconda notte fuori', TrasferteRegole::ripartisciKm(90, 3, true, false) === [30.0, 0.0]);
+check('andata e ritorno da casa', TrasferteRegole::ripartisciKm(100, 2, false, true) === [[25.0, 25.0], [25.0, 25.0]]);
+check('si dorme fuori stasera', TrasferteRegole::ripartisciKm(100, 2, false, false) === [[50.0, 0.0], [50.0, 0.0]]);
+check('si rientra dopo la notte fuori', TrasferteRegole::ripartisciKm(100, 1, true, true) === [[0.0, 100.0]]);
+check('seconda notte fuori', TrasferteRegole::ripartisciKm(90, 3, true, false) === array_fill(0, 3, [30.0, 0.0]));
+$q = TrasferteRegole::ripartisciKm(40, 3, false, true);
+check('40 km su tre tappe: i decimi avanzati alle prime', $q === [[6.7, 6.7], [6.6, 6.7], [6.6, 6.7]], $q);
+check('la somma delle tappe è il totale del percorso', abs(array_sum(array_merge(...$q)) - 40.0) < 1e-9, array_sum(array_merge(...$q)));
+check('nessuna tappa', TrasferteRegole::ripartisciKm(40, 0, false, true) === []);
 
 echo "Indennità\n";
 check('piena', TrasferteRegole::indennitaGiornata(true, 0, 0) === 46.48);
@@ -79,6 +83,18 @@ $gg = TrasferteRegole::giornate([
     ['data_trasferta' => '2026-05-04', 'cliente_id' => 1, 'sottocliente_id' => null, 'vitto' => 15, 'alloggio' => 0],
 ]);
 check('giornata con un cliente e il vitto', $gg['2026-05-04']['indennita'] === 30.99, $gg);
+$gs = fn(?string $citta) => TrasferteRegole::giornate([['data_trasferta' => '2026-05-04', 'cliente_id' => 1, 'cliente_citta' => $citta]], 'Zero Branco')['2026-05-04']['indennita'];
+check('cliente nel comune della sede: niente indennità', $gs('Zero Branco (TV)') === 0.0);
+check('cliente fuori comune: indennità piena', $gs('Treviso') === 46.48);
+check('cliente senza città: si considera fuori', $gs(null) === 46.48);
+$gg = TrasferteRegole::giornate([
+    ['data_trasferta' => '2026-05-04', 'cliente_id' => 1, 'cliente_citta' => 'zero branco'],
+    ['data_trasferta' => '2026-05-04', 'cliente_id' => 2, 'sottocliente_id' => 7, 'cliente_citta' => 'Zero Branco', 'sottocliente_citta' => 'Padova'],
+], 'Zero Branco');
+check('basta un cliente fuori comune (conta la città del sottocliente)', $gg['2026-05-04']['indennita'] === 46.48, $gg);
+putenv('BASE_ADDRESS=Via Manzoni 5, 31059 Zero Branco, TV');
+check('comune della sede ricavato dall\'indirizzo', Percorsi::comuneBase() === 'Zero Branco', Percorsi::comuneBase());
+putenv('BASE_ADDRESS=Base');
 
 echo "Validazione\n";
 check('data valida', TrasferteRegole::errore(['data_trasferta' => '2026-02-28'], false) === null);
@@ -93,6 +109,7 @@ $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE
 $pdo->exec("CREATE TABLE mv_clienti (id INTEGER PRIMARY KEY, ragione_sociale TEXT, indirizzo TEXT, citta TEXT)");
 // Spese di trasferta (l'alloggio vale come notte fuori)
 $pdo->exec("CREATE TABLE mv_spese (id INTEGER PRIMARY KEY, data TEXT, categoria TEXT, importo REAL, deleted_at TEXT)");
+$pdo->exec("CREATE TABLE mv_rimborsi (mese TEXT PRIMARY KEY)");
 $pdo->exec("CREATE TABLE mv_sottoclienti (id INTEGER PRIMARY KEY, cliente_id INT, nome TEXT, indirizzo TEXT, citta TEXT)");
 $pdo->exec("CREATE TABLE mv_trasferte (id INTEGER PRIMARY KEY AUTOINCREMENT, cliente_id INT, sottocliente_id INT,
     data_trasferta TEXT NOT NULL, fascia_oraria TEXT DEFAULT 'intera', descrizione TEXT, luogo_partenza TEXT, luogo_arrivo TEXT,
@@ -177,7 +194,8 @@ $fin = new PercorsiFinti();
 $tc = new TrasferteController($fin);
 $res = $tc->calcolaKmPerData('2026-06-01');
 check('percorso base → mattino → intera → pomeriggio → base', end($fin->percorsi) === [0, 1, 2, 3, 0], end($fin->percorsi));
-check('km divisi fra le tre tappe', $km('2026-06-01') === [[6.7, 6.7], [6.7, 6.7], [6.7, 6.7]], $km('2026-06-01'));
+// In ordine di id: pomeriggio (terza tappa), mattino (prima), intera (seconda); 40 km esatti
+check('km divisi fra le tre tappe', $km('2026-06-01') === [[6.6, 6.7], [6.7, 6.7], [6.6, 6.7]], $km('2026-06-01'));
 
 // Km bloccati su una tappa: il resto del percorso va alle altre
 $pdo->exec("UPDATE mv_trasferte SET km_bloccati = 1, km_andata = 12, km_ritorno = 0 WHERE cliente_id = 2 AND data_trasferta = '2026-06-01'");
@@ -205,6 +223,38 @@ $ins->execute(['2026-06-29', 2, 'intera', 0, 0, 0]);
 $fin->percorsi = [];
 $tc->calcolaKmPerData('2026-06-29');
 check('lunedì si parte dalla base', $fin->percorsi === [[0, 2, 0]], $fin->percorsi);
+
+// Senza cliente vale la destinazione scritta sulla trasferta; un link di videochiamata no
+$pdo->exec("INSERT INTO mv_trasferte (data_trasferta, luogo_arrivo) VALUES ('2026-07-01', 'Via B 2 Verona'), ('2026-07-02', 'https://meet.google.com/abc')");
+$fin->percorsi = [];
+$tc->calcolaKmPerData('2026-07-01');
+check('destinazione senza cliente: base → Verona → base', $fin->percorsi === [[0, 2, 0]], $fin->percorsi);
+$res = $tc->calcolaKmPerData('2026-07-02');
+check('link di videochiamata: nessun percorso', count($fin->percorsi) === 1 && ($res['data']['totale_km'] ?? null) === 0, $res);
+
+// La vecchia colonna trasferte.alloggio (prima della v083) non è più una notte fuori
+$pdo->exec("INSERT INTO mv_trasferte (data_trasferta, cliente_id, alloggio) VALUES ('2026-07-09', 1, 80)");
+$ins->execute(['2026-07-10', 2, 'intera', 0, 0, 0]);
+$fin->percorsi = [];
+$tc->calcolaKmPerData('2026-07-10');
+check('colonna alloggio obsoleta ignorata: si parte dalla base', $fin->percorsi === [[0, 2, 0]], $fin->percorsi);
+$pdo->exec("INSERT INTO mv_spese (data, categoria, importo) VALUES ('2026-07-09', 'alloggio', 80)");
+$fin->percorsi = [];
+$tc->calcolaKmPerData('2026-07-10');
+check('spesa di alloggio: si parte da dove si è dormito', $fin->percorsi === [[1, 2, 0]], $fin->percorsi);
+
+// Mese con la nota spese presentata: né il ricalcolo dei giorni vicini né la sync lo toccano
+$pdo->exec("INSERT INTO mv_rimborsi (mese) VALUES ('2026-08')");
+$pdo->exec("INSERT INTO mv_trasferte (data_trasferta, cliente_id, km_andata) VALUES ('2026-08-31', 1, 5)");
+$ins->execute(['2026-09-01', 2, 'intera', 0, 0, 0]);
+$esiti = $tc->ricalcolaIntorno(['2026-09-01']);
+check('giorno prima in un mese presentato: km intatti', $km('2026-08-31') === [[5.0, 0.0]] && !empty($esiti['2026-08-31']['congelata']), $km('2026-08-31'));
+check('il giorno modificato si ricalcola', ($esiti['2026-09-01']['success'] ?? false) === true, $esiti['2026-09-01'] ?? null);
+$sync = new TrasferteSync($pdo, 'mv_', true);
+$sync->importaEvento('cal', $ev('e9', 'Visita Bianchi', '2026-08-10', '2026-08-11'));
+$sync->rimuoviAssenti('cal', '2026-08-01', '2026-08-31');
+check('sync: nessuna riga nuova nel mese presentato', !$riga('e9', '2026-08-10') && $sync->congelati === 1);
+check('sync: segnalato nel riepilogo', strpos($sync->riepilogo([]), 'nota spese') !== false);
 
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);

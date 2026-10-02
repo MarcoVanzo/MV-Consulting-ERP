@@ -87,7 +87,7 @@ const ModSpese = (() => {
             <td>${UI.formatDate(s.data)}</td>
             <td class="td-primary">${UI.esc(CATEGORIE[s.categoria] || s.categoria)}${s.descrizione ? `<div class="td-sub">${UI.esc(s.descrizione)}</div>` : ''}</td>
             <td>${UI.esc(s.esercente || '—')}${s.cliente_nome ? `<div class="td-sub">${UI.esc(s.cliente_nome)}</div>` : ''}</td>
-            <td>${UI.esc(METODI[s.metodo] || s.metodo)}${s.movimento_id ? ' <span class="badge badge-green" title="Abbinata al movimento della carta">carta ✓</span>' : ''}${s.da_segnalare ? ' <span class="badge badge-red" title="Non deducibile se pagata in contanti">non tracciabile</span>' : ''}</td>
+            <td>${UI.esc(METODI[s.metodo] || s.metodo)}${s.movimento_id ? ' <span class="badge badge-green" title="Abbinata al movimento della carta">carta ✓</span>' : ''}${s.da_segnalare ? ' <span class="badge badge-red" title="Non deducibile se pagata in contanti">non tracciabile</span>' : ''}${s.carburante_doppio ? ' <span class="badge badge-red" title="Quel giorno hai il rimborso km: la tariffa ACI comprende già il carburante">già nel rimborso km</span>' : ''}</td>
             <td>${s.ha_documento ? `<a href="api/router.php?module=spese&action=documento&id=${encodeURIComponent(s.id)}" target="_blank" rel="noopener"><i class="ph ph-file"></i> apri</a>` : '<span class="oggi-rosso">manca</span>'}</td>
             <td class="text-right td-primary">${UI.formatCurrency(s.importo)}</td>
             <td><div class="flex" style="gap:4px">

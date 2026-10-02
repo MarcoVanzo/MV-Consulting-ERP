@@ -69,7 +69,7 @@ class TrasferteController {
         $totAlloggio = array_sum(array_column($speseGiorno, 'alloggio'));
         $totAltre = array_sum(array_column($speseGiorno, 'altre'));
         $fuoriGiornata = Spese::fuoriGiornata($speseGiorno, array_flip(array_column($trasferte, 'data_trasferta')));
-        $giornate = TrasferteRegole::giornate($trasferte);
+        $giornate = TrasferteRegole::giornate($trasferte, Percorsi::comuneBase());
 
         Response::json(true, '', [
             'trasferte' => $trasferte,
@@ -96,7 +96,8 @@ class TrasferteController {
         if ($errore = TrasferteRegole::errore($data, $isUpdate)) {
             Response::json(false, $errore, null, 422);
         }
-        $date = [$data['data_trasferta'] ?? date('Y-m-d')];
+        // In modifica senza data si guarda solo il mese della trasferta (non quello di oggi)
+        $date = $isUpdate && !array_key_exists('data_trasferta', $data) ? [] : [$data['data_trasferta'] ?? date('Y-m-d')];
         if ($isUpdate) {
             $st = $this->pdo->prepare("SELECT data_trasferta FROM {$this->prefix}trasferte WHERE id = ?");
             $st->execute([$id]);
@@ -347,10 +348,12 @@ class TrasferteController {
 
         $countAffected = 0;
         $falliti = 0;
+        $congelate = 0;
         foreach ($dates as $date) {
             try {
                 $res = $this->calcolaKmPerData($date);
                 if ($res['success']) $countAffected += $res['data']['aggiornate'] ?? 0;
+                elseif (!empty($res['congelata'])) $congelate++;
                 else $falliti++;
             } catch (\Exception $e) {
                 $falliti++;
@@ -359,6 +362,7 @@ class TrasferteController {
         }
         $msg = "Calcolo eseguito per le trasferte del periodo selezionato ($countAffected aggiornate).";
         if ($falliti) $msg .= " $falliti giornate non calcolate: controlla indirizzi dei clienti.";
+        if ($congelate) $msg .= " $congelate giornate lasciate com'erano: la nota spese del mese è già presentata.";
         Response::json(true, $msg);
     }
 
@@ -394,6 +398,11 @@ class TrasferteController {
      */
     public function calcolaKmPerData($date) {
         if (!$date) return ['success' => false, 'message' => "Data mancante"];
+        // Anche i ricalcoli indiretti (giorno prima/dopo, ricalcolo dell'anno, sync Google) non toccano
+        // un mese con la nota spese presentata: i suoi totali sono congelati
+        if ($m = Spese::mesePresentato($this->pdo, $this->prefix, [$date])) {
+            return ['success' => false, 'congelata' => true, 'message' => "Nota spese di $m già presentata: km non ricalcolati."];
+        }
 
         $trasferte = $this->fetchTrasferteConIndirizzi($date);
         if (empty($trasferte)) {
@@ -440,11 +449,11 @@ class TrasferteController {
             if (!empty($t['km_bloccati'])) $kmBloccati += (float)$t['km_andata'] + (float)$t['km_ritorno'];
         }
         $daDistribuire = max(0.0, round($totKm - $kmBloccati, 1));
-        [$andata, $ritorno] = TrasferteRegole::ripartisciKm($daDistribuire, count($daAggiornare), $partenzaDaFuori, $rientro);
+        $quote = TrasferteRegole::ripartisciKm($daDistribuire, count($daAggiornare), $partenzaDaFuori, $rientro);
 
         $this->zeroKmForDate($date);
         $stmt = $this->pdo->prepare("UPDATE {$this->prefix}trasferte SET km_andata = ?, km_ritorno = ? WHERE id = ? AND km_bloccati = 0");
-        foreach ($daAggiornare as $tid) $stmt->execute([$andata, $ritorno, $tid]);
+        foreach ($daAggiornare as $i => $tid) $stmt->execute([$quote[$i][0], $quote[$i][1], $tid]);
 
         $count = count($daAggiornare);
         $msg = "KM calcolati automaticamente: $totKm km totali ($count trasferte aggiornate)";
@@ -480,10 +489,18 @@ class TrasferteController {
         return null;
     }
 
+    /**
+     * Indirizzo della tappa: sottocliente, cliente, altrimenti la destinazione della trasferta (il luogo
+     * dell'evento Google), così anche una trasferta senza cliente o con cliente senza indirizzo ha i suoi km.
+     * Un link (Meet, Teams, Zoom) non è un luogo.
+     */
     private function extractAddress(array $row): string {
         $ind = !empty($row['sc_indirizzo']) ? $row['sc_indirizzo'] : ($row['indirizzo'] ?? '');
         $cit = !empty($row['sc_citta']) ? $row['sc_citta'] : ($row['citta'] ?? '');
-        return trim("$ind $cit");
+        $addr = trim("$ind $cit");
+        if ($addr !== '') return $addr;
+        $luogo = trim((string)($row['luogo_arrivo'] ?? ''));
+        return preg_match('~https?://|www\.|meet\.google|teams\.microsoft|zoom\.us~i', $luogo) ? '' : $luogo;
     }
 
     /** Km, mezzo e clienti di un mese con nota spese presentata non cambiano: i totali sono congelati. */
@@ -495,9 +512,10 @@ class TrasferteController {
 
     private function hasPernottamento(array $trasferte): bool {
         foreach ($trasferte as $t) {
-            if ($t['pernottamento'] == 1 || floatval($t['alloggio'] ?? 0) > 0) return true;
+            if ($t['pernottamento'] == 1) return true;
         }
-        // L'alloggio ora è una spesa: una spesa di alloggio quel giorno vale come notte fuori
+        // L'alloggio è una spesa: una spesa di alloggio quel giorno vale come notte fuori (non la colonna
+        // trasferte.alloggio, ferma a prima della v083: terrebbe la notte fuori anche tolta la spesa)
         $d = $trasferte[0]['data_trasferta'] ?? null;
         if (!$d) return false;
         $stmt = $this->pdo->prepare("SELECT 1 FROM {$this->prefix}spese WHERE data = ? AND categoria = 'alloggio' AND deleted_at IS NULL");

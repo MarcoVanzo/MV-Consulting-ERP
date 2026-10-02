@@ -7,13 +7,16 @@
  * - una riga ritoccata a mano (modifica_manuale = 1) non si riscrive più;
  * - a lettura completa di un calendario, le righe che non corrispondono più a nessun evento
  *   (evento cancellato o spostato di giorno) si eliminano, salvo quelle ritoccate a mano,
- *   che si contano e si segnalano.
+ *   che si contano e si segnalano;
+ * - i giorni di un mese con la nota spese presentata non si toccano: niente righe nuove, aggiornate
+ *   o eliminate (i totali della nota sono congelati finché non la si riapre).
  * Le query sono SQL portabile: tests/trasferte_cli.php le prova su SQLite.
  */
 declare(strict_types=1);
 
 require_once __DIR__ . '/TrasferteRegole.php';
 require_once __DIR__ . '/CalendarioMatcher.php';
+require_once __DIR__ . '/Spese.php';
 
 class TrasferteSync
 {
@@ -29,6 +32,10 @@ class TrasferteSync
     public int $aggiornate = 0;
     public int $rimosse = 0;
     public int $manualiOrfane = 0;
+    /** Giorni saltati perché il loro mese ha la nota spese presentata */
+    public int $congelati = 0;
+    /** AAAA-MM => nota presentata sì/no */
+    private array $mesiPresentati = [];
     public array $senzaCliente = [];
 
     public function __construct(PDO $pdo, string $prefix, bool $haColonnaManuale)
@@ -61,6 +68,7 @@ class TrasferteSync
             FROM {$this->prefix}trasferte WHERE google_event_id = ? OR (google_event_id = ? AND data_trasferta = ?)");
 
         foreach ($giorni as $giorno) {
+            if ($this->presentato($giorno)) { $this->congelati++; continue; }
             $uniqueId = $event['id'] . '_' . $giorno;
             $cerca->execute([$uniqueId, $event['id'], $giorno]);
             $riga = $cerca->fetch(PDO::FETCH_ASSOC);
@@ -126,7 +134,7 @@ class TrasferteSync
         $stmt->execute([$calId, $da, $a]);
         $del = $this->pdo->prepare("DELETE FROM {$this->prefix}trasferte WHERE id = ?");
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            if (isset($this->viste[(int)$r['id']])) continue;
+            if (isset($this->viste[(int)$r['id']]) || $this->presentato((string)$r['data_trasferta'])) continue;
             if (!empty($r['modifica_manuale'])) { $this->manualiOrfane++; continue; }
             $del->execute([$r['id']]);
             $this->rimosse++;
@@ -134,11 +142,20 @@ class TrasferteSync
         }
     }
 
+    private function presentato(string $giorno): bool
+    {
+        $mese = substr($giorno, 0, 7);
+        return $this->mesiPresentati[$mese] ??= Spese::mesePresentato($this->pdo, $this->prefix, [$giorno]) !== null;
+    }
+
     public function riepilogo(array $calendariFalliti): string
     {
         $msg = "Sincronizzazione completata: {$this->importate} nuove, {$this->aggiornate} aggiornate, {$this->rimosse} rimosse.";
         if ($this->manualiOrfane) {
             $msg .= " {$this->manualiOrfane} trasferte modificate a mano non corrispondono più a un evento del calendario: controllale.";
+        }
+        if ($this->congelati) {
+            $msg .= " {$this->congelati} giorni non toccati: sono in mesi con la nota spese già presentata.";
         }
         if ($calendariFalliti) {
             $msg .= ' Calendari non letti (riprova): ' . implode(', ', $calendariFalliti) . '.';

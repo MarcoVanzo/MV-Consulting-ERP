@@ -102,9 +102,16 @@ class Spese
             ORDER BY s.data DESC, s.id DESC");
         $stmt->execute([$dal, $al]);
         $righe = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Giorni con km rimborsati: il costo ACI comprende già il carburante
+        $stmt = $this->pdo->prepare("SELECT DISTINCT data_trasferta FROM {$this->p}trasferte
+            WHERE data_trasferta BETWEEN ? AND ? AND (km_andata + km_ritorno) > 0");
+        $stmt->execute([$dal, $al]);
+        $conKm = array_flip(array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN)));
         foreach ($righe as &$r) {
             $r['tracciabile'] = $r['metodo'] !== 'contanti';
             $r['rimborsabile'] = !in_array($r['metodo'], self::AZIENDALI, true);
+            // Pieno di tasca propria nel giorno del rimborso km: rimborsato due volte
+            $r['carburante_doppio'] = $r['categoria'] === 'carburante' && $r['rimborsabile'] && isset($conKm[(string)$r['data']]);
             $r['da_segnalare'] = !$r['tracciabile'] && in_array($r['categoria'], self::DA_TRACCIARE, true);
             $r['ha_documento'] = !empty($r['documento']);
             unset($r['documento']);

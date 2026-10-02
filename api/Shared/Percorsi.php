@@ -33,6 +33,18 @@ class Percorsi
         return getenv('BASE_ADDRESS') ?: 'Via Manzoni 5, Zero Branco, TV';
     }
 
+    /**
+     * Comune della sede: BASE_COMUNE, altrimenti il penultimo pezzo di BASE_ADDRESS
+     * («Via Manzoni 5, Zero Branco, TV» → «Zero Branco»). Vuoto se non si ricava.
+     */
+    public static function comuneBase(): string
+    {
+        if ($c = trim((string)getenv('BASE_COMUNE'))) return $c;
+        $parti = array_map('trim', explode(',', self::indirizzoBase()));
+        $c = count($parti) >= 3 ? $parti[count($parti) - 2] : ($parti[1] ?? '');
+        return trim((string)preg_replace('/^\d{5}\s*/', '', $c));
+    }
+
     /** Coordinate ['lat','lon'] di un indirizzo, o null se non si trova */
     public function geocode(string $indirizzo): ?array
     {

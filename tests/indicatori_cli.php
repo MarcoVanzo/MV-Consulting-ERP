@@ -120,6 +120,8 @@ foreach ([
     "CREATE TABLE {$p}trasferte (id INTEGER PRIMARY KEY, data_trasferta TEXT, cliente_id INT, sottocliente_id INT, mezzo_id INT,
         km_andata REAL DEFAULT 0, km_ritorno REAL DEFAULT 0, vitto REAL DEFAULT 0, alloggio REAL DEFAULT 0)",
     "CREATE TABLE {$p}mezzi (id INTEGER PRIMARY KEY, costo_km REAL)",
+    "CREATE TABLE IF NOT EXISTS {$p}clienti (id INTEGER PRIMARY KEY, citta TEXT)",
+    "CREATE TABLE IF NOT EXISTS {$p}sottoclienti (id INTEGER PRIMARY KEY, citta TEXT)",
     "CREATE TABLE {$p}spese (id INTEGER PRIMARY KEY, data TEXT, categoria TEXT, importo REAL, deleted_at TEXT, metodo TEXT DEFAULT 'contanti')",
 ] as $sql) $pdo->exec($sql);
 $pdo->exec("UPDATE {$p}offerte SET data_followup = '2026-09-20' WHERE stato = 'inviata'");
