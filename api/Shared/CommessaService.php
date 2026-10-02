@@ -339,6 +339,17 @@ class CommessaService
         if ($inc) return ['incarico_id' => (int)$inc['id'], 'motivo' => 'protocollo citato in fattura'];
         $id = $this->trovaIncaricoPerRiferimento($testo, (int)$f['cliente_id']);
         if ($id) return ['incarico_id' => $id, 'motivo' => "riferimento all'offerta"];
+        // «Acconto 30%»: la percentuale citata del valore di una sola commessa con quel residuo
+        if (preg_match_all('/\b(\d{1,3})\s*%/', $testo, $m)) {
+            $hit = [];
+            foreach ($commesse as $c) {
+                foreach ($m[1] as $pc) {
+                    if ((int)$pc > 0 && (int)$pc <= 100 && abs((float)$c['importo_totale'] * (int)$pc / 100 - (float)$f['imponibile']) <= 1
+                        && (float)$c['residuo'] >= (float)$f['imponibile'] - 1) $hit[(int)$c['id']] = true;
+                }
+            }
+            if (count($hit) === 1) return ['incarico_id' => (int)array_key_first($hit), 'motivo' => 'percentuale del valore della commessa'];
+        }
         $id = $this->trovaIncaricoPerRata((int)$f['cliente_id'], (float)$f['imponibile'], (string)$f['data_emissione']);
         if ($id) return ['incarico_id' => $id, 'motivo' => 'rata di pari importo'];
         // Ultima risorsa, solo per fatture una tantum: un canone che si ripete non va sulla commessa di un progetto,
@@ -558,19 +569,24 @@ class CommessaService
      */
     private function fatturaStornata(array $nota): ?array
     {
-        $stmt = $this->pdo->prepare("SELECT id, numero_fattura, data_emissione, imponibile, incarico_id FROM {$this->p}fatture
+        $stmt = $this->pdo->prepare("SELECT id, numero_fattura, sottocliente_id, data_emissione, imponibile, incarico_id FROM {$this->p}fatture
             WHERE cliente_id = ? AND imponibile > 0 AND data_emissione <= ? ORDER BY data_emissione DESC, id DESC");
         $stmt->execute([(int)$nota['cliente_id'], (string)$nota['data_emissione']]);
         $fatture = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $norm = fn($x) => preg_replace('/[^A-Z0-9]/', '', mb_strtoupper((string)$x));
         if (preg_match_all('/\bf(?:at)?t(?:ura)?\.?\s*(?:n(?:r|um)?\.?\s*|numero\s*)?([A-Z0-9][A-Z0-9\/-]*)/i', (string)$nota['descrizione'], $m)) {
-            foreach ($m[1] as $numero) {
+            $citati = array_filter($m[1], fn($x) => preg_match('/\d/', $x));
+            foreach ($citati as $numero) {
                 $stessa = array_values(array_filter($fatture, fn($f) => $norm($f['numero_fattura']) === $norm($numero)));
                 if ($stessa) return $stessa[0];
             }
+            // Cita una fattura che qui non c'è (es. di un anno non importato): l'importo da solo non basta
+            if ($citati) return null;
         }
         $importo = -(float)$nota['imponibile'];
-        $pari = array_values(array_filter($fatture, fn($f) => abs((float)$f['imponibile'] - $importo) < 0.01));
+        $sotto = (int)($nota['sottocliente_id'] ?? 0);
+        $pari = array_values(array_filter($fatture, fn($f) => abs((float)$f['imponibile'] - $importo) < 0.01
+            && (!$sotto || !(int)$f['sottocliente_id'] || (int)$f['sottocliente_id'] === $sotto)));
         return count($pari) === 1 ? $pari[0] : null;
     }
 

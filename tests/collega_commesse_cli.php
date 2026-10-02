@@ -135,8 +135,7 @@ check('commessa singola: valore, tipo e descrizione dalla fattura', abs((float)$
     && $inc['tipo_commessa'] === 'viaggio' && $inc['descrizione'] === 'Viaggio squadra a Roma', $inc);
 $es = $svc->creaCommesseMancanti();
 check('protocollo citato → collegata alla commessa esistente', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 21")->fetchColumn() === 10);
-check('una sola commessa con residuo → resta da scegliere a mano', $es['da_scegliere'] >= 1
-    && $pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 8")->fetchColumn() === null, $es);
+check('«Acconto 30%» del valore della commessa → collegata', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 8")->fetchColumn() === 11, $es);
 check('nota di credito e fattura senza cliente saltate', $pdo->query("SELECT COUNT(*) FROM {$p}fatture WHERE id IN (23, 24) AND incarico_id IS NULL")->fetchColumn() == 2);
 $canone = $pdo->query("SELECT DISTINCT incarico_id FROM {$p}fatture WHERE id IN (30, 31, 32, 33)")->fetchAll(PDO::FETCH_COLUMN);
 check('canone ripetuto → una commessa ricorrente', count($canone) === 1 && $canone[0] !== null, $canone);
@@ -172,6 +171,18 @@ $f->execute([47, '22AV', '2026-09-20', 5, '[Nota di credito] storno parziale ft.
 $es = $svc->creaCommesseMancanti([47]);
 check('nota su fattura già in commessa: collegata', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 47")->fetchColumn()
     === (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 46")->fetchColumn() && $es['collegate'] === 1, $es);
+
+echo "Percentuale della commessa, nota su fattura assente\n";
+$pdo->exec("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (6, 'Club Epsilon')");
+$pdo->exec("INSERT INTO {$p}incarichi (id, cliente_id, data_incarico, tipo_commessa, importo_totale) VALUES (60, 6, '2026-07-01', 'sviluppo_software', 10000),
+    (61, 6, '2026-01-30', 'assistenza', 24000)");
+$f->execute([60, '63/001', '2026-09-08', 6, 'Acconto 30% per la nuova piattaforma web', 3000, 3660]);
+$f->execute([61, '64/001', '2026-09-08', 6, 'Staging 40% per la nuova piattaforma web', 4000, 4880]);
+$f->execute([62, '1/001', '2026-01-10', 6, 'Consulenza', 800, 976]);
+$f->execute([63, '9/001', '2026-02-01', 6, '[Nota di credito] storno parziale ft. 65 del 25/11/2025', -800, -976]);
+$es = $svc->creaCommesseMancanti([60, 61, 63]);
+check('«Acconto 30%» e «40%» → commessa da 10.000', $pdo->query("SELECT COUNT(*) FROM {$p}fatture WHERE id IN (60, 61) AND incarico_id = 60")->fetchColumn() == 2, $es);
+check('nota che cita una fattura assente: non si aggancia per importo', $pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 63")->fetchColumn() === null, $es);
 
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);
