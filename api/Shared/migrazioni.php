@@ -798,6 +798,10 @@ return [
     "DELETE r FROM {$prefix}incarichi_rate r
         JOIN (SELECT DISTINCT incarico_id FROM {$prefix}incarichi_rate WHERE ordine > 100) n ON n.incarico_id = r.incarico_id
         WHERE r.ordine <= 100 AND r.fattura_id IS NULL",
-    "UPDATE {$prefix}incarichi_rate SET ordine = ordine - 100 WHERE ordine > 100"
+    "UPDATE {$prefix}incarichi_rate SET ordine = ordine - 100 WHERE ordine > 100",
+
+    // v104–v105: tipi di commessa per i viaggi (un contratto per viaggio) e i noleggi a canone
+    "ALTER TABLE {$prefix}incarichi MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software','viaggio','noleggio','altro') NOT NULL DEFAULT 'assistenza'",
+    "ALTER TABLE {$prefix}offerte MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software','viaggio','noleggio','altro') NOT NULL DEFAULT 'assistenza'"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];

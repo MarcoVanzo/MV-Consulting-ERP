@@ -61,6 +61,12 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   `SchedaClienteController`): referenti (v080), note datate (`attivita`, v081) e storico che unisce le note agli
   eventi di offerte, commesse e fatture senza duplicarli. Prova: `php tests/vendite_cli.php`.
   Attenzione agli alias SQL: `lead` è riservato in MySQL 8 (SQLite dei test non se ne accorge).
+- **Fatture senza commessa** (dal 02/10/2026): Vendite › Commesse mostra quanto fatturato dell'anno non è su una
+  commessa e apre «Collega alle commesse» (`commesse/da_collegare`, `CommessaService::proposteCollegamento`): proposte
+  da confermare a mano (protocollo, rif. offerta, rata di pari importo, unica commessa con residuo — mai per canoni
+  ripetuti). Se la commessa manca si crea dalle fatture (`commesse/crea_da_fatture`): singola (es. un viaggio EXACT,
+  un contratto per viaggio, tipo `viaggio`) o ricorrente a canone (una rata al mese, tipo `noleggio` o altro); le
+  fatture successive del canone si agganciano da sole all'import (`trovaIncaricoPerRata`). Prova: `php tests/collega_commesse_cli.php`.
 - **Note spese** (dal 28/09/2026): tutte le spese di trasferta stanno in `spese` (v082; vitto e alloggio delle
   trasferte migrati da v083, le colonne `trasferte.vitto/alloggio` non si usano più). `api/Shared/Spese.php`: spese
   per giorno messe sulle righe di trasferta (indennità), abbinamento alla carta (stesso importo, ±3 giorni, solo senza

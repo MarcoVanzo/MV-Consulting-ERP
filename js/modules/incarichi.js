@@ -8,6 +8,7 @@ const ModIncarichi = (() => {
             const ov = await Store.api('overview', 'incarichi', { year });
             _kpis = ov?.kpis || {};
             renderKpis(ov);
+            renderDaCollegare();
             const list = await Store.api('list', 'incarichi', { year });
             _incarichi = list || [];
             renderTable();
@@ -18,9 +19,101 @@ const ModIncarichi = (() => {
         const k = _kpis;
         document.getElementById('incarichi-kpis').innerHTML = `
             <div class="kpi-card kpi-blue"><div class="kpi-label">Valore commesse</div><div class="kpi-value">${UI.formatCurrency(k.valore)}</div><div class="kpi-sub">imponibile · ${UI.plurale(k.num_commesse,'commessa','commesse')}</div></div>
-            <div class="kpi-card kpi-green"><div class="kpi-label">Fatturato su commesse</div><div class="kpi-value">${UI.formatCurrency(k.fatturato)}</div><div class="kpi-sub">${UI.plurale(k.num_fatturati,'completamente fatturata','completamente fatturate')}${Math.abs(parseFloat(k.fatturato_senza_commessa)||0) >= 0.01 ? ` · ${UI.formatCurrency(k.fatturato_senza_commessa)} fatturati nell'anno senza commessa` : ''}</div></div>
+            <div class="kpi-card kpi-green"><div class="kpi-label">Fatturato su commesse</div><div class="kpi-value">${UI.formatCurrency(k.fatturato)}</div><div class="kpi-sub">${UI.plurale(k.num_fatturati,'completamente fatturata','completamente fatturate')}</div></div>
             <div class="kpi-card kpi-yellow"><div class="kpi-label">Da fatturare</div><div class="kpi-value">${UI.formatCurrency(k.da_fatturare)}</div><div class="kpi-sub">${UI.plurale(k.num_da_fatturare,'commessa','commesse')}</div></div>
             <div class="kpi-card kpi-red"><div class="kpi-label">Incassato</div><div class="kpi-value">${UI.formatCurrency(k.incassato_netto)}</div><div class="kpi-sub">imponibile delle fatture pagate</div></div>`;
+    }
+
+    // ── Fatture senza commessa: avviso sotto i KPI e finestra per collegarle ──
+    function renderDaCollegare() {
+        const box = document.getElementById('incarichi-da-collegare');
+        const senza = parseFloat(_kpis.fatturato_senza_commessa) || 0;
+        if (Math.abs(senza) < 0.01) { box.innerHTML = ''; return; }
+        box.innerHTML = `<div class="notice da-collegare"><span><b>${UI.formatCurrency(senza)}</b> fatturati nel ${UI.esc(UI.anno())} non sono collegati a una commessa: qui sopra non li vedi.</span>
+            <button class="btn btn-sm btn-primary" type="button" id="btn-da-collegare"><i class="ph ph-link"></i> Collega alle commesse</button></div>`;
+        document.getElementById('btn-da-collegare').addEventListener('click', apriCollega);
+    }
+
+    let _dc = { fatture: [], commesse: {} };
+
+    async function apriCollega() {
+        try { _dc = await Store.api('da_collegare', 'commesse', { year: UI.anno() }); }
+        catch (e) { UI.toast(e.message || 'Errore caricamento', 'error'); return; }
+        const fatture = _dc.fatture || [];
+        const gruppi = {};
+        fatture.forEach(f => { (gruppi[f.cliente_id || 0] ||= { nome: f.cliente_nome || 'Senza cliente', righe: [], tot: 0 }).righe.push(f); });
+        Object.values(gruppi).forEach(g => { g.tot = g.righe.reduce((a, f) => a + (parseFloat(f.imponibile) || 0), 0); });
+        const ordinati = Object.entries(gruppi).sort((a, b) => b[1].tot - a[1].tot);
+        const totale = fatture.reduce((a, f) => a + (parseFloat(f.imponibile) || 0), 0);
+        const opzioni = f => {
+            const lista = _dc.commesse[f.cliente_id] || [];
+            const prop = f.proposta?.incarico_id;
+            return `<option value="">— nessuna —</option>` + lista.map(c => `<option value="${c.id}" ${c.id == prop ? 'selected' : ''}>${UI.esc(
+                (c.descrizione || UI.tipoCommessa(c.tipo_commessa)).slice(0, 50))} · ${UI.formatDate(c.data_incarico)} · residuo ${UI.formatCurrency(c.residuo)}${c.id == prop ? ' (proposta)' : ''}</option>`).join('');
+        };
+        const riga = f => `<tr data-f="${f.id}" data-cli="${f.cliente_id || 0}" data-ric="${f.ricorrente ? 1 : 0}">
+            <td><input type="checkbox" class="dc-sel" aria-label="Seleziona fattura ${UI.esc(f.numero_fattura)}"></td>
+            <td class="td-mono">${UI.esc(f.numero_fattura)}<br><span style="color:var(--text-muted)">${UI.formatDate(f.data_emissione)}</span></td>
+            <td class="dc-desc">${UI.esc((f.descrizione || '').replace(/\s+/g, ' ').slice(0, 90))}${f.ricorrente ? ' <span class="dc-tag">ricorrente</span>' : ''}</td>
+            <td class="text-right">${UI.formatCurrency(f.imponibile)}</td>
+            <td><select class="form-control dc-commessa">${opzioni(f)}</select>${f.proposta ? `<div class="dc-motivo">${UI.esc(f.proposta.motivo)}</div>` : ''}</td>
+        </tr>`;
+        const html = `<p class="dc-intro">${UI.plurale(fatture.length, 'fattura', 'fatture')} del ${UI.esc(UI.anno())} senza commessa, per ${UI.formatCurrency(totale)}.
+            Conferma le proposte o scegli la commessa; se manca, seleziona le fatture di un cliente e creala qui sotto.</p>
+            ${ordinati.map(([, g]) => `<h4 class="dc-cliente">${UI.esc(g.nome)} <span>${UI.formatCurrency(g.tot)}</span></h4>
+                <div class="table-container"><table class="data-table dc-tabella"><thead><tr><th></th><th>Fattura</th><th>Descrizione</th>
+                <th class="text-right">Imponibile</th><th>Commessa</th></tr></thead><tbody>${g.righe.map(riga).join('')}</tbody></table></div>`).join('')}
+            <div class="dc-crea">
+                <h4>Crea la commessa dalle fatture selezionate <span id="dc-sel-info"></span></h4>
+                <div class="form-grid">
+                    <div class="form-group"><label for="dc-tipo">Tipo</label><select class="form-control" id="dc-tipo">${UI.tipiCommessaOptions('altro')}</select></div>
+                    <div class="form-group"><label for="dc-desc">Descrizione</label><input class="form-control" id="dc-desc" placeholder="es. Viaggio Volley giugno 2026"></div>
+                    <div class="form-group"><label><input type="checkbox" id="dc-ric"> Canone ricorrente</label>
+                        <input type="number" class="form-control" id="dc-mesi" value="12" min="1" max="60" aria-label="Mesi del canone" title="Mesi del canone"></div>
+                    <div class="form-group" style="align-self:end"><button class="btn btn-secondary" type="button" id="dc-crea"><i class="ph ph-plus"></i> Crea commessa</button></div>
+                </div>
+            </div>`;
+        UI.openModal('Fatture senza commessa', html, salvaCollegamenti, { wide: true, saveLabel: '<i class="ph ph-link"></i> Collega le scelte' });
+        const body = document.getElementById('modal-body');
+        const aggiornaSel = () => {
+            const sel = [...body.querySelectorAll('.dc-sel:checked')].map(c => c.closest('tr'));
+            const somma = sel.reduce((a, tr) => a + (parseFloat(fatture.find(f => f.id == tr.dataset.f)?.imponibile) || 0), 0);
+            document.getElementById('dc-sel-info').textContent = sel.length ? `· ${UI.plurale(sel.length, 'fattura', 'fatture')}, ${UI.formatCurrency(somma)}` : '';
+            if (sel.length && sel.every(tr => tr.dataset.ric === '1')) document.getElementById('dc-ric').checked = true;
+        };
+        body.querySelectorAll('.dc-sel').forEach(c => c.addEventListener('change', aggiornaSel));
+        document.getElementById('dc-crea').addEventListener('click', creaCommessa);
+    }
+
+    async function salvaCollegamenti() {
+        const coppie = [...document.querySelectorAll('#modal-body tr[data-f]')]
+            .map(tr => ({ fattura_id: tr.dataset.f, incarico_id: tr.querySelector('.dc-commessa').value }))
+            .filter(c => c.incarico_id);
+        if (!coppie.length) { UI.toast('Nessuna commessa scelta', 'error'); return; }
+        try {
+            const r = await Store.api('collega_commessa', 'commesse', { collegamenti: JSON.stringify(coppie) });
+            UI.toast(r?.message || 'Fatture collegate');
+            UI.closeModal();
+            load();
+        } catch (e) { UI.toast(e.message || 'Errore', 'error'); }
+    }
+
+    async function creaCommessa() {
+        const righe = [...document.querySelectorAll('#modal-body .dc-sel:checked')].map(c => c.closest('tr'));
+        if (!righe.length) { UI.toast('Seleziona le fatture della commessa', 'error'); return; }
+        if (new Set(righe.map(tr => tr.dataset.cli)).size > 1) { UI.toast('Le fatture devono essere dello stesso cliente', 'error'); return; }
+        try {
+            await Store.api('crea_da_fatture', 'commesse', {
+                fatture: JSON.stringify(righe.map(tr => tr.dataset.f)),
+                tipo_commessa: document.getElementById('dc-tipo').value,
+                descrizione: document.getElementById('dc-desc').value,
+                ricorrente: document.getElementById('dc-ric').checked ? 1 : 0,
+                mesi: document.getElementById('dc-mesi').value,
+            });
+            UI.toast('Commessa creata');
+            await load();
+            apriCollega();
+        } catch (e) { UI.toast(e.message || 'Errore', 'error'); }
     }
 
     function renderTable() {
@@ -30,7 +123,7 @@ const ModIncarichi = (() => {
         if (!data.length) { tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="ph ph-clipboard-text"></i><h3>Nessun incarico</h3></div></td></tr>'; return; }
 
         const tipoBadge = t => {
-            const colors = {assistenza:'#6366f1',dpo:'#f59e0b',formazione:'#10b981',nis2:'#ef4444',ict:'#0ea5e9',digital:'#ec4899',sviluppo_software:'#8b5cf6',altro:'#64748b'};
+            const colors = {assistenza:'#6366f1',dpo:'#f59e0b',formazione:'#10b981',nis2:'#ef4444',ict:'#0ea5e9',digital:'#ec4899',sviluppo_software:'#8b5cf6',viaggio:'#14b8a6',noleggio:'#a3a3a3',altro:'#64748b'};
             return `<span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;background:${colors[t]||'#666'}22;color:${colors[t]||'#666'}">${UI.esc(UI.tipoCommessa(t))}</span>`;
         };
         const statoBadge = s => {

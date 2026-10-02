@@ -664,6 +664,15 @@ class ContabilitaController {
                     }
                 }
 
+                // Commessa ricorrente (canone): rata libera dello stesso importo prevista entro 40 giorni
+                if (!$incaricoId && !$isNotaCredito) {
+                    $incaricoId = (new CommessaService($this->pdo, $this->prefix))
+                        ->trovaIncaricoPerRata($clienteId ? (int)$clienteId : null, (float)$imponibile, (string)$dataEmissione);
+                    if ($incaricoId) {
+                        $errors[] = "Fattura n. $numeroFattura collegata all'incarico #$incaricoId: rata di pari importo.";
+                    }
+                }
+
                 $vecchia = array_shift($daRiusare);
                 if ($vecchia) {
                     $this->pdo->prepare("UPDATE {$this->prefix}fatture SET cliente_id = ?, sottocliente_id = ?, incarico_id = ?, imponibile = ?,

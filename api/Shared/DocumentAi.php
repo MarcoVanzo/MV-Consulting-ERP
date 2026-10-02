@@ -68,7 +68,7 @@ TXT;
                 'data_incarico' => ['anyOf' => [['type' => 'string', 'format' => 'date'], ['type' => 'null']]],
                 'importo_totale' => self::nullable('number'),
                 'num_giornate' => self::nullable('number'),
-                'tipo_commessa' => ['type' => 'string', 'enum' => ['assistenza', 'dpo', 'formazione', 'nis2', 'ict', 'digital', 'sviluppo_software', 'altro']],
+                'tipo_commessa' => ['type' => 'string', 'enum' => ['assistenza', 'dpo', 'formazione', 'nis2', 'ict', 'digital', 'sviluppo_software', 'viaggio', 'noleggio', 'altro']],
                 'descrizione' => self::nullable('string'),
                 'condizioni_pagamento' => self::nullable('string'),
                 'giorni_pagamento' => self::nullable('integer'),
@@ -167,7 +167,7 @@ TXT;
                 'descrizione' => self::nullable('string'),
                 'data_offerta' => ['anyOf' => [['type' => 'string', 'format' => 'date'], ['type' => 'null']]],
                 'validita_giorni' => self::nullable('integer'),
-                'tipo_commessa' => ['type' => 'string', 'enum' => ['assistenza', 'dpo', 'formazione', 'nis2', 'ict', 'digital', 'sviluppo_software', 'altro']],
+                'tipo_commessa' => ['type' => 'string', 'enum' => ['assistenza', 'dpo', 'formazione', 'nis2', 'ict', 'digital', 'sviluppo_software', 'viaggio', 'noleggio', 'altro']],
                 'righe' => [
                     'type' => 'array',
                     'items' => [

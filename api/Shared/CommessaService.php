@@ -17,7 +17,7 @@ class CommessaService
     /** Tipi di commessa di offerte e incarichi: codice → etichetta (stesso elenco in js/core/ui.js). */
     public const TIPI = [
         'assistenza' => 'Assistenza', 'dpo' => 'DPO', 'formazione' => 'Formazione', 'nis2' => 'Consulenza NIS 2',
-        'ict' => 'Consulenza ICT', 'digital' => 'Consulenza Digital', 'sviluppo_software' => 'Sviluppo Software', 'altro' => 'Altro',
+        'ict' => 'Consulenza ICT', 'digital' => 'Consulenza Digital', 'sviluppo_software' => 'Sviluppo Software', 'viaggio' => 'Viaggio', 'noleggio' => 'Noleggio', 'altro' => 'Altro',
     ];
 
     private $pdo;
@@ -258,6 +258,194 @@ class CommessaService
             if ($id) return (int)$id;
         }
         return null;
+    }
+
+    /**
+     * Commessa del cliente con una rata libera dello stesso importo (±1 €) prevista entro 40 giorni dalla data:
+     * è così che le fatture di una commessa ricorrente (canone mensile) si agganciano da sole all'import.
+     * Solo se la candidata è una sola: con più commesse possibili si lascia scegliere all'utente.
+     */
+    public function trovaIncaricoPerRata(?int $clienteId, float $imponibile, string $data): ?int
+    {
+        if (!$clienteId || $imponibile <= 0) return null;
+        $stmt = $this->pdo->prepare("SELECT DISTINCT r.incarico_id, r.data_prevista FROM {$this->p}incarichi_rate r
+            JOIN {$this->p}incarichi i ON i.id = r.incarico_id
+            WHERE i.cliente_id = ? AND r.fattura_id IS NULL AND r.data_prevista IS NOT NULL AND ABS(r.importo - ?) <= 1");
+        $stmt->execute([$clienteId, $imponibile]);
+        $ids = [];
+        $t = strtotime($data);
+        foreach ($stmt->fetchAll() as $r) {
+            if (abs(strtotime((string)$r['data_prevista']) - $t) <= 40 * 86400) $ids[(int)$r['incarico_id']] = true;
+        }
+        return count($ids) === 1 ? (int)array_key_first($ids) : null;
+    }
+
+    /**
+     * Fatture emesse dell'anno non collegate a una commessa, ciascuna con la commessa proposta e il motivo:
+     * protocollo citato, riferimento all'offerta, rata libera di pari importo, unica commessa del cliente con
+     * residuo sufficiente (non per i canoni ripetuti né per fatture precedenti la commessa). Le proposte si confermano a mano (Vendite › Commesse › «Collega alle commesse»).
+     * Le fatture che si ripetono con lo stesso importo (almeno 3) sono segnate «ricorrente»: candidate a una
+     * commessa a canone. Restituisce anche le commesse di ogni cliente per la scelta manuale.
+     */
+    public function proposteCollegamento(int $anno): array
+    {
+        $stmt = $this->pdo->prepare("SELECT f.id, f.numero_fattura, f.data_emissione, f.cliente_id, f.sottocliente_id, f.imponibile,
+                f.importo_totale, f.descrizione, f.stato, c.ragione_sociale AS cliente_nome, sc.nome AS sottocliente_nome
+            FROM {$this->p}fatture f
+            LEFT JOIN {$this->p}clienti c ON c.id = f.cliente_id
+            LEFT JOIN {$this->p}sottoclienti sc ON sc.id = f.sottocliente_id
+            WHERE f.incarico_id IS NULL AND f.data_emissione BETWEEN ? AND ?
+            ORDER BY c.ragione_sociale, f.data_emissione, f.id");
+        $stmt->execute(["$anno-01-01", "$anno-12-31"]);
+        $fatture = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $clienti = array_values(array_unique(array_filter(array_map(fn($f) => (int)$f['cliente_id'], $fatture))));
+        $commesse = [];
+        if ($clienti) {
+            $in = implode(',', $clienti);
+            $rows = $this->pdo->query("SELECT i.id, i.cliente_id, i.sottocliente_id, i.data_incarico, i.tipo_commessa, i.descrizione,
+                    i.numero_protocollo, i.importo_totale, COALESCE(i.importo_fatturato, 0) AS importo_fatturato, sc.nome AS sottocliente_nome
+                FROM {$this->p}incarichi i LEFT JOIN {$this->p}sottoclienti sc ON sc.id = i.sottocliente_id
+                WHERE i.cliente_id IN ($in) ORDER BY i.data_incarico DESC, i.id DESC")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows as $r) {
+                $r['residuo'] = round(max(0, (float)$r['importo_totale'] - (float)$r['importo_fatturato']), 2);
+                $commesse[(int)$r['cliente_id']][] = $r;
+            }
+        }
+
+        $ripetute = [];
+        foreach ($fatture as $f) {
+            if ((float)$f['imponibile'] > 0) $ripetute[$f['cliente_id'] . '|' . round((float)$f['imponibile'], 2)][] = 1;
+        }
+
+        foreach ($fatture as &$f) {
+            $f['ricorrente'] = count($ripetute[$f['cliente_id'] . '|' . round((float)$f['imponibile'], 2)] ?? []) >= 3;
+            $f['proposta'] = (float)$f['imponibile'] > 0
+                ? $this->proposta($f, $commesse[(int)$f['cliente_id']] ?? []) : null;
+        }
+        unset($f);
+        return ['fatture' => $fatture, 'commesse' => $commesse];
+    }
+
+    /** Commessa proposta per una fattura: [incarico_id, motivo] o null. */
+    private function proposta(array $f, array $commesse): ?array
+    {
+        if (!$commesse) return null;
+        $testo = (string)$f['descrizione'];
+        $inc = self::incaricoDellaRiga($testo, $commesse, $f['sottocliente_id'] ? (int)$f['sottocliente_id'] : null);
+        if ($inc) return ['incarico_id' => (int)$inc['id'], 'motivo' => 'protocollo citato in fattura'];
+        $id = $this->trovaIncaricoPerRiferimento($testo, (int)$f['cliente_id']);
+        if ($id) return ['incarico_id' => $id, 'motivo' => "riferimento all'offerta"];
+        $id = $this->trovaIncaricoPerRata((int)$f['cliente_id'], (float)$f['imponibile'], (string)$f['data_emissione']);
+        if ($id) return ['incarico_id' => $id, 'motivo' => 'rata di pari importo'];
+        // Ultima risorsa, solo per fatture una tantum: un canone che si ripete non va sulla commessa di un progetto,
+        // e una fattura emessa prima della commessa non ne fa parte
+        if ($f['ricorrente']) return null;
+        $aperte = array_values(array_filter($commesse, fn($c) => (float)$c['residuo'] >= (float)$f['imponibile'] - 1
+            && (string)$c['data_incarico'] <= (string)$f['data_emissione']));
+        if (count($aperte) === 1) return ['incarico_id' => (int)$aperte[0]['id'], 'motivo' => "unica commessa del cliente con residuo sufficiente"];
+        return null;
+    }
+
+    /**
+     * Collega una fattura emessa a una commessa e alla sua rata. Il ricalcolo dei totali della commessa
+     * (IncarchiController::recalculate) resta a chi chiama.
+     */
+    public function collegaFatturaACommessa(int $fatturaId, int $incaricoId): void
+    {
+        $this->pdo->prepare("UPDATE {$this->p}incarichi_rate SET fattura_id = NULL WHERE fattura_id = ? AND incarico_id <> ?")
+            ->execute([$fatturaId, $incaricoId]);
+        $this->pdo->prepare("UPDATE {$this->p}fatture SET incarico_id = ? WHERE id = ?")->execute([$incaricoId, $fatturaId]);
+        $this->collegaFatturaARata($fatturaId);
+    }
+
+    /**
+     * Commessa costruita da fatture già emesse dello stesso cliente.
+     *  - singola (es. un viaggio EXACT): valore = somma delle fatture, note di credito comprese; una rata per fattura,
+     *    già collegata; le note di credito riducono le rate a partire dall'ultima.
+     *  - ricorrente (canone): valore = canone × mesi, una rata al mese dalla prima fattura; le fatture si
+     *    agganciano alle rate in ordine di data e le prossime arriveranno da sole (trovaIncaricoPerRata).
+     * $o: tipo_commessa, descrizione, ricorrente (bool), mesi (ricorrente, default 12).
+     * Da chiamare dentro una transazione. Restituisce l'id della commessa.
+     */
+    public function creaDaFatture(array $fatturaIds, array $o): int
+    {
+        $fatturaIds = array_values(array_unique(array_map('intval', $fatturaIds)));
+        if (!$fatturaIds) throw new InvalidArgumentException('Nessuna fattura scelta');
+        $in = implode(',', $fatturaIds);
+        $fatture = $this->pdo->query("SELECT id, cliente_id, sottocliente_id, data_emissione, imponibile, incarico_id
+            FROM {$this->p}fatture WHERE id IN ($in) ORDER BY data_emissione, id")->fetchAll(PDO::FETCH_ASSOC);
+        if (count($fatture) !== count($fatturaIds)) throw new InvalidArgumentException('Fattura non trovata');
+        $clienti = array_unique(array_map(fn($f) => (int)$f['cliente_id'], $fatture));
+        if (count($clienti) !== 1 || !$clienti[0]) throw new InvalidArgumentException('Le fatture devono essere dello stesso cliente');
+        if (array_filter($fatture, fn($f) => $f['incarico_id'])) throw new InvalidArgumentException('Una delle fatture è già collegata a una commessa');
+        $sotto = array_unique(array_map(fn($f) => (int)$f['sottocliente_id'], $fatture));
+
+        $positive = array_values(array_filter($fatture, fn($f) => (float)$f['imponibile'] > 0));
+        if (!$positive) throw new InvalidArgumentException('Serve almeno una fattura (le note di credito da sole non bastano)');
+        $ricorrente = !empty($o['ricorrente']);
+        $mesi = max(1, min(60, (int)($o['mesi'] ?? 12)));
+        $canone = round((float)$positive[0]['imponibile'], 2);
+        $totale = $ricorrente ? round($canone * $mesi, 2)
+            : round(array_sum(array_map(fn($f) => (float)$f['imponibile'], $fatture)), 2);
+        if ($totale <= 0) throw new InvalidArgumentException('Il valore della commessa sarebbe zero o negativo');
+
+        $termini = $this->terminiCliente((int)$clienti[0]);
+        $i = [
+            'cliente_id' => (int)$clienti[0],
+            'sottocliente_id' => count($sotto) === 1 && $sotto[0] ? $sotto[0] : null,
+            'data_incarico' => (string)$fatture[0]['data_emissione'],
+            'tipo_commessa' => isset(self::TIPI[$o['tipo_commessa'] ?? '']) ? $o['tipo_commessa'] : 'altro',
+            'descrizione' => trim((string)($o['descrizione'] ?? '')) ?: null,
+            'num_giornate' => 0,
+            'importo_totale' => $totale,
+            'giorni_pagamento' => $termini['giorni_pagamento'] ?? 30,
+            'fine_mese' => $termini['fine_mese'] ?? 0,
+            'giorno_pagamento' => $termini['giorno_pagamento'] ?? null,
+            'condizioni_pagamento' => null,
+            'note' => $ricorrente ? "Canone di " . number_format($canone, 2, ',', '.') . " € al mese per $mesi mesi" : 'Commessa creata dalle fatture emesse',
+        ];
+        $cols = array_keys($i);
+        $this->pdo->prepare("INSERT INTO {$this->p}incarichi (" . implode(', ', $cols) . ") VALUES (" . implode(', ', array_fill(0, count($cols), '?')) . ")")
+            ->execute(array_values($i));
+        $id = (int)$this->pdo->lastInsertId();
+
+        $ins = $this->pdo->prepare("INSERT INTO {$this->p}incarichi_rate
+            (incarico_id, ordine, descrizione, percentuale, importo, data_prevista, giorni_pagamento, fattura_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        if ($ricorrente) {
+            $perc = round(100 / $mesi, 2);
+            for ($k = 0; $k < $mesi; $k++) {
+                $data = TerminiPagamento::piuMesi($i['data_incarico'], $k);
+                $ins->execute([$id, $k + 1, 'Canone ' . self::meseAnno($data), $perc, $canone, $data, $i['giorni_pagamento'], null]);
+            }
+            $upd = $this->pdo->prepare("UPDATE {$this->p}fatture SET incarico_id = ? WHERE id = ?");
+            foreach ($fatture as $f) {
+                $upd->execute([$id, $f['id']]);
+                if ((float)$f['imponibile'] > 0) $this->collegaFatturaARata((int)$f['id']);
+            }
+        } else {
+            // Note di credito: riducono le rate dall'ultima, mai sotto zero
+            $storno = -array_sum(array_map(fn($f) => min(0, (float)$f['imponibile']), $fatture));
+            $importi = array_map(fn($f) => (float)$f['imponibile'], $positive);
+            for ($k = count($importi) - 1; $k >= 0 && $storno > 0.005; $k--) {
+                $tolto = min($importi[$k], $storno);
+                $importi[$k] = round($importi[$k] - $tolto, 2);
+                $storno -= $tolto;
+            }
+            foreach ($positive as $k => $f) {
+                $ins->execute([$id, $k + 1, count($positive) === 1 ? 'Saldo' : 'Fattura ' . ($k + 1), round($importi[$k] / $totale * 100, 2),
+                    $importi[$k], $f['data_emissione'], $i['giorni_pagamento'], $f['id']]);
+            }
+            $this->pdo->exec("UPDATE {$this->p}fatture SET incarico_id = $id WHERE id IN ($in)");
+        }
+        $this->offertaRapida($id, $i);
+        return $id;
+    }
+
+    private static function meseAnno(string $data): string
+    {
+        $mesi = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+        return $mesi[(int)substr($data, 5, 2) - 1] . ' ' . substr($data, 0, 4);
     }
 
     /** Termini di pagamento della commessa (giorni_pagamento, fine_mese, giorno_pagamento). */
