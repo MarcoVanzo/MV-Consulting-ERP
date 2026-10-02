@@ -49,9 +49,10 @@ class RiconciliazioneDocumenti
     }
 
     /**
-     * Documenti segnati pagati a mano senza (tutto) il bonifico: «scoperto» = quanto manca alle riconciliazioni.
+     * Documenti segnati pagati a mano senza bonifico: «scoperto» = le righe pagate senza nessuna riconciliazione.
      * Un bonifico arrivato dopo, o pagato dall'altro conto e poi visto qui, vi si può ancora abbinare: il residuo
-     * della forma comune vale lo scoperto e gia_pagata = true. Emissione tra $dal e $al.
+     * della forma comune vale lo scoperto e gia_pagata = true. Emissione tra $dal e $al. Fuori le fatture emesse
+     * con qualche riga ancora aperta: sono tra gli aperti(), e il pagamento andrebbe su quelle righe.
      */
     public function pagateScoperte(string $tipo, string $dal, string $al, ?int $anagraficaId = null): array
     {
@@ -62,9 +63,19 @@ class RiconciliazioneDocumenti
             . ($anagraficaId ? " AND $anag = ?" : '') . " ORDER BY $t.data_emissione, $t.id";
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($anagraficaId ? [$dal, $al, $anagraficaId] : [$dal, $al]);
+        $conAperte = [];
+        if ($tipo === 'fattura') {
+            $st = $this->pdo->prepare("SELECT DISTINCT numero_fattura, cliente_id, data_emissione FROM {$this->p}fatture
+                WHERE stato <> 'pagata' AND data_emissione BETWEEN ? AND ?");
+            $st->execute([substr($dal, 0, 4) . '-01-01', substr($al, 0, 4) . '-12-31']);
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $conAperte[strtoupper(trim((string)$r['numero_fattura'])) . '|' . substr((string)$r['data_emissione'], 0, 4) . '|' . ($r['cliente_id'] ?? '')] = true;
+            }
+        }
         $out = [];
         foreach ($this->raggruppa($tipo, $stmt->fetchAll(PDO::FETCH_ASSOC)) as $d) {
             if (!$d['pagata'] || $d['scoperto'] <= 0.005 || RiconciliazioneMatch::escluso($d['numero'])) continue;
+            if (isset($conAperte[strtoupper(trim($d['numero'])) . '|' . substr((string)$d['data_emissione'], 0, 4) . '|' . ($d['anagrafica_id'] ?? '')])) continue;
             $out[] = ['residuo' => $d['scoperto'], 'gia_pagata' => true] + $d;
         }
         return $out;
@@ -347,8 +358,8 @@ class RiconciliazioneDocumenti
                 'id' => (int)$r['id'], 'totale' => $totale, 'ritenuta' => $ritenuta, 'riconciliato' => $ric,
                 // Nota di credito: residuo negativo (quanto resta da compensare)
                 'residuo' => $pagata ? 0.0 : ($totale < 0 ? min(0.0, round($totale - $ric, 2)) : max(0.0, round($totale - $ritenuta - $ric, 2))),
-                // Segnata pagata senza (tutto) il bonifico: quanto manca alle riconciliazioni
-                'scoperto' => $pagata && $totale > 0 ? max(0.0, round($totale - $ritenuta - $ric, 2)) : 0.0,
+                // Segnata pagata senza nessun bonifico (una chiusa con differenza o tolleranza ne ha almeno uno: non è scoperta)
+                'scoperto' => $pagata && $totale > 0 && abs($ric) <= 0.005 ? round($totale - $ritenuta, 2) : 0.0,
                 'pagata' => $pagata, 'stato' => (string)$r['stato'],
                 'incarico_id' => isset($r['incarico_id']) && $r['incarico_id'] !== null ? (int)$r['incarico_id'] : null,
                 'data_scadenza' => $r['data_scadenza'] ?? null, 'sottocliente_nome' => $r['sottocliente_nome'] ?? null,
