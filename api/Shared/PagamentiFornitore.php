@@ -159,8 +159,11 @@ class PagamentiFornitore
 
         $out = [];
         foreach ($gruppi as $g) {
+            $proposti = self::proposti($g['fatture'], $g['movimenti']);
+            foreach ($g['movimenti'] as &$m) $m['proposto'] = isset($proposti[$m['id']]);
+            unset($m);
             $totF = round(array_sum(array_column($g['fatture'], 'residuo')), 2);
-            $totM = round(array_sum(array_column($g['movimenti'], 'importo')), 2);
+            $totM = round(array_sum(array_map(fn($m) => $m['proposto'] ? $m['importo'] : 0, $g['movimenti'])), 2);
             $diff = round($totF - min($totM, $totF), 2);
             unset($g['dal'], $g['al']);
             $out[] = $g + ['totale_fatture' => $totF, 'totale_bonifici' => $totM, 'differenza' => $diff,
@@ -169,6 +172,40 @@ class PagamentiFornitore
         usort($out, fn($a, $b) => [(bool)$b['movimenti'], $b['totale_fatture']] <=> [(bool)$a['movimenti'], $a['totale_fatture']]);
         usort($liberi, fn($a, $b) => strcmp($b['data'], $a['data']));
         return ['fornitori' => $out, 'liberi' => $liberi, 'max_differenza' => self::MAX_DIFFERENZA];
+    }
+
+    /**
+     * Bonifici da proporre (spuntati) tra quelli riconosciuti per nome: prima uno con lo stesso importo di
+     * ciascuna fattura (il più vicino per data: canoni e bollette), poi, per le fatture rimaste, i più vicini
+     * alle loro date finché il totale non è coperto (acconti e saldi di un viaggio). Così un bonifico di sei
+     * mesi prima non paga la bolletta di oggi. Quelli trovati per parola non si propongono mai.
+     */
+    public static function proposti(array $fatture, array $movimenti): array
+    {
+        $liberi = array_values(array_filter($movimenti, fn($m) => $m['come'] === 'nome'));
+        $giorni = fn(string $a, string $b) => RiconciliazioneMatch::giorni($a, $b);
+        $scelti = [];
+        $scoperte = [];
+        foreach ($fatture as $f) {
+            $migliore = null;
+            foreach ($liberi as $m) {
+                if (isset($scelti[$m['id']]) || abs($m['importo'] - $f['residuo']) > 0.01) continue;
+                if (!$migliore || $giorni($m['data'], $f['data_emissione']) < $giorni($migliore['data'], $f['data_emissione'])) $migliore = $m;
+            }
+            if ($migliore) $scelti[$migliore['id']] = true;
+            else $scoperte[] = $f;
+        }
+        if (!$scoperte) return $scelti;
+        $manca = (int)round(array_sum(array_column($scoperte, 'residuo')) * 100);
+        $distanza = fn($m) => min(array_map(fn($f) => $giorni($m['data'], $f['data_emissione']), $scoperte));
+        $resto = array_values(array_filter($liberi, fn($m) => !isset($scelti[$m['id']])));
+        usort($resto, fn($a, $b) => [$distanza($a), $a['data']] <=> [$distanza($b), $b['data']]);
+        foreach ($resto as $m) {
+            if ($manca <= 1) break;
+            $scelti[$m['id']] = true;
+            $manca -= (int)round($m['importo'] * 100);
+        }
+        return $scelti;
     }
 
     // ── Scritture ───────────────────────────────────────
@@ -200,6 +237,18 @@ class PagamentiFornitore
         $resto = [];
         foreach ($fatture as $i => $d) $resto[$i] = (int)round($d['residuo'] * 100);
         $totale = array_sum($resto);
+        // Prima le coppie con lo stesso importo (canoni: la bolletta di giugno col bonifico di giugno), poi FIFO
+        $coppia = [];
+        foreach ($movimenti as $k => $m) {
+            $cent = (int)round($m['residuo'] * 100);
+            $migliore = null;
+            foreach ($fatture as $i => $d) {
+                if (isset($coppia[$i]) || abs($resto[$i] - $cent) > 1) continue;
+                if ($migliore === null || RiconciliazioneMatch::giorni($m['data'], $d['data_emissione'])
+                    < RiconciliazioneMatch::giorni($m['data'], $fatture[$migliore]['data_emissione'])) $migliore = $i;
+            }
+            if ($migliore !== null) { $coppia[$migliore] = $k; $movimenti[$k]['coppia'] = $migliore; }
+        }
         $usati = 0;
         $conVoci = [];
         $avanzo = 0;
@@ -207,7 +256,14 @@ class PagamentiFornitore
         foreach ($movimenti as $m) {
             $disp = (int)round($m['residuo'] * 100);
             $voci = [];
+            if (isset($m['coppia'])) {
+                $i = $m['coppia'];
+                $voci[] = ['tipo' => 'fattura_passiva', 'id' => $fatture[$i]['id'], 'importo' => min($disp, $resto[$i]) / 100];
+                $disp -= min($disp, $resto[$i]);
+                $resto[$i] = 0;
+            }
             foreach ($resto as $i => $r) {
+                if (isset($coppia[$i])) continue;
                 if ($disp <= 0) break;
                 if ($r <= 0) continue;
                 $q = min($disp, $r);
@@ -216,12 +272,12 @@ class PagamentiFornitore
                 $disp -= $q;
             }
             if (!$voci) { $avanzo += $disp; continue; }
+            if ($ultimaData === null || $m['data'] > $ultimaData) $ultimaData = $m['data'];
             // Chiuso solo se usato tutto: il resto può pagare fatture che arriveranno
             $this->ric->registra((int)$m['id'], $voci, 'manuale', $userId, 0.01, $disp <= 0);
             $usati++;
             $conVoci[] = $m;
             $avanzo += $disp;
-            $ultimaData = $m['data'];
         }
 
         $scoperto = array_sum($resto);
@@ -252,7 +308,7 @@ class PagamentiFornitore
     }
 
     /**
-     * Automatico: i bonifici riconosciuti per nome (non per parola) fanno esattamente il totale delle fatture
+     * Automatico: i bonifici proposti (per nome, vedi proposti()) fanno esattamente il totale delle fatture
      * aperte del fornitore. Esclusi i movimenti col segno incerto o con un abbinamento annullato a mano.
      */
     public function abbinaSicuri(?int $userId): array
@@ -261,8 +317,8 @@ class PagamentiFornitore
         $bloccati = [];
         foreach ($this->movimentiAperti() as $m) if (!empty($m['segno_incerto']) || !empty($m['abbinamento_annullato'])) $bloccati[(int)$m['id']] = true;
         foreach ($this->riepilogo()['fornitori'] as $g) {
-            $movs = $g['movimenti'];
-            if (!$movs || array_filter($movs, fn($m) => $m['come'] !== 'nome' || isset($bloccati[$m['id']]))) continue;
+            $movs = array_values(array_filter($g['movimenti'], fn($m) => $m['proposto']));
+            if (!$movs || array_filter($movs, fn($m) => isset($bloccati[$m['id']]))) continue;
             if (abs($g['totale_bonifici'] - $g['totale_fatture']) > 0.01) continue;
             $r = $this->abbina($g['fornitore_id'], array_column($movs, 'id'), array_column($g['fatture'], 'id'), false, $userId);
             $esito['fornitori']++;

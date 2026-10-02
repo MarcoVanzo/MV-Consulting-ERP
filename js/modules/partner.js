@@ -196,7 +196,7 @@ const ModPartner = (() => {
             <div class="pf-col"><div class="pf-tit">Fatture da pagare</div>
                 ${g.fatture.map(f => `<label class="pf-riga"><input type="checkbox" class="pf-fat" value="${f.id}" data-imp="${f.residuo}" checked>
                     <span>${UI.formatDate(f.data_emissione)}</span><span class="pf-desc">n. ${UI.esc(f.numero)}</span><b>${UI.formatCurrency(f.residuo)}</b></label>`).join('')}</div>
-            <div class="pf-col"><div class="pf-tit">Bonifici</div><div data-movs>${g.movimenti.map(m => riga(m, m.come === 'nome')).join('') || '<p class="pf-vuoto">Nessun bonifico riconosciuto</p>'}</div>
+            <div class="pf-col"><div class="pf-tit">Bonifici</div><div data-movs>${g.movimenti.map(m => riga(m, m.proposto)).join('') || '<p class="pf-vuoto">Nessun bonifico riconosciuto</p>'}</div>
                 <button type="button" class="btn btn-sm btn-ghost" data-aggiungi><i class="ph ph-plus"></i> Aggiungi un bonifico</button>
                 <div data-cerca hidden><input class="form-control" placeholder="Cerca per nome o importo" data-filtro><div class="pf-liberi" data-liberi></div></div></div>
             <div class="pf-azioni"><label class="pf-chiudi" hidden><input type="checkbox" data-chiudi> Chiudi anche la differenza</label>
@@ -259,6 +259,10 @@ const ModPartner = (() => {
                         r.scoperto > 0 ? `restano ${UI.formatCurrency(r.scoperto)} da pagare` : '',
                         r.avanzo > 0 ? `${UI.formatCurrency(r.avanzo)} di bonifici restano da abbinare` : ''].filter(Boolean).join(', ');
                     UI.toast(`${r.fatture_saldate} fatture saldate${extra ? ': ' + extra : ''}`);
+                    // Bonifici usati: non più proponibili agli altri fornitori (uno usato in parte lo ricalcola il server)
+                    movimenti.forEach(id => { const i = liberi.findIndex(m => String(m.id) === id); if (i >= 0) liberi.splice(i, 1); });
+                    body.querySelectorAll('.pf-gruppo').forEach(altro => movimenti.forEach(id => altro.querySelector(`.pf-mov[value="${id}"]`)?.closest('.pf-riga')?.remove()));
+                    body.querySelectorAll('.pf-gruppo').forEach(ricalcola);
                     el.remove();
                     load();
                 } catch (err) {
