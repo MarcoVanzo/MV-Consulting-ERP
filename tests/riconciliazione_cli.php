@@ -740,6 +740,16 @@ $ric->registraAvviso(['data' => '2026-09-20', 'importo' => 700, 'descrizione' =>
 $importa([$mv('V4', 700.0, '2026-09-21', 'Bonifico a vs favore GAMMA IMPIANTI FATT. 723/001 DEL 01/03/2026-FATT. 724/001 DEL 01/03/2026')]);
 check('...ma se l\'importo non torna niente aggancio', !(int)$ric->movimento($idPer('V4'))['avviso_id'] && $stato(724) !== 'pagata');
 
+// Revisione: pagata con differenza (ha un bonifico) e fattura divisa con una riga ancora aperta: non sono «senza bonifico»
+$fatt(730, '730/001', '2026-03-01', 21, 500, 'pagata');
+$pdo->exec("INSERT INTO {$p}riconciliazioni (movimento_id, tipo, documento_id, importo, metodo) VALUES ($g1, 'fattura', 730, 480, 'manuale')");
+$fatt(731, '731/001', '2026-03-01', 21, 300, 'pagata');
+$fatt(732, '731/001', '2026-03-01', 21, 200);
+$ps = array_column($ric->documenti()->pagateScoperte('fattura', '2026-01-01', '2026-12-31'), 'numero');
+check('revisione: chiusa con differenza e divisa con riga aperta fuori dalle pagate senza bonifico',
+    !in_array('730/001', $ps, true) && !in_array('731/001', $ps, true) && in_array('722/001', $ps, true) === false, $ps);
+$pdo->exec("DELETE FROM {$p}riconciliazioni WHERE documento_id = 730 AND tipo = 'fattura'");
+
 // ═══ 4. Estratto conto vero (facoltativo) ═══════════════════
 $file = getenv('CBI_FILE') ?: '';
 if ($file !== '' && is_readable($file)) {
