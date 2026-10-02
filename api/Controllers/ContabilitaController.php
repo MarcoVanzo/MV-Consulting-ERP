@@ -395,7 +395,7 @@ class ContabilitaController {
         $conTipoDoc = $this->colonnaTipoDocumento();
 
         // Pre-carico tutti i clienti e sottoclienti
-        $stmtClienti = $this->pdo->query("SELECT id, partita_iva, codice_fiscale FROM {$this->prefix}clienti");
+        $stmtClienti = $this->pdo->query("SELECT id, partita_iva, codice_fiscale, ragione_sociale FROM {$this->prefix}clienti");
         $allClienti = $stmtClienti->fetchAll();
         $stmtSotto = $this->pdo->query("SELECT id, cliente_id, nome FROM {$this->prefix}sottoclienti");
         $allSottoclienti = $stmtSotto->fetchAll();
@@ -410,7 +410,21 @@ class ContabilitaController {
         $xmlCf = strtoupper(str_replace(' ', '', $clienteCodiceFiscale));
         if (strpos($xmlCf, 'IT') === 0) $xmlCf = substr($xmlCf, 2);
 
+        // Clienti esteri senza partita IVA: in fattura un codice fittizio («US000000», «00000000») che non identifica
+        // nessuno: si riconoscono dalla ragione sociale, altrimenti ogni variante del codice creerebbe un doppione
+        $fittizio = fn(string $v) => (bool)preg_match('/^[A-Z]{0,2}0+$/', $v);
+        if ($fittizio($xmlPiva)) $xmlPiva = '';
+        if ($fittizio($xmlCf)) $xmlCf = '';
+        $xmlNome = mb_strtolower(preg_replace('/\s+/', ' ', trim((string)($header->CessionarioCommittente->DatiAnagrafici->Anagrafica->Denominazione ?? ''))), 'UTF-8');
+
         foreach ($allClienti as $c) {
+            if (!$xmlPiva && !$xmlCf) {
+                if ($xmlNome !== '' && mb_strtolower(preg_replace('/\s+/', ' ', trim((string)($c['ragione_sociale'] ?? ''))), 'UTF-8') === $xmlNome) {
+                    $clienteId = $c['id'];
+                    break;
+                }
+                continue;
+            }
             $dbPiva = strtoupper(str_replace(' ', '', $c['partita_iva'] ?? ''));
             if (strpos($dbPiva, 'IT') === 0) $dbPiva = substr($dbPiva, 2);
             
