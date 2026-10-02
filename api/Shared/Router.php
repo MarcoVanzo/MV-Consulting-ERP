@@ -49,7 +49,7 @@ class ApiRouter {
         'commesse'     => ['get', 'scadenzario', 'fatture_libere', 'da_collegare'],
         'indicatori'   => ['riepilogo', 'oggi'],
         'spese'        => ['list', 'documento'],
-        'riconciliazione' => ['movimenti', 'proposte', 'documenti_aperti'],
+        'riconciliazione' => ['movimenti', 'proposte', 'documenti_aperti', 'per_fornitore'],
         'movimenti'    => ['categorie', 'conteggio', 'elenco', 'statistiche', 'regole'],
         'admin'        => ['listUsers', 'listBackups', 'downloadBackup', 'listLogs'],
     ];
@@ -469,6 +469,7 @@ class ApiRouter {
             case 'save':        $ctrl->save($data); break;
             case 'delete':      Auth::richiediAdmin(); $ctrl->delete($data['id'] ?? 0); break;
             case 'set_pagata':  $ctrl->setPagata($data); break;
+            case 'set_pagate':  $ctrl->setPagate($data); break;
             case 'import_xml':  $ctrl->importXml($data); break;
             default:            Response::json(false, "Azione fatture fornitori non supportata: $action");
         }
@@ -537,6 +538,8 @@ class ApiRouter {
             case 'annulla':          $ctrl->annulla($data); break;
             case 'ignora':           $ctrl->ignora($data); break;
             case 'riabbina':         $ctrl->riabbina(); break;
+            case 'per_fornitore':    $ctrl->perFornitore(); break;
+            case 'abbina_fornitore': $ctrl->abbinaFornitore($data); break;
             default:                 Response::json(false, "Azione riconciliazione non supportata: $action");
         }
     }

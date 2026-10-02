@@ -118,6 +118,30 @@ class FatturePassiveController {
         Response::json(true, $dataPag ? 'Pagamento registrato' : 'Pagamento annullato');
     }
 
+    /**
+     * Più fatture pagate fuori dagli estratti caricati (carta, altro conto, compensazione): ids = JSON.
+     * Solo quelle ancora da pagare; la nota dice da dove viene il pagamento.
+     */
+    public function setPagate($data) {
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array)json_decode((string)($data['ids'] ?? '[]'), true)))));
+        $dataPag = $this->data($data['data_pagamento'] ?? null) ?: date('Y-m-d');
+        if (!$ids) Response::json(false, 'Nessuna fattura scelta');
+        $nota = $this->pdo->prepare("SELECT note FROM {$this->prefix}fatture_passive WHERE id = ? AND stato = 'da_pagare'");
+        $upd = $this->pdo->prepare("UPDATE {$this->prefix}fatture_passive SET stato = 'pagata', data_pagamento = ?, note = ? WHERE id = ? AND stato = 'da_pagare'");
+        $fatte = 0;
+        $this->pdo->beginTransaction();
+        foreach ($ids as $id) {
+            $nota->execute([$id]);
+            $prima = $nota->fetchColumn();
+            if ($prima === false) continue;
+            $upd->execute([$dataPag, trim((string)$prima . ' Segnata pagata a mano (pagamento fuori dagli estratti caricati).'), $id]);
+            $fatte++;
+        }
+        $this->pdo->commit();
+        Audit::log('UPDATE', 'fatture_passive', null, null, ['ids' => $ids, 'data_pagamento' => $dataPag, 'pagate' => $fatte]);
+        Response::json(true, "$fatte fatture segnate pagate", ['pagate' => $fatte]);
+    }
+
     /** Import dell'XML FatturaPA ricevuto dal partner. */
     public function importXml($data) {
         $p = $this->prefix;

@@ -161,6 +161,16 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   crea solo le fatture mancanti, il «Residuo» di Sistemi si ignora (è sempre uguale al totale). Prova: `php tests/lista_fatture_cli.php`.
 - Categoria di un movimento: tendina sulla riga in Banca › Movimenti (`ModMovimenti.tendina` / `scegliRapido`, stesse
   impostazioni predefinite della finestra: impara la regola e la applica ai simili); «Altre opzioni…» apre la finestra.
+- **Abbinamento per fornitore** (dal 02/10/2026, Fatture › ricevute → «Abbina ai bonifici»): `api/Shared/PagamentiFornitore.php`,
+  `riconciliazione/per_fornitore` e `abbina_fornitore`. Per i viaggi un bonifico non corrisponde a una fattura: acconti e
+  caparre partono prima che l'hotel fatturi, un bonifico copre più fatture, in banca c'è il marchio dell'hotel. Si mettono
+  insieme i bonifici aperti del fornitore (da 180 giorni prima della prima fattura a 120 dopo l'ultima) e le sue fatture, e si
+  distribuiscono in ordine di data (FIFO) con `Riconciliatore::registra` (si annulla dalla Banca); una differenza fino al 5%
+  si chiude con una nota sulla fattura. Il beneficiario del bonifico (24 caratteri dopo «*», o il nome dopo «BEN» degli
+  istantanei) si impara in `fornitori_alias` (v106) e da lì vale anche per l'abbinamento normale (`contesto`). In automatico
+  («Riprova abbinamento») solo se i bonifici riconosciuti per nome fanno esattamente il totale delle fatture. Le fatture pagate
+  fuori dagli estratti (carta, altro conto) si chiudono con «Segna pagate» (`passive/set_pagate`, con nota).
+  Prova: `php tests/pagamenti_fornitore_cli.php`.
 - Categorie dei movimenti (tab Da classificare / Andamento): `api/Shared/Classificatore.php` (fatture → regole apprese →
   euristiche; il resto lo chiede all'utente) e `CategorieMovimenti.php` (grafici). Tabelle v059–v063.
 

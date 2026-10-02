@@ -30,6 +30,7 @@ require_once __DIR__ . '/RiconciliazioneMatch.php';
 require_once __DIR__ . '/RiconciliazioneDocumenti.php';
 require_once __DIR__ . '/EstrattoContoParser.php';
 require_once __DIR__ . '/Classificatore.php';
+require_once __DIR__ . '/PagamentiFornitore.php';
 
 class Riconciliatore
 {
@@ -43,7 +44,7 @@ class Riconciliatore
     /** @var callable|null fn(int $fatturaId): void — rata e incarico del record dopo il cambio di stato */
     private $dopoFattura;
     /** Anagrafiche e fatture aperte caricate una volta per richiesta (import di centinaia di movimenti) */
-    private $cache = ['clienti' => null, 'fornitori' => null, 'aperti' => []];
+    private $cache = ['clienti' => null, 'fornitori' => null, 'alias' => null, 'aperti' => []];
 
     public function __construct(PDO $pdo, string $prefix, ?callable $dopoFattura = null)
     {
@@ -134,7 +135,7 @@ class Riconciliatore
     public function riabbina(?int $userId): array
     {
         $out = ['analizzati' => 0, 'nuovi_agganci' => 0, 'abbinati' => 0, 'da_verificare' => 0, 'ids' => [], 'movimenti' => []];
-        $this->cache = ['clienti' => null, 'fornitori' => null, 'aperti' => []]; // anagrafiche e fatture di adesso
+        $this->cache = ['clienti' => null, 'fornitori' => null, 'alias' => null, 'aperti' => []]; // anagrafiche e fatture di adesso
         $conFlag = RiconciliazioneDocumenti::colonna($this->pdo, "{$this->p}movimenti_banca", 'abbinamento_annullato');
         $righe = $this->pdo->query("SELECT * FROM {$this->p}movimenti_banca
             WHERE origine IN ('estratto_conto', 'estratto_carta') AND stato = 'da_riconciliare' AND avviso_id IS NULL
@@ -271,6 +272,8 @@ class Riconciliatore
         } else {
             $piva = preg_match('/\b(?:IT)?(\d{11})\b/', $testo, $mm) ? $mm[1] : null;
             $anag = AnagraficaMatcher::trovaTra($this->anagrafiche('fornitori'), $piva, null, $testo, false);
+            // Nome in banca imparato con l'abbinamento per fornitore (es. il marchio dell'hotel)
+            $anag ??= PagamentiFornitore::daAlias($this->cache['alias'] ??= PagamentiFornitore::alias($this->pdo, $this->p), $testo);
         }
         return [
             'testo' => $testo,
@@ -410,9 +413,10 @@ class Riconciliatore
      * Le note di credito hanno importo negativo e vanno con almeno una fattura: il totale netto è il pagamento.
      * I record saldati diventano pagati con la data valuta e il loro incarico/rata si aggiorna.
      * $tolleranza: scarto ammesso per considerare saldata una fattura (default 1 centesimo).
+     * $chiudi: forza lo stato del movimento (null = chiuso se coperto o se l'abbinamento è manuale).
      * Transazione propria se il chiamante non ne ha una. Restituisce i documenti saldati.
      */
-    public function registra(int $movimentoId, array $documenti, string $metodo, ?int $userId, float $tolleranza = 0.01): array
+    public function registra(int $movimentoId, array $documenti, string $metodo, ?int $userId, float $tolleranza = 0.01, ?bool $chiudi = null): array
     {
         $mov = $this->movimento($movimentoId);
         if ($mov['stato'] === 'ignorato') throw new RuntimeException('Movimento ignorato: ripristinalo prima di abbinarlo');
@@ -451,7 +455,7 @@ class Riconciliatore
         $saldati = [];
         $tollCent = max(1, (int)round($tolleranza * 100));
         $conStato = RiconciliazioneDocumenti::colonna($this->pdo, "{$this->p}riconciliazioni", 'stato_precedente');
-        $this->transazione(function () use ($movimentoId, $piano, $metodo, $userId, $mov, $disponibile, $totale, $tolleranza, $tollCent, $conStato, &$saldati) {
+        $this->transazione(function () use ($movimentoId, $piano, $metodo, $userId, $mov, $disponibile, $totale, $tolleranza, $tollCent, $conStato, $chiudi, &$saldati) {
             $ins = $this->pdo->prepare($conStato
                 ? "INSERT INTO {$this->p}riconciliazioni (movimento_id, tipo, documento_id, importo, metodo, created_by, stato_precedente) VALUES (?, ?, ?, ?, ?, ?, ?)"
                 : "INSERT INTO {$this->p}riconciliazioni (movimento_id, tipo, documento_id, importo, metodo, created_by) VALUES (?, ?, ?, ?, ?, ?)");
@@ -478,7 +482,7 @@ class Riconciliatore
                 }
             }
             // Chiuso quando è coperto; l'abbinamento manuale lo chiude comunque (spese, arrotondamenti)
-            if ($metodo !== 'auto' || $totale >= $disponibile - max(0.01, $tolleranza)) {
+            if ($chiudi ?? ($metodo !== 'auto' || $totale >= $disponibile - max(0.01, $tolleranza))) {
                 $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET stato = 'riconciliato' WHERE id = ?")->execute([$movimentoId]);
             }
         });

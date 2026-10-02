@@ -802,6 +802,17 @@ return [
 
     // v104–v105: tipi di commessa per i viaggi (un contratto per viaggio) e i noleggi a canone
     "ALTER TABLE {$prefix}incarichi MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software','viaggio','noleggio','altro') NOT NULL DEFAULT 'assistenza'",
-    "ALTER TABLE {$prefix}offerte MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software','viaggio','noleggio','altro') NOT NULL DEFAULT 'assistenza'"
+    "ALTER TABLE {$prefix}offerte MODIFY tipo_commessa ENUM('assistenza','dpo','formazione','nis2','ict','digital','sviluppo_software','viaggio','noleggio','altro') NOT NULL DEFAULT 'assistenza'",
+
+    // v106: nomi in banca dei fornitori (beneficiario del bonifico diverso dalla ragione sociale), imparati
+    // dall'abbinamento per fornitore (PagamentiFornitore)
+    "CREATE TABLE IF NOT EXISTS {$prefix}fornitori_alias (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        fornitore_id INT NOT NULL,
+        alias VARCHAR(80) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_fornitori_alias (alias),
+        KEY idx_fornitori_alias_fornitore (fornitore_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
