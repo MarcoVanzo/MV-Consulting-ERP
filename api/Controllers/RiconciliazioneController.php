@@ -246,10 +246,25 @@ class RiconciliazioneController {
         }
     }
 
-    /** Documenti aperti per la scelta manuale: tipo = fattura | fattura_passiva. */
+    /**
+     * Documenti aperti per la scelta manuale: tipo = fattura | fattura_passiva. Con movimento_id anche quelli
+     * segnati pagati senza bonifico, emessi nei mesi prima del movimento (Riconciliatore::MESI_PAGATE).
+     */
     public function documentiAperti() {
         $tipo = ($_GET['tipo'] ?? $_POST['tipo'] ?? '') === 'fattura_passiva' ? 'fattura_passiva' : 'fattura';
-        $docs = $this->riconciliatore()->documenti()->aperti($tipo);
+        $ric = $this->riconciliatore();
+        $docs = $ric->documenti()->aperti($tipo);
+        $movId = (int)($_GET['movimento_id'] ?? $_POST['movimento_id'] ?? 0);
+        if ($movId) {
+            try {
+                $mov = $ric->movimento($movId);
+                $data = (string)($mov['data_valuta'] ?: $mov['data_operazione']);
+                $dal = date('Y-m-d', strtotime($data . ' -' . Riconciliatore::MESI_PAGATE . ' months'));
+                $docs = array_merge($docs, $ric->documenti()->pagateScoperte($tipo, $dal, $data));
+            } catch (RuntimeException $e) {
+                Response::json(false, $e->getMessage());
+            }
+        }
         Response::json(true, '', array_map(fn($d) => RiconciliazioneDocumenti::proposta($d, $d['residuo']), $docs));
     }
 

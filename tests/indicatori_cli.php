@@ -130,7 +130,8 @@ foreach ([
     "ALTER TABLE {$p}incarichi_rate ADD COLUMN giorni_pagamento INT DEFAULT 30",
     "ALTER TABLE {$p}offerte ADD COLUMN data_followup TEXT",
     "ALTER TABLE {$p}offerte ADD COLUMN iva_percentuale REAL",
-    "CREATE TABLE {$p}movimenti_banca (id INTEGER PRIMARY KEY, stato TEXT, abbinabile INT DEFAULT 1, origine TEXT, importo REAL, classificazione TEXT DEFAULT 'classificato')",
+    "CREATE TABLE {$p}movimenti_banca (id INTEGER PRIMARY KEY, stato TEXT, abbinabile INT DEFAULT 1, origine TEXT, importo REAL, classificazione TEXT DEFAULT 'classificato', categoria_id INT)",
+    "CREATE TABLE {$p}categorie_movimento (id INTEGER PRIMARY KEY, codice TEXT)",
     "CREATE TABLE {$p}trasferte (id INTEGER PRIMARY KEY, data_trasferta TEXT, cliente_id INT, sottocliente_id INT, mezzo_id INT,
         km_andata REAL DEFAULT 0, km_ritorno REAL DEFAULT 0, vitto REAL DEFAULT 0, alloggio REAL DEFAULT 0)",
     "CREATE TABLE {$p}mezzi (id INTEGER PRIMARY KEY, costo_km REAL)",
@@ -141,12 +142,16 @@ foreach ([
 $pdo->exec("UPDATE {$p}offerte SET data_followup = '2026-09-20' WHERE stato = 'inviata'");
 $pdo->exec("INSERT INTO {$p}movimenti_banca (stato, abbinabile, origine, importo) VALUES
     ('da_riconciliare', 1, 'estratto_conto', 500), ('da_riconciliare', 0, 'estratto_conto', -3), ('da_riconciliare', 1, 'estratto_carta', -20), ('riconciliato', 1, 'estratto_conto', 90)");
+// Classificati: abbonamento (senza fattura, fuori dalla coda) e fornitore (con fattura, resta)
+$pdo->exec("INSERT INTO {$p}categorie_movimento (id, codice) VALUES (1, 'software_abbonamenti'), (2, 'fornitori_partner')");
+$pdo->exec("INSERT INTO {$p}movimenti_banca (stato, abbinabile, origine, importo, categoria_id) VALUES
+    ('da_riconciliare', 1, 'estratto_conto', -7.26, 1), ('da_riconciliare', 1, 'estratto_conto', -302, 2)");
 $pdo->exec("UPDATE {$p}movimenti_banca SET classificazione = 'da_classificare' WHERE importo IN (500, -3, -20)");
 $df = $ind->daFare(7);
 check('scaduti per documento (fattura divisa contata una volta)', $df['incassi_scaduti']['num'] === 2 && abs($df['incassi_scaduti']['importo'] - (2440 + 122)) < 0.01, $df['incassi_scaduti']);
 check('offerte da ricontattare (non eliminate)', $df['offerte_da_ricontattare']['num'] === 1, $df['offerte_da_ricontattare']);
-check('movimenti da abbinare: solo conto e abbinabili', $df['movimenti_da_abbinare']['num'] === 1, $df['movimenti_da_abbinare']);
-check('movimenti da sistemare contati una volta (abbinare o classificare)', $df['movimenti_da_sistemare']['num'] === 2, $df['movimenti_da_sistemare']);
+check('movimenti da abbinare: solo conto, abbinabili e senza categoria senza fattura', $df['movimenti_da_abbinare']['num'] === 2, $df['movimenti_da_abbinare']);
+check('movimenti da sistemare contati una volta (abbinare o classificare)', $df['movimenti_da_sistemare']['num'] === 3, $df['movimenti_da_sistemare']);
 check('partner da pagare entro 7 giorni (e scaduti)', $df['partner_da_pagare']['num'] === 1, $df['partner_da_pagare']);
 $ia = $ind->incassiAttesi(12);
 check('dodici settimane da lunedì', count($ia['settimane']) === 12 && $ia['settimane'][0]['dal'] === '2026-09-28', $ia['settimane'][0]);

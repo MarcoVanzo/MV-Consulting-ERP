@@ -44,6 +44,9 @@ const ModRiconciliazione = (() => {
         return `<span style="color:${n >= 0 ? 'var(--accent-green)' : '#ef4444'};font-weight:600">${n >= 0 ? '+' : ''}${UI.esc(UI.formatCurrency(n))}</span>`;
     }
 
+    // Fattura segnata pagata a mano senza bonifico: il bonifico la copre, lo stato non cambia
+    const PAGATA = d => d.gia_pagata ? ' <span class="badge badge-green" title="Segnata pagata senza bonifico: resta pagata">già pagata</span>' : '';
+
     function docLabel(d) {
         const rate = (d.incarichi || []).map(i => `Incarico #${UI.esc(i.id)}: rate ${UI.esc(i.rate_incassate)}/${UI.esc(i.rate_totali)} incassate`).join(' · ');
         return `<div><span class="td-mono">${UI.esc(d.numero)}</span> ${UI.esc(d.anagrafica_nome || '')} — ${UI.esc(UI.formatCurrency(d.importo))}`
@@ -112,7 +115,7 @@ const ModRiconciliazione = (() => {
             cell.innerHTML = prop.map((p, i) => {
                 const docs = p.tipo === 'avviso'
                     ? `Avviso di pagamento: ${(p.documenti || []).map(d => UI.esc(d.numero)).join(', ')}`
-                    : (p.documenti || []).map(d => `<span class="td-mono">${UI.esc(d.numero)}</span> ${UI.esc(d.anagrafica_nome || '')} ${UI.esc(UI.formatCurrency(d.importo))}`).join(' + ');
+                    : (p.documenti || []).map(d => `<span class="td-mono">${UI.esc(d.numero)}</span>${PAGATA(d)} ${UI.esc(d.anagrafica_nome || '')} ${UI.esc(UI.formatCurrency(d.importo))}`).join(' + ');
                 return `<div style="display:flex;gap:12px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-subtle)">
                     <span class="badge badge-blue">${UI.esc(p.punteggio)}</span>
                     <div style="flex:1">${docs}<div style="font-size:0.75rem;color:var(--text-muted)">${(p.motivi || []).map(UI.esc).join(' · ')}</div></div>
@@ -137,13 +140,13 @@ const ModRiconciliazione = (() => {
         const m = _movimenti.find(x => x.id == id);
         if (!m) return;
         const tipo = parseFloat(m.importo) > 0 ? 'fattura' : 'fattura_passiva';
-        try { _aperti = await Store.api('documenti_aperti', 'riconciliazione', { tipo }) || []; }
+        try { _aperti = await Store.api('documenti_aperti', 'riconciliazione', { tipo, movimento_id: id }) || []; }
         catch (e) { UI.toast(e.message, 'error'); return; }
         const gia = (m.riconciliazioni || []).reduce((s, r) => s + (parseFloat(r.importo) || 0), 0);
         _manuale = { id, disponibile: Math.abs(parseFloat(m.importo)) - gia };
         const righe = _aperti.map((d, i) => `<tr>
             <td><input type="checkbox" class="ric-chk" data-i="${i}"></td>
-            <td class="td-mono">${UI.esc(d.numero)}${d.nota_credito ? ' <span class="badge badge-purple">NC</span>' : ''}</td>
+            <td class="td-mono">${UI.esc(d.numero)}${d.nota_credito ? ' <span class="badge badge-purple">NC</span>' : ''}${PAGATA(d)}</td>
             <td>${UI.formatDate(d.data_emissione)}</td>
             <td>${UI.esc(d.anagrafica_nome || '—')}${d.sottoclienti?.length ? `<div style="font-size:0.72rem;color:var(--text-muted)">${UI.esc(d.sottoclienti.join(', '))}</div>` : ''}</td>
             <td class="text-right">${UI.esc(UI.formatCurrency(d.residuo))}</td>

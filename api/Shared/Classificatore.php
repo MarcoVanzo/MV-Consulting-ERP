@@ -38,6 +38,18 @@ class Classificatore
         'rimborsi' => [1, '/\b(RIMBORSO|RIMBORSI|STORNO)\b/'],
     ];
 
+    // Categorie che si pagano con una fattura: un movimento classificato in un'altra categoria (utenze, abbonamenti,
+    // rate, imposte, commissioni...) esce dalla coda "da abbinare" (l'abbinamento automatico lo riprova comunque)
+    public const CODICI_CON_FATTURA = ['incassi_clienti', 'fornitori_partner', 'commercialista_paghe', 'compensi_collaboratori'];
+
+    /** Condizione SQL della coda "da abbinare" (stato a parte): aggancio all'import e nessuna categoria senza fattura. */
+    public static function sqlDaAbbinare(string $prefix, string $alias = ''): string
+    {
+        $a = $alias !== '' ? $alias . '.' : '';
+        return "({$a}abbinabile = 1 AND ({$a}categoria_id IS NULL OR {$a}categoria_id IN (SELECT id FROM {$prefix}categorie_movimento
+            WHERE codice IN ('" . implode("', '", self::CODICI_CON_FATTURA) . "'))))";
+    }
+
     private $pdo;
     private $p;
 
