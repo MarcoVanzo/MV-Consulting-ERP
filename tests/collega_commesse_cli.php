@@ -184,5 +184,10 @@ $es = $svc->creaCommesseMancanti([60, 61, 63]);
 check('«Acconto 30%» e «40%» → commessa da 10.000', $pdo->query("SELECT COUNT(*) FROM {$p}fatture WHERE id IN (60, 61) AND incarico_id = 60")->fetchColumn() == 2, $es);
 check('nota che cita una fattura assente: non si aggancia per importo', $pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 63")->fetchColumn() === null, $es);
 
+$pdo->exec("INSERT INTO {$p}incarichi (id, cliente_id, data_incarico, tipo_commessa, numero_protocollo, importo_totale) VALUES (62, 6, '2025-10-01', 'dpo', 'SZ.DPS.F169.25', 1500)");
+$f->execute([64, '10/001', '2026-02-11', 6, '[Nota di credito] storno parziale ft. 65 del 25/11/2025 SZ.DPS.F169.25', -300, -366]);
+$svc->creaCommesseMancanti([64]);
+check('nota con protocollo → commessa del protocollo', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 64")->fetchColumn() === 62);
+
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);
