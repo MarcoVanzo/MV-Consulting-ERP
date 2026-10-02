@@ -13,7 +13,7 @@ const ModPartner = (() => {
         return _fornitori;
     }
 
-    /** Ricarica le due schede: fatture ricevute (Incassi) e anagrafica partner/fornitori (Anagrafiche). */
+    /** Ricarica le due schede: fatture ricevute (Fatture) e anagrafica partner/fornitori (Anagrafiche). */
     async function load() {
         await Promise.all([loadPassive(), loadFornitori()]);
     }

@@ -126,7 +126,7 @@ const ModIncarichi = (() => {
             const colors = {assistenza:'#6366f1',dpo:'#f59e0b',formazione:'#10b981',nis2:'#ef4444',ict:'#0ea5e9',digital:'#ec4899',sviluppo_software:'#8b5cf6',viaggio:'#14b8a6',noleggio:'#a3a3a3',altro:'#64748b'};
             return `<span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;background:${colors[t]||'#666'}22;color:${colors[t]||'#666'}">${UI.esc(UI.tipoCommessa(t))}</span>`;
         };
-        // In Vendite la commessa arriva fino alla fattura: l'incasso si segue in Incassi
+        // In Vendite la commessa arriva fino alla fattura: l'incasso si segue in Fatture
         const STATI = { attivo: ['Da fatturare', '#3b82f6'], parziale: ['Fatturata in parte', '#f59e0b'], fatturato: ['Fatturata', '#10b981'], pagato: ['Fatturata', '#10b981'] };
         const statoBadge = s => {
             const [testo, c] = STATI[s] || ['—', '#666'];

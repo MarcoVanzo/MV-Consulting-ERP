@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Fatture emesse (vista Incassi): KPI dagli Indicatori, grafico mensile, elenco con filtri.
+ * Fatture emesse (vista Fatture): KPI dagli Indicatori, grafico mensile, elenco con filtri.
  * Le fatture non pagate si vedono col filtro «Scadute»/«Da incassare»: non c'è più una scheda a parte.
  */
 const ModContabilita = (() => {
@@ -20,7 +20,7 @@ const ModContabilita = (() => {
 
     function renderKpis() {
         document.getElementById('contabilita-kpis').innerHTML = `
-            <div class="kpi-card kpi-blue"><div class="kpi-label">Fatturato</div><div class="kpi-value">${UI.formatCurrency(_kpis.fatturato)}</div><div class="kpi-sub">imponibile · ${UI.plurale(_kpis.num_documenti,'fattura','fatture')}</div></div>
+            <div class="kpi-card kpi-blue"><div class="kpi-label">Fatturato</div><div class="kpi-value">${UI.formatCurrency(_kpis.totale)}</div><div class="kpi-sub">IVA inclusa · ${UI.plurale(_kpis.num_documenti,'fattura','fatture')} · imponibile ${UI.formatCurrency(_kpis.fatturato)}</div></div>
             <div class="kpi-card kpi-green"><div class="kpi-label">Incassato</div><div class="kpi-value">${UI.formatCurrency(_kpis.incassato)}</div><div class="kpi-sub">IVA inclusa · ${UI.plurale(_kpis.num_incassati,'fattura saldata','fatture saldate')}</div></div>
             <div class="kpi-card kpi-yellow"><div class="kpi-label">Da incassare</div><div class="kpi-value">${UI.formatCurrency(_kpis.da_incassare)}</div><div class="kpi-sub">IVA inclusa · ${UI.plurale(_kpis.num_da_incassare,'fattura','fatture')}</div></div>
             <div class="kpi-card kpi-red"><div class="kpi-label">Scaduto</div><div class="kpi-value">${UI.formatCurrency(_kpis.scaduto)}</div><div class="kpi-sub">${UI.plurale(_kpis.num_scaduti,'fattura','fatture')} oltre la scadenza</div></div>`;
