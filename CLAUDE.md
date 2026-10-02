@@ -53,7 +53,7 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   andamento), Trasferte (viaggi, mezzi), Anagrafiche (clienti e prospect, partner e fornitori).
   Schede generiche `.vtabs/.vtab/.vpane` (`UI.initVtabs`), anno unico `UI.anno()` (selettori `.sel-anno`),
   router in `app.js` (tabella `CARICA`, indirizzo `#vista/scheda`). Stili in `css/viste.css`; su telefono il menu
-  diventa una barra in basso. Niente `prompt()`: `UI.chiedi()` (finestra con calendario).
+  diventa una barra in basso e le tabelle `.tabella-schede` diventano schede (etichette da `UI.initTabelleSchede`, titolo `.cella-titolo`). Niente `prompt()`: `UI.chiedi()` (finestra con calendario).
 - **Vendite** (dal 28/09/2026): il **lead** è un'offerta in stato `lead` (valore stimato, fonte, probabilità,
   prossima azione con data in `data_followup`); «Prepara l'offerta» la porta in bozza. **Ogni commessa nasce da
   un'offerta**: una commessa creata a mano o da lettera d'incarico registra un'offerta già accettata

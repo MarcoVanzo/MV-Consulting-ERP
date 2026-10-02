@@ -54,14 +54,14 @@ const ModIncarichi = (() => {
         const riga = f => `<tr data-f="${f.id}" data-cli="${f.cliente_id || 0}" data-ric="${f.ricorrente ? 1 : 0}">
             <td><input type="checkbox" class="dc-sel" aria-label="Seleziona fattura ${UI.esc(f.numero_fattura)}"></td>
             <td class="td-mono">${UI.esc(f.numero_fattura)}<br><span style="color:var(--text-muted)">${UI.formatDate(f.data_emissione)}</span></td>
-            <td class="dc-desc">${UI.esc((f.descrizione || '').replace(/\s+/g, ' ').slice(0, 90))}${f.ricorrente ? ' <span class="dc-tag">ricorrente</span>' : ''}</td>
+            <td class="dc-desc cella-titolo">${UI.esc((f.descrizione || '').replace(/\s+/g, ' ').slice(0, 90))}${f.ricorrente ? ' <span class="dc-tag">ricorrente</span>' : ''}</td>
             <td class="text-right">${UI.formatCurrency(f.imponibile)}</td>
             <td><select class="form-control dc-commessa">${opzioni(f)}</select>${f.proposta ? `<div class="dc-motivo">${UI.esc(f.proposta.motivo)}</div>` : ''}</td>
         </tr>`;
         const html = `<p class="dc-intro">${UI.plurale(fatture.length, 'fattura', 'fatture')} del ${UI.esc(UI.anno())} senza commessa, per ${UI.formatCurrency(totale)}.
             Conferma le proposte o scegli la commessa; se manca, seleziona le fatture di un cliente e creala qui sotto.</p>
             ${ordinati.map(([, g]) => `<h4 class="dc-cliente">${UI.esc(g.nome)} <span>${UI.formatCurrency(g.tot)}</span></h4>
-                <div class="table-container"><table class="data-table dc-tabella"><thead><tr><th></th><th>Fattura</th><th>Descrizione</th>
+                <div class="table-container"><table class="data-table dc-tabella tabella-schede"><thead><tr><th></th><th>Fattura</th><th>Descrizione</th>
                 <th class="text-right">Imponibile</th><th>Commessa</th></tr></thead><tbody>${g.righe.map(riga).join('')}</tbody></table></div>`).join('')}
             <div class="dc-crea">
                 <h4>Crea la commessa dalle fatture selezionate <span id="dc-sel-info"></span></h4>
@@ -142,7 +142,7 @@ const ModIncarichi = (() => {
             const protLabel = i.numero_protocollo ? `<span style="font-size:0.7rem;color:var(--accent-secondary);opacity:0.8" title="Protocollo"><i class="ph ph-hash"></i> ${UI.esc(i.numero_protocollo)}</span>` : '';
             return `<tr data-id="${UI.esc(i.id)}">
                 <td>${protLabel}</td>
-                <td class="td-primary">${cliente}</td>
+                <td class="td-primary cella-titolo">${cliente}</td>
                 <td>${tipoBadge(i.tipo_commessa)}</td>
                 <td>${UI.formatDate(i.data_incarico)}</td>
                 <td class="text-right td-primary">${UI.formatCurrency(valore)}</td>

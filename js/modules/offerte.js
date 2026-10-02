@@ -61,7 +61,7 @@ const ModOfferte = (() => {
             </div>
             <div class="table-container">
                 <div class="table-toolbar"><div class="filters-row" style="margin-bottom:0">${chips}</div></div>
-                <table class="data-table"><thead><tr>
+                <table class="data-table tabella-schede"><thead><tr>
                     <th>Numero</th><th>Cliente</th><th>Oggetto</th><th>Data</th>
                     <th class="text-right">Imponibile</th><th class="text-right">Margine prev.</th><th>Stato</th><th></th>
                 </tr></thead><tbody>${rows()}</tbody></table>
@@ -93,7 +93,7 @@ const ModOfferte = (() => {
             ].join('');
             return `<tr>
                 <td class="td-mono">${UI.esc(o.numero)}${o.versione > 1 ? ' v' + UI.esc(o.versione) : ''}${o.origine === 'cowork' ? ' <i class="ph ph-magic-wand" title="Importata da Cowork"></i>' : ''}</td>
-                <td class="td-primary">${UI.esc(o.cliente_nome_vis || '—')}${o.sottocliente_nome ? ` <span style="color:var(--text-muted)">/ ${UI.esc(o.sottocliente_nome)}</span>` : ''}</td>
+                <td class="td-primary cella-titolo">${UI.esc(o.cliente_nome_vis || '—')}${o.sottocliente_nome ? ` <span style="color:var(--text-muted)">/ ${UI.esc(o.sottocliente_nome)}</span>` : ''}</td>
                 <td>${UI.esc(o.oggetto)}${o.da_ricontattare == 1 ? ' <span class="badge badge-red">Ricontattare</span>' : ''}
                     ${o.prossima_azione && ['lead', 'bozza', 'inviata'].includes(o.stato) ? `<div class="td-sub">${UI.esc(o.prossima_azione)}${o.data_followup ? ' · ' + UI.formatDate(o.data_followup) : ''}</div>` : ''}</td>
                 <td>${UI.formatDate(o.data_offerta)}</td>

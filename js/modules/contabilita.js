@@ -83,7 +83,7 @@ const ModContabilita = (() => {
         tbody.innerHTML = _fatture.map(f => `<tr data-id="${UI.esc(f.id)}">
             <td class="td-mono">${UI.esc(f.numero_fattura)}</td>
             <td>${UI.formatDate(f.data_emissione)}</td>
-            <td class="td-primary">${UI.esc(f.cliente_nome||'—')}${f.sottocliente_nome?` <span style="color:var(--text-muted)">/ ${UI.esc(f.sottocliente_nome)}</span>`:''}</td>
+            <td class="td-primary cella-titolo">${UI.esc(f.cliente_nome||'—')}${f.sottocliente_nome?` <span style="color:var(--text-muted)">/ ${UI.esc(f.sottocliente_nome)}</span>`:''}</td>
             <td style="font-size:0.8rem;color:var(--text-muted)">${f.incarico_id?'<i class="ph ph-link" style="color:var(--accent-secondary)"></i> #'+UI.esc(f.incarico_id):'—'}</td>
             <td class="text-right">${UI.formatCurrency(f.imponibile)}</td>
             <td class="text-right td-primary">${UI.formatCurrency(f.importo_totale)}</td>

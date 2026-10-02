@@ -88,6 +88,7 @@ function initApplication(userData) {
 
     // ── Init core UI ──
     UI.initModalEvents();
+    UI.initTabelleSchede();
 
     // ── Navigazione: sei viste, ognuna con le sue schede; indirizzo nell'URL (#vista/scheda) ──
     const CARICA = {

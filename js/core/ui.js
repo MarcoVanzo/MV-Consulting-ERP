@@ -327,6 +327,29 @@ const UI = (() => {
         onChange?.(vista.id.replace('view-', ''), paneId);
     }
 
+    /**
+     * Tabelle .tabella-schede: su telefono diventano schede impilate (css/viste.css). Ogni cella prende
+     * come data-label l'intestazione della sua colonna; un osservatore lo rifà a ogni nuovo render.
+     */
+    function etichettaTabelle(root = document) {
+        root.querySelectorAll('table.tabella-schede').forEach(t => {
+            const nomi = [...t.querySelectorAll('thead th')].map(th => th.textContent.trim());
+            t.querySelectorAll('tbody tr').forEach(tr => {
+                if (tr.children.length !== nomi.length) return; // righe vuote con colspan
+                [...tr.children].forEach((td, i) => { if (nomi[i]) td.dataset.label = nomi[i]; else td.classList.add('senza-etichetta'); });
+            });
+        });
+    }
+    function initTabelleSchede() {
+        etichettaTabelle();
+        let attesa = false;
+        new MutationObserver(() => {
+            if (attesa) return;
+            attesa = true;
+            requestAnimationFrame(() => { attesa = false; etichettaTabelle(); });
+        }).observe(document.body, { childList: true, subtree: true });
+    }
+
     function isModalOpen() {
         return document.getElementById('modal-overlay').classList.contains('active');
     }
@@ -335,7 +358,7 @@ const UI = (() => {
         toast, openModal, closeModal, initModalEvents, copyText, isModalOpen,
         formatCurrency, formatDate, formatNumber,
         statoBadge, populateYearSelect, esc, safeUrl, todayLocal, tipoCommessa, tipiCommessaOptions,
-        cercaPiva, testoGiaPresenti, plurale, chiedi, anno, impostaAnno, initAnno, initVtabs, mostraPane
+        cercaPiva, testoGiaPresenti, plurale, chiedi, anno, impostaAnno, initAnno, initVtabs, mostraPane, initTabelleSchede
     };
 })();
 
