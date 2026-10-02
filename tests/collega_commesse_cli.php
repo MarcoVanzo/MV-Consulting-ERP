@@ -117,5 +117,36 @@ check('fattura collegata alla commessa', (int)$pdo->query("SELECT incarico_id FR
 $pr = $svc->proposteCollegamento(2026);
 check('non è più tra le proposte', !in_array(7, array_map(fn($x) => (int)$x['id'], $pr['fatture']), true));
 
+echo "Tutte le commesse mancanti\n";
+$pdo->exec("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (4, 'Squadra Delta')");
+$f->execute([20, '20/001', '2026-06-10', 4, 'Viaggio squadra a Roma', 1200, 1464]);
+$f->execute([21, '21/001', '2026-06-12', 3, 'Corso di formazione privacy Prot. n. 120/2026', 100, 122]);
+$f->execute([22, '22/001', '2026-06-15', 3, 'Attività extra', 50, 61]);
+$f->execute([23, '23/001', '2026-06-20', null, 'Senza cliente', 80, 97.6]);
+$f->execute([24, '24/001', '2026-06-21', 2, '[Nota di credito] storno', -50, -61]);
+foreach ([[30, '2025-01-31'], [31, '2025-02-28'], [32, '2025-03-31'], [33, '2026-04-30']] as [$fid, $d]) {
+    $f->execute([$fid, "$fid/001", $d, 1, 'Canone noleggio software', 90, 109.8]);
+}
+check('tipo dal testo', CommessaService::tipoDalTesto('Viaggio squadra') === 'viaggio' && CommessaService::tipoDalTesto('Varie') === 'altro');
+$solo = $svc->creaCommesseMancanti([20]);
+check('solo le fatture indicate', $solo['create'] === 1 && (int)$pdo->query("SELECT COUNT(*) FROM {$p}fatture WHERE incarico_id IS NULL AND id = 22")->fetchColumn() === 1, $solo);
+$inc = $pdo->query("SELECT i.* FROM {$p}incarichi i JOIN {$p}fatture f ON f.incarico_id = i.id WHERE f.id = 20")->fetch();
+check('commessa singola: valore, tipo e descrizione dalla fattura', abs((float)$inc['importo_totale'] - 1200) < 0.01
+    && $inc['tipo_commessa'] === 'viaggio' && $inc['descrizione'] === 'Viaggio squadra a Roma', $inc);
+$es = $svc->creaCommesseMancanti();
+check('protocollo citato → collegata alla commessa esistente', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 21")->fetchColumn() === 10);
+check('una sola commessa con residuo → resta da scegliere a mano', $es['da_scegliere'] >= 1
+    && $pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 8")->fetchColumn() === null, $es);
+check('nota di credito e fattura senza cliente saltate', $pdo->query("SELECT COUNT(*) FROM {$p}fatture WHERE id IN (23, 24) AND incarico_id IS NULL")->fetchColumn() == 2);
+$canone = $pdo->query("SELECT DISTINCT incarico_id FROM {$p}fatture WHERE id IN (30, 31, 32, 33)")->fetchAll(PDO::FETCH_COLUMN);
+check('canone ripetuto → una commessa ricorrente', count($canone) === 1 && $canone[0] !== null, $canone);
+$nRate = (int)$pdo->query("SELECT COUNT(*) FROM {$p}incarichi_rate WHERE incarico_id = " . (int)$canone[0])->fetchColumn();
+check('rate per tutti i mesi fatturati (gen 2025 → apr 2026)', $nRate === 16, $nRate);
+check('canone di assistenza 150 € (3 volte) → ricorrente', (int)$pdo->query("SELECT COUNT(DISTINCT incarico_id) FROM {$p}fatture WHERE id IN (10, 11, 12)")->fetchColumn() === 1);
+$rimaste = (int)$pdo->query("SELECT COUNT(*) FROM {$p}fatture WHERE incarico_id IS NULL AND imponibile > 0 AND cliente_id IS NOT NULL")->fetchColumn();
+check('restano solo quelle da scegliere', $rimaste === $es['da_scegliere'], [$rimaste, $es]);
+$di = $svc->creaCommesseMancanti();
+check("seconda passata: non crea niente", $di["create"] === 0 && $di["collegate"] === 0, [$di, $pdo->query("SELECT id, cliente_id, imponibile FROM {$p}fatture WHERE incarico_id IN (" . implode(",", $di["commesse"] ?: [0]) . ")")->fetchAll()]);
+
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);

@@ -36,6 +36,10 @@ const ModImporta = (() => {
     let _fase = 'scelta'; // scelta → anteprima → fatto
     let _seq = 0;
     let _tipoTutte = ''; // tipo di commessa scelto una volta per tutte le lettere d'incarico
+    // Opzione ricordata su questo dispositivo: dopo l'import crea le commesse che mancano alle fatture emesse
+    const OPZ_COMMESSE = 'erp_importa_crea_commesse';
+    const FATTURE_EMESSE = ['fattura', 'lista_attive', 'fattura_pdf'];
+    let _creaCommesse = (() => { try { return localStorage.getItem(OPZ_COMMESSE) === '1'; } catch { return false; } })();
 
     // ── Apertura e file ──────────────────────────────────
 
@@ -213,6 +217,12 @@ const ModImporta = (() => {
             for (const v of daFare) await importa(v);
             // Fatture nuove: i movimenti già importati e rimasti da riconciliare le cercano di nuovo
             const FATTURE = ['fattura', 'lista_passive', 'lista_attive', 'fattura_pdf'];
+            if (_creaCommesse && daFare.some(v => v.stato === 'importato' && FATTURE_EMESSE.includes(v.tipo))) {
+                try {
+                    const r = await Store.api('crea_mancanti', 'commesse', {});
+                    if (r?.create || r?.collegate) UI.toast(r.messaggio);
+                } catch (e) { UI.toast('Commesse non create: ' + (e.message || 'errore'), 'error'); }
+            }
             if (window.ModRiconciliazione && daFare.some(v => v.stato === 'importato' && FATTURE.includes(v.tipo))) {
                 await ModRiconciliazione.riabbina(true);
             }
@@ -520,6 +530,14 @@ const ModImporta = (() => {
                     ${v.riassunto.avvisi.length ? `<details class="imp-avvisi"><summary>${UI.plurale(v.riassunto.avvisi.length, 'nota', 'note')}</summary><ul>${v.riassunto.avvisi.map(a => `<li>${UI.esc(a)}</li>`).join('')}</ul></details>` : ''}` : ''}
             </div>`;
         }).join('') || '';
+        if (_fase !== 'fatto' && _voci.some(v => FATTURE_EMESSE.includes(v.tipo))) {
+            box.insertAdjacentHTML('beforeend', `<label class="imp-opzione"><input type="checkbox" id="imp-crea-commesse" ${_creaCommesse ? 'checked' : ''}>
+                Crea le commesse che mancano alle fatture emesse</label>`);
+            document.getElementById('imp-crea-commesse').addEventListener('change', e => {
+                _creaCommesse = e.target.checked;
+                try { localStorage.setItem(OPZ_COMMESSE, _creaCommesse ? '1' : '0'); } catch { /* solo comodità */ }
+            });
+        }
         collegaTabella(box);
         box.querySelectorAll('.imp-voce').forEach(el => {
             const v = _voci.find(x => x.id === +el.dataset.id);

@@ -60,6 +60,9 @@ const ModIncarichi = (() => {
         </tr>`;
         const html = `<p class="dc-intro">${UI.plurale(fatture.length, 'fattura', 'fatture')} del ${UI.esc(UI.anno())} senza commessa, per ${UI.formatCurrency(totale)}.
             Conferma le proposte o scegli la commessa; se manca, seleziona le fatture di un cliente e creala qui sotto.</p>
+            <div class="dc-tutte"><button class="btn btn-sm btn-secondary" type="button" id="dc-crea-tutte"><i class="ph ph-magic-wand"></i> Crea tutte le commesse mancanti</button>
+                <span>Di tutti gli anni: collega le fatture con protocollo, offerta o rata corrispondente; per le altre crea una commessa per fattura
+                (una sola a canone per le fatture che si ripetono). Le proposte incerte restano qui.</span></div>
             ${ordinati.map(([, g]) => `<h4 class="dc-cliente">${UI.esc(g.nome)} <span>${UI.formatCurrency(g.tot)}</span></h4>
                 <div class="table-container"><table class="data-table dc-tabella tabella-schede"><thead><tr><th></th><th>Fattura</th><th>Descrizione</th>
                 <th class="text-right">Imponibile</th><th>Commessa</th></tr></thead><tbody>${g.righe.map(riga).join('')}</tbody></table></div>`).join('')}
@@ -83,6 +86,7 @@ const ModIncarichi = (() => {
         };
         body.querySelectorAll('.dc-sel').forEach(c => c.addEventListener('change', aggiornaSel));
         document.getElementById('dc-crea').addEventListener('click', creaCommessa);
+        document.getElementById('dc-crea-tutte').addEventListener('click', creaTutte);
     }
 
     async function salvaCollegamenti() {
@@ -114,6 +118,16 @@ const ModIncarichi = (() => {
             await load();
             apriCollega();
         } catch (e) { UI.toast(e.message || 'Errore', 'error'); }
+    }
+
+    async function creaTutte(e) {
+        e.currentTarget.disabled = true;
+        try {
+            const r = await Store.api('crea_mancanti', 'commesse', {});
+            UI.toast(r?.messaggio || 'Commesse create');
+            await load();
+            if ((r?.da_scegliere || 0) > 0) apriCollega(); else UI.closeModal();
+        } catch (err) { UI.toast(err.message || 'Errore', 'error'); e.currentTarget.disabled = false; }
     }
 
     function renderTable() {
