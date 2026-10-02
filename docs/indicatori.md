@@ -28,7 +28,8 @@ situazione di oggi gli incassi aperti si vedono tutti.
 | Valore commesse | somma di `incarichi.importo_totale` | netto IVA |
 | Fatturato commesse | imponibile delle fatture collegate alla commessa | netto IVA |
 | Fatturato senza commessa | fatturato dell'anno (stessa definizione e stessi clienti esclusi di «Fatturato») delle fatture non collegate a una commessa: è il motivo per cui «Fatturato su commesse» in Vendite non coincide con «Fatturato» in Incassi, insieme alle date (commessa dell'anno vs fattura dell'anno) | netto IVA |
-| Incassato commesse | imponibile delle fatture collegate e pagate | netto IVA |
+| Incassato commesse | imponibile delle fatture collegate e pagate (non più mostrato in Vendite, che si ferma alla fattura) | netto IVA |
+| Margine previsto (Vendite) | valore delle commesse dell'anno − costi partner previsti (`CommessaService::margini`) | netto IVA |
 | Da fatturare (commesse) | valore della commessa non ancora coperto da fatture, mai negativo | netto IVA |
 | Rate da fatturare | rate senza fattura con data prevista entro l'orizzonte (le rate senza data contano sempre), escluse quelle di commesse già fatturate per intero | netto IVA |
 | Pipeline | offerte in stato `inviata` (le bozze sono a parte: non le ha ancora viste nessuno) | netto IVA |
@@ -40,9 +41,9 @@ situazione di oggi gli incassi aperti si vedono tutti.
 | Trasferte: indennità | per giornata con cliente (TrasferteRegole): vitto e alloggio pagati, da chiunque, la riducono | € |
 | Trasferte: da rimborsare | rimborso km + indennità + spese pagate di tasca propria; le spese con carta aziendale o bonifico le ha già pagate la società | € |
 
-«Incassato» ha due basi volutamente diverse: nelle fatture è quello che il cliente ha pagato
-(IVA inclusa), nelle commesse è l'imponibile, per confrontarlo col valore della commessa.
-Le etichette nelle schede dicono sempre quale delle due si sta guardando.
+Ogni vista guarda una fase sola: Vendite arriva fino alla fattura (valore, fatturato, da fatturare,
+margine previsto, tutto netto IVA); gli incassi si leggono solo in Incassi. Così lo stesso nome non
+compare in due viste con due numeri diversi.
 
 ## Stato «pagata»
 

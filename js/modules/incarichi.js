@@ -21,7 +21,7 @@ const ModIncarichi = (() => {
             <div class="kpi-card kpi-blue"><div class="kpi-label">Valore commesse</div><div class="kpi-value">${UI.formatCurrency(k.valore)}</div><div class="kpi-sub">imponibile · ${UI.plurale(k.num_commesse,'commessa','commesse')}</div></div>
             <div class="kpi-card kpi-green"><div class="kpi-label">Fatturato su commesse</div><div class="kpi-value">${UI.formatCurrency(k.fatturato)}</div><div class="kpi-sub">${UI.plurale(k.num_fatturati,'completamente fatturata','completamente fatturate')}</div></div>
             <div class="kpi-card kpi-yellow"><div class="kpi-label">Da fatturare</div><div class="kpi-value">${UI.formatCurrency(k.da_fatturare)}</div><div class="kpi-sub">${UI.plurale(k.num_da_fatturare,'commessa','commesse')}</div></div>
-            <div class="kpi-card kpi-red"><div class="kpi-label">Incassato</div><div class="kpi-value">${UI.formatCurrency(k.incassato_netto)}</div><div class="kpi-sub">imponibile delle fatture pagate</div></div>`;
+            <div class="kpi-card kpi-purple"><div class="kpi-label">Margine previsto</div><div class="kpi-value">${UI.formatCurrency(k.margine_previsto)}</div><div class="kpi-sub">${k.costi_previsti > 0 ? `dopo ${UI.formatCurrency(k.costi_previsti)} di costi partner` : 'nessun costo partner previsto'}</div></div>`;
     }
 
     // ── Fatture senza commessa: avviso sotto i KPI e finestra per collegarle ──
@@ -119,24 +119,25 @@ const ModIncarichi = (() => {
     function renderTable() {
         const tbody = document.getElementById('tbody-incarichi');
         let data = _incarichi;
-        if (_filter) data = data.filter(i => i.stato === _filter);
-        if (!data.length) { tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="ph ph-clipboard-text"></i><h3>Nessun incarico</h3></div></td></tr>'; return; }
+        if (_filter) data = data.filter(i => _filter === 'fatturato' ? ['fatturato', 'pagato'].includes(i.stato) : i.stato === _filter);
+        if (!data.length) { tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="ph ph-clipboard-text"></i><h3>Nessuna commessa</h3></div></td></tr>'; return; }
 
         const tipoBadge = t => {
             const colors = {assistenza:'#6366f1',dpo:'#f59e0b',formazione:'#10b981',nis2:'#ef4444',ict:'#0ea5e9',digital:'#ec4899',sviluppo_software:'#8b5cf6',viaggio:'#14b8a6',noleggio:'#a3a3a3',altro:'#64748b'};
             return `<span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;background:${colors[t]||'#666'}22;color:${colors[t]||'#666'}">${UI.esc(UI.tipoCommessa(t))}</span>`;
         };
+        // In Vendite la commessa arriva fino alla fattura: l'incasso si segue in Incassi
+        const STATI = { attivo: ['Da fatturare', '#3b82f6'], parziale: ['Fatturata in parte', '#f59e0b'], fatturato: ['Fatturata', '#10b981'], pagato: ['Fatturata', '#10b981'] };
         const statoBadge = s => {
-            const c = {attivo:'#3b82f6',parziale:'#f59e0b',fatturato:'#8b5cf6',pagato:'#10b981'};
-            return `<span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;background:${c[s]||'#666'}22;color:${c[s]||'#666'}">${UI.esc(s?s.charAt(0).toUpperCase()+s.slice(1):'—')}</span>`;
+            const [testo, c] = STATI[s] || ['—', '#666'];
+            return `<span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;background:${c}22;color:${c};white-space:nowrap">${testo}</span>`;
         };
 
         tbody.innerHTML = data.map(i => {
-            const tot = parseFloat(i.importo_totale)||1;
-            const fatt = parseFloat(i.importo_fatturato)||0;
-            const pag = parseFloat(i.importo_pagato)||0;
-            const pctF = Math.min((fatt/tot)*100,100).toFixed(0);
-            const pctP = Math.min((pag/tot)*100,100).toFixed(0);
+            const valore = parseFloat(i.importo_totale) || 0;
+            const fatt = parseFloat(i.importo_fatturato) || 0;
+            const pctF = Math.min(fatt / (valore || 1) * 100, 100).toFixed(0);
+            const margine = valore - (parseFloat(i.costi_previsti) || 0);
             const cliente = UI.esc(i.cliente_nome||'—') + (i.sottocliente_nome ? ` <span style="color:var(--text-muted)">/ ${UI.esc(i.sottocliente_nome)}</span>` : '');
             const protLabel = i.numero_protocollo ? `<span style="font-size:0.7rem;color:var(--accent-secondary);opacity:0.8" title="Protocollo"><i class="ph ph-hash"></i> ${UI.esc(i.numero_protocollo)}</span>` : '';
             return `<tr data-id="${UI.esc(i.id)}">
@@ -144,22 +145,14 @@ const ModIncarichi = (() => {
                 <td class="td-primary">${cliente}</td>
                 <td>${tipoBadge(i.tipo_commessa)}</td>
                 <td>${UI.formatDate(i.data_incarico)}</td>
-                <td class="text-right">${parseFloat(i.num_giornate)||0}</td>
-                <td class="text-right td-primary">${UI.formatCurrency(i.importo_totale)}</td>
-                <td style="min-width:140px">
-                    <div style="display:flex;flex-direction:column;gap:2px">
-                        <div style="display:flex;align-items:center;gap:6px;font-size:0.7rem">
-                            <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
-                                <div style="height:100%;width:${pctF}%;background:#6366f1;border-radius:3px;transition:width .3s"></div>
-                            </div>
-                            <span style="color:var(--text-muted);min-width:32px">${pctF}%</span>
+                <td class="text-right td-primary">${UI.formatCurrency(valore)}</td>
+                <td class="text-right">${UI.formatCurrency(margine)}${valore > 0 && margine < valore ? ` <span style="color:var(--text-muted)">${Math.round(margine / valore * 100)}%</span>` : ''}</td>
+                <td style="min-width:120px">
+                    <div style="display:flex;align-items:center;gap:6px;font-size:0.7rem" title="${UI.esc(UI.formatCurrency(fatt))} fatturati">
+                        <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
+                            <div style="height:100%;width:${pctF}%;background:#6366f1;border-radius:3px;transition:width .3s"></div>
                         </div>
-                        <div style="display:flex;align-items:center;gap:6px;font-size:0.7rem">
-                            <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
-                                <div style="height:100%;width:${pctP}%;background:#10b981;border-radius:3px;transition:width .3s"></div>
-                            </div>
-                            <span style="color:var(--text-muted);min-width:32px">${pctP}%</span>
-                        </div>
+                        <span style="color:var(--text-muted);min-width:32px">${pctF}%</span>
                     </div>
                 </td>
                 <td>${statoBadge(i.stato)}</td>

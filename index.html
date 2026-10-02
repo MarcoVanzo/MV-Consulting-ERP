@@ -232,7 +232,6 @@
                 <div class="vtabs" role="tablist" aria-label="Vendite">
                     <button class="vtab active" role="tab" type="button" data-pane="comm-offerte" aria-selected="true"><i class="ph ph-file-text" aria-hidden="true"></i> Offerte</button>
                     <button class="vtab" role="tab" type="button" data-pane="tab-incarichi" aria-selected="false"><i class="ph ph-briefcase" aria-hidden="true"></i> Commesse</button>
-                    <button class="vtab" role="tab" type="button" data-pane="comm-margini" aria-selected="false"><i class="ph ph-chart-pie-slice" aria-hidden="true"></i> Margini</button>
                 </div>
                 <div class="vpane active" id="comm-offerte" role="tabpanel"></div>
                 <div class="vpane" id="tab-incarichi" role="tabpanel">
@@ -247,11 +246,10 @@
                     <div class="table-container">
                         <div class="table-toolbar">
                             <div class="filters-row" style="margin-bottom:0">
-                                <span class="filter-chip active" data-inc-stato="">Tutti</span>
-                                <span class="filter-chip" data-inc-stato="attivo">Attivi</span>
-                                <span class="filter-chip" data-inc-stato="parziale">Parziali</span>
-                                <span class="filter-chip" data-inc-stato="fatturato">Fatturati</span>
-                                <span class="filter-chip" data-inc-stato="pagato">Pagati</span>
+                                <span class="filter-chip active" data-inc-stato="">Tutte</span>
+                                <span class="filter-chip" data-inc-stato="attivo">Da fatturare</span>
+                                <span class="filter-chip" data-inc-stato="parziale">Fatturate in parte</span>
+                                <span class="filter-chip" data-inc-stato="fatturato">Fatturate</span>
                             </div>
                         </div>
                         <table class="data-table" id="table-incarichi">
@@ -261,20 +259,19 @@
                                     <th>Cliente</th>
                                     <th>Tipo</th>
                                     <th>Data</th>
-                                    <th class="text-right">GG</th>
-                                    <th class="text-right">Importo</th>
-                                    <th>Progresso</th>
+                                    <th class="text-right">Valore</th>
+                                    <th class="text-right">Margine prev.</th>
+                                    <th>Fatturato</th>
                                     <th>Stato</th>
                                     <th style="width:80px"></th>
                                 </tr>
                             </thead>
                             <tbody id="tbody-incarichi">
-                                <tr><td colspan="9"><div class="empty-state"><i class="ph ph-clipboard-text"></i><h3>Nessun incarico</h3><p>Carica il primo incarico con il pulsante sopra</p></div></td></tr>
+                                <tr><td colspan="9"><div class="empty-state"><i class="ph ph-clipboard-text"></i><h3>Nessuna commessa</h3><p>Crea la prima commessa con il pulsante sopra</p></div></td></tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
-                <div class="vpane" id="comm-margini" role="tabpanel"></div>
             </section>
 
             <!-- ═══ VIEW: INCASSI (fatture emesse e ricevute) ═══ -->

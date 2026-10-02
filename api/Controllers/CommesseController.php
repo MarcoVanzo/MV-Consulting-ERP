@@ -204,18 +204,6 @@ class CommesseController {
         Response::json(true, 'Incasso registrato');
     }
 
-    public function margini() {
-        $year = (int)($_POST['year'] ?? $_GET['year'] ?? date('Y'));
-        $rows = $this->svc->margini($year);
-        $tot = ['ricavo_previsto' => 0, 'costi_previsti' => 0, 'fatturato' => 0, 'costi_effettivi' => 0, 'incassato' => 0, 'pagato_partner' => 0];
-        foreach ($rows as $r) foreach ($tot as $k => $v) $tot[$k] += (float)$r[$k];
-        $tot['margine_previsto'] = round($tot['ricavo_previsto'] - $tot['costi_previsti'], 2);
-        $tot['margine_effettivo'] = round($tot['fatturato'] - $tot['costi_effettivi'], 2);
-        $tot['margine_previsto_pct'] = $tot['ricavo_previsto'] > 0 ? round($tot['margine_previsto'] / $tot['ricavo_previsto'] * 100, 1) : null;
-        $tot['margine_effettivo_pct'] = $tot['fatturato'] > 0 ? round($tot['margine_effettivo'] / $tot['fatturato'] * 100, 1) : null;
-        Response::json(true, '', ['commesse' => $rows, 'totali' => $tot]);
-    }
-
     public function scadenzario() {
         $giorni = max(1, min(60, (int)($_POST['giorni'] ?? $_GET['giorni'] ?? 7)));
         Response::json(true, '', (new Scadenzario($this->pdo, $this->prefix))->calcola($giorni));

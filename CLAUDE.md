@@ -49,7 +49,7 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   nel campo `originale` quando al server arriva solo il testo estratto con pdf.js.
 - **Viste** (dal 28/09/2026): sei voci di menu, ognuna con le sue schede e senza sovrapposizioni —
   Oggi (dashboard, `js/modules/oggi.js` su `indicatori/oggi`, sotto le scadenze nel dettaglio di `commerciale.js`),
-  Vendite (offerte, commesse, margini), Incassi (fatture emesse e ricevute), Banca (movimenti, da classificare,
+  Vendite (offerte, commesse con margine previsto: si ferma alla fattura, niente incassi), Incassi (fatture emesse e ricevute), Banca (movimenti, da classificare,
   andamento), Trasferte (viaggi, mezzi), Anagrafiche (clienti e prospect, partner e fornitori).
   Schede generiche `.vtabs/.vtab/.vpane` (`UI.initVtabs`), anno unico `UI.anno()` (selettori `.sel-anno`),
   router in `app.js` (tabella `CARICA`, indirizzo `#vista/scheda`). Stili in `css/viste.css`; su telefono il menu

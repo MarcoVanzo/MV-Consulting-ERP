@@ -46,7 +46,7 @@ class ApiRouter {
         'offerte'      => ['list', 'get', 'prossimo_numero', 'documento'],
         'fornitori'    => ['list', 'costi_fornitore', 'documento_costo'],
         'passive'      => ['list'],
-        'commesse'     => ['get', 'margini', 'scadenzario', 'fatture_libere', 'da_collegare'],
+        'commesse'     => ['get', 'scadenzario', 'fatture_libere', 'da_collegare'],
         'indicatori'   => ['riepilogo', 'oggi'],
         'spese'        => ['list', 'documento'],
         'riconciliazione' => ['movimenti', 'proposte', 'documenti_aperti'],
@@ -519,7 +519,6 @@ class ApiRouter {
             case 'da_collegare':    $ctrl->daCollegare(); break;
             case 'collega_commessa': $ctrl->collegaACommessa($data); break;
             case 'crea_da_fatture': $ctrl->creaDaFatture($data); break;
-            case 'margini':         $ctrl->margini(); break;
             case 'segna_incassata': $ctrl->segnaIncassata($data); break;
             case 'scadenzario':     $ctrl->scadenzario(); break;
             default:                Response::json(false, "Azione commesse non supportata: $action");
