@@ -148,5 +148,30 @@ check('restano solo quelle da scegliere', $rimaste === $es['da_scegliere'], [$ri
 $di = $svc->creaCommesseMancanti();
 check("seconda passata: non crea niente", $di["create"] === 0 && $di["collegate"] === 0, [$di, $pdo->query("SELECT id, cliente_id, imponibile FROM {$p}fatture WHERE incarico_id IN (" . implode(",", $di["commesse"] ?: [0]) . ")")->fetchAll()]);
 
+echo "Viaggi in acconto e saldo, note di credito\n";
+$pdo->exec("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (5, 'Sport Viaggi')");
+foreach ([
+    [40, '1AV', '2026-03-17', 5, 'EXACT Trip - Italy, Volleyball which is scheduled from 30 June to 6 July 2026: 40% within March', 16800],
+    [41, '12AV', '2026-06-12', 5, 'EXACT Trip - Italy, Volleyball which is scheduled from 30 June to 6 July 2026: balance', 25200],
+    [42, '16AV', '2026-06-23', 5, 'the EXACT Trip - Italy, Volleyball which is scheduled from 30 June to 6 July 2026: balance', 22350],
+    [43, '17AV', '2026-06-23', 5, "[Nota di credito]\r\nstorno fattura n.12AV del 12/06/26 per errata fatturazione", -25200],
+    [44, '19AV', '2026-07-30', 5, 'Costi extra ciaggi', 51467.9],
+    [45, '21AV', '2026-09-10', 5, "[Nota di credito]\r\nCosti extra viaggi", -51467.9],
+    [46, '2AV', '2026-03-17', 5, 'EXACT Trip - Italy, Basket 1, which is scheduled from 21 July to 28 July 2026: 40%', 27500],
+] as $r) $f->execute([$r[0], $r[1], $r[2], $r[3], $r[4], $r[5], $r[5]]);
+$es = $svc->creaCommesseMancanti([40, 41, 42, 43, 44, 45, 46]);
+$v = $pdo->query("SELECT DISTINCT incarico_id FROM {$p}fatture WHERE id IN (40, 41, 42, 43)")->fetchAll(PDO::FETCH_COLUMN);
+check('acconto, saldo e nota dello stesso viaggio: una commessa', count($v) === 1 && $v[0] !== null, $v);
+$inc = $pdo->query("SELECT * FROM {$p}incarichi WHERE id = " . (int)$v[0])->fetch();
+check('valore al netto della nota', abs((float)$inc['importo_totale'] - 39150) < 0.01, $inc['importo_totale']);
+check('tipo viaggio, descrizione = intestazione', $inc['tipo_commessa'] === 'viaggio'
+    && $inc['descrizione'] === 'EXACT Trip - Italy, Volleyball which is scheduled from 30 June to 6 July 2026', $inc);
+check('fattura stornata per intero: nessuna commessa', $pdo->query("SELECT COUNT(*) FROM {$p}fatture WHERE id IN (44, 45) AND incarico_id IS NULL")->fetchColumn() == 2, $es);
+check('altro viaggio: commessa a parte', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 46")->fetchColumn() !== (int)$v[0]);
+$f->execute([47, '22AV', '2026-09-20', 5, '[Nota di credito] storno parziale ft. 2AV', -500, -500]);
+$es = $svc->creaCommesseMancanti([47]);
+check('nota su fattura già in commessa: collegata', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 47")->fetchColumn()
+    === (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 46")->fetchColumn() && $es['collegate'] === 1, $es);
+
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);

@@ -240,12 +240,20 @@ class IncarchiController {
         }
         // Margine previsto dell'anno: stessa definizione della scheda commessa (CommessaService::margini)
         $costi = 0.0;
-        foreach ((new CommessaService($this->pdo, $p))->margini((int)$year) as $r) $costi += (float)$r['costi_previsti'];
+        $kpis['num_con_costi'] = 0;
+        $kpis['valore_con_costi'] = 0.0;
+        foreach ((new CommessaService($this->pdo, $p))->margini((int)$year) as $r) {
+            $costi += (float)$r['costi_previsti'];
+            // Il margine dice qualcosa solo dove i costi sono registrati
+            if ((float)$r['costi_previsti'] > 0) { $kpis['num_con_costi']++; $kpis['valore_con_costi'] += (float)$r['ricavo_previsto']; }
+        }
+        $kpis['valore_con_costi'] = round($kpis['valore_con_costi'], 2);
         $kpis['costi_previsti'] = round($costi, 2);
         $kpis['margine_previsto'] = round((float)$kpis['valore'] - $costi, 2);
         $kpisFatture = $ind->fatture((int)$year, $ind->clientiEsclusi());
         // Fatturato dell'anno che la card «Fatturato su commesse» non vede: spiega la differenza con Incassi
         $kpis['fatturato_senza_commessa'] = $ind->fatture((int)$year, null, null, true)['fatturato'];
+        $kpis['ponte'] = $ind->ponteFatturato((int)$year);
 
         // Per tipo commessa
         $stmt2 = $this->pdo->prepare("SELECT 

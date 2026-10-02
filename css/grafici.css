@@ -1,0 +1,48 @@
+/* Grafici (js/core/grafici.js): schede in griglia, una colonna su telefono */
+.graf-griglia { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; padding: 0 32px 20px; }
+.graf { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 16px 18px; min-width: 0; }
+.graf header { margin-bottom: 12px; }
+.graf h3 { font-size: 0.9rem; margin: 0; color: var(--text-primary); }
+.graf header p { font-size: 0.75rem; color: var(--text-muted); margin: 2px 0 0; }
+.graf-vuoto { color: var(--text-muted); font-size: 0.8rem; padding: 24px 0; text-align: center; }
+
+.graf-barre { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.graf-riga { display: flex; justify-content: space-between; gap: 8px; font-size: 0.78rem; margin-bottom: 4px; }
+.graf-etich { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graf-val { color: var(--text-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.graf-traccia { height: 8px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; }
+.graf-barra { height: 100%; border-radius: 4px; min-width: 2px; }
+.graf-barre .evidenzia .graf-etich, .graf-barre .evidenzia .graf-val { color: var(--accent-red); font-weight: 600; }
+
+.graf-impilata { display: flex; height: 22px; border-radius: 6px; overflow: hidden; gap: 2px; }
+.graf-legenda { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; font-size: 0.78rem; color: var(--text-secondary); }
+.graf-legenda li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.graf-legenda i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.graf-legenda b { margin-left: auto; color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.graf-legenda span { color: var(--text-muted); min-width: 34px; text-align: right; }
+
+.graf-ciambella { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.graf-ciambella svg { width: 140px; height: 140px; flex: none; margin: 0 auto; }
+.graf-ciambella .graf-legenda { flex: 1 1 180px; margin: 0; }
+.graf-ciambella .graf-legenda li { overflow: hidden; white-space: nowrap; }
+.graf-c1 { font-size: 18px; font-weight: 700; fill: var(--text-primary); }
+.graf-c2 { font-size: 7px; fill: var(--text-muted); }
+
+.graf-div-testa { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-muted); margin-bottom: 6px; }
+.graf-div { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.graf-div li { display: grid; grid-template-columns: 1fr minmax(70px, auto) 1fr; align-items: center; gap: 8px; font-size: 0.75rem; }
+.graf-div-sx, .graf-div-dx { display: flex; align-items: center; gap: 6px; height: 10px; }
+.graf-div-sx { justify-content: flex-end; }
+.graf-div-sx .graf-barra, .graf-div-dx .graf-barra { height: 10px; }
+.graf-div span { color: var(--text-muted); font-variant-numeric: tabular-nums; font-size: 0.7rem; }
+.graf-div .graf-div-etich { color: var(--text-secondary); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; font-size: 0.75rem; }
+
+@media (max-width: 768px) {
+    .graf-griglia { padding: 0 16px 16px; grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .graf-barra, .graf-impilata > div { animation: graf-cresce .6s ease-out both; transform-origin: left; }
+    .graf-div-sx .graf-barra { transform-origin: right; }
+    @keyframes graf-cresce { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+}

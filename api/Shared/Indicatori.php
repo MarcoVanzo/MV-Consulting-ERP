@@ -130,6 +130,47 @@ class Indicatori
         return $this->numeri($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
     }
 
+    /**
+     * Anzianità del da incassare (fatture emesse non pagate dell'anno, IVA inclusa) per giorni dalla scadenza:
+     * a_scadere (scadenza futura o assente), 0–30, 31–60, oltre 60. La somma è il «Da incassare» di fatture().
+     */
+    public function anzianitaCrediti(int $anno, ?array $esclusi = null): array
+    {
+        $esclusi = $esclusi ?? $this->clientiEsclusi();
+        [$where, $params] = $this->periodo('data_emissione', $anno);
+        if ($esclusi) $where .= ' AND COALESCE(cliente_id, 0) NOT IN (' . implode(',', array_map('intval', $esclusi)) . ')';
+        $stmt = $this->pdo->prepare("SELECT data_scadenza, importo_totale FROM {$this->p}fatture WHERE stato <> 'pagata' AND $where");
+        $stmt->execute($params);
+        $r = ['a_scadere' => 0.0, 'giorni_0_30' => 0.0, 'giorni_31_60' => 0.0, 'oltre_60' => 0.0];
+        $oggi = strtotime($this->oggi);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $f) {
+            $g = $f['data_scadenza'] ? (int)floor(($oggi - strtotime((string)$f['data_scadenza'])) / 86400) : -1;
+            $k = $g <= 0 ? 'a_scadere' : ($g <= 30 ? 'giorni_0_30' : ($g <= 60 ? 'giorni_31_60' : 'oltre_60'));
+            $r[$k] += (float)$f['importo_totale'];
+        }
+        return $this->numeri($r);
+    }
+
+    /**
+     * Ponte fra Vendite e Fatture per un anno, imponibile, tutti i clienti:
+     * fatturato dell'anno = su_commesse (fatture di ogni data sulle commesse dell'anno) − fuori_anno (quelle emesse in
+     * altri anni) + commesse_altri_anni (fatture dell'anno su commesse degli anni prima o dopo) + senza_commessa.
+     */
+    public function ponteFatturato(int $anno): array
+    {
+        $da = "$anno-01-01";
+        $a = "$anno-12-31";
+        $stmt = $this->pdo->prepare("SELECT
+                COALESCE(SUM(CASE WHEN f.data_emissione BETWEEN ? AND ? THEN f.imponibile ELSE 0 END), 0) AS fatturato,
+                COALESCE(SUM(CASE WHEN i.data_incarico BETWEEN ? AND ? THEN f.imponibile ELSE 0 END), 0) AS su_commesse,
+                COALESCE(SUM(CASE WHEN i.data_incarico BETWEEN ? AND ? AND f.data_emissione NOT BETWEEN ? AND ? THEN f.imponibile ELSE 0 END), 0) AS fuori_anno,
+                COALESCE(SUM(CASE WHEN i.id IS NOT NULL AND i.data_incarico NOT BETWEEN ? AND ? AND f.data_emissione BETWEEN ? AND ? THEN f.imponibile ELSE 0 END), 0) AS commesse_altri_anni,
+                COALESCE(SUM(CASE WHEN f.incarico_id IS NULL AND f.data_emissione BETWEEN ? AND ? THEN f.imponibile ELSE 0 END), 0) AS senza_commessa
+            FROM {$this->p}fatture f LEFT JOIN {$this->p}incarichi i ON i.id = f.incarico_id");
+        $stmt->execute([$da, $a, $da, $a, $da, $a, $da, $a, $da, $a, $da, $a, $da, $a]);
+        return $this->numeri($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
+    }
+
     /** Rate di commessa senza fattura con data prevista entro $giorni (le rate senza data contano sempre). */
     public function rateDaFatturare(int $giorni = 30): array
     {

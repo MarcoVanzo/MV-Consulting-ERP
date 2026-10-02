@@ -69,8 +69,12 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   fatture successive del canone si agganciano da sole all'import (`trovaIncaricoPerRata`). «Crea tutte le commesse mancanti»
   (`commesse/crea_mancanti`, `CommessaService::creaCommesseMancanti`, tutti gli anni) collega le proposte sicure, lascia a mano
   quelle «unica commessa con residuo» e crea il resto (una per fattura, una a canone per importi ripetuti ≥3 volte; tipo da
-  `tipoDalTesto`); la finestra Importa lo lancia dopo l'import se è spuntata «Crea le commesse che mancano» (ricordata in
+  `tipoDalTesto`); acconto e saldo con la stessa intestazione (testo prima dei «:») fanno una commessa sola, le note di credito vanno con la fattura che stornano (numero citato o stesso importo) e un documento stornato per intero non diventa commessa; la finestra Importa lo lancia dopo l'import se è spuntata «Crea le commesse che mancano» (ricordata in
   localStorage). Prova: `php tests/collega_commesse_cli.php`.
+- **Grafici** (dal 02/10/2026): `js/core/grafici.js` + `css/grafici.css`, HTML/SVG senza librerie (barre, barra impilata,
+  ciambella, divergenti). Vendite › Commesse: da fatturare, valore per tipo, numero contro valore; sopra, il «ponte» con
+  Fatture (`Indicatori::ponteFatturato`). Fatture: anzianità del da incassare (`Indicatori::anzianitaCrediti`) e peso dei
+  clienti. Il margine previsto si mostra solo sulle commesse con costi partner registrati.
 - **Note spese** (dal 28/09/2026): tutte le spese di trasferta stanno in `spese` (v082; vitto e alloggio delle
   trasferte migrati da v083, le colonne `trasferte.vitto/alloggio` non si usano più). `api/Shared/Spese.php`: spese
   per giorno messe sulle righe di trasferta (indennità), abbinamento alla carta (stesso importo, ±3 giorni, solo senza
