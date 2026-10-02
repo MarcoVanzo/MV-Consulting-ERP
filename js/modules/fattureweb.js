@@ -27,6 +27,8 @@ const ModFattureWeb = (() => {
     function ricevi(e) {
         if (e.origin !== ORIGINE || e.data?.tipo !== 'fattureweb-xml' || !Array.isArray(e.data.file)) return;
         window.removeEventListener('message', ricevi);
+        const fuori = e.data.file.length - MAX_FILE;
+        if (fuori > 0) UI.toast(`Arrivano le prime ${MAX_FILE} fatture: ${fuori} restano fuori. Filtra la lista di FattureWeb (es. per mese) e ripeti per le altre.`, 'error');
         const files = e.data.file.slice(0, MAX_FILE)
             .filter(f => typeof f?.nome === 'string' && typeof f?.xml === 'string' && /<(\w+:)?FatturaElettronica[\s>]/.test(f.xml))
             .map(f => new File([f.xml], f.nome.replace(/[^\w.-]/g, '_').slice(0, 80) + '.xml', { type: 'text/xml' }));
@@ -36,8 +38,9 @@ const ModFattureWeb = (() => {
 
     /**
      * Codice del pulsante, eseguito dentro FattureWeb. Apre subito l'ERP (dopo un'attesa il browser
-     * bloccherebbe la finestra), mostra «Tutti» se la lista è su più pagine, scarica gli XML a quattro
-     * alla volta e li manda quando l'ERP risponde (anche dopo il login).
+     * bloccherebbe la finestra), mostra «Tutti» se la lista è su più pagine e aspetta che si ricarichi
+     * (se resta paginata chiede se continuare), scarica gli XML a quattro alla volta decodificandoli con
+     * l'encoding della dichiarazione e li manda quando l'ERP risponde (anche dopo il login).
      */
     function codice(erp) {
         return `(async () => {
@@ -49,11 +52,16 @@ if (!w) { alert('Il browser ha bloccato la finestra dell\\'ERP: consenti i popup
 let pronto = false, dati = null;
 const manda = () => { if (pronto && dati) w.postMessage({ tipo: 'fattureweb-xml', file: dati }, O); };
 addEventListener('message', e => { if (e.origin === O && e.data && e.data.tipo === 'erp-pronto') { pronto = true; manda(); } });
-const pag = (document.body.innerText.match(/Pagina \\d+ di (\\d+)/) || [])[1];
-if (pag && +pag > 1) {
+const pagine = () => +((document.body.innerText.match(/Pagina \\d+ di (\\d+)/) || [])[1] || 1);
+const nLink = () => document.querySelectorAll('a[href*="option=saveXML"]').length;
+if (pagine() > 1) {
   const sel = [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.text.trim() === 'Tutti'));
   if (sel) { sel.value = [...sel.options].find(o => o.text.trim() === 'Tutti').value; sel.dispatchEvent(new Event('change', { bubbles: true }));
-    await new Promise(r => setTimeout(r, 4000)); }
+    /* La lista si ricarica: si aspetta che la paginazione sparisca e il numero di link resti fermo per 1,5 s (al massimo 30 s) */
+    const fine = Date.now() + 30000; let prima = -1, fermo = 0;
+    while (Date.now() < fine) { await new Promise(r => setTimeout(r, 500)); const n = nLink();
+      fermo = n === prima ? fermo + 1 : 0; prima = n; if (pagine() <= 1 && n > 0 && fermo >= 3) break; } }
+  if (pagine() > 1 && !confirm('La lista di FattureWeb è ancora su ' + pagine() + ' pagine: arriverebbero solo le fatture di questa pagina. Continuare lo stesso?')) { w.close(); return; }
 }
 const link = [...document.querySelectorAll('a[href*="option=saveXML"]')];
 const inviate = link.filter(a => { const tr = a.closest('tr'); return tr && tr.querySelector('i.response'); });
@@ -69,7 +77,12 @@ const uno = async () => { while (i < ids.length) { const id = ids[i++];
   box.textContent = 'ERP: fattura ' + (out.length + err.length + 1) + ' di ' + ids.length + '…';
   try { const u = new URL('index.php', location.href);
     u.search = new URLSearchParams({ section: 'flight-listafatture', option: 'saveXML', tipo: 'fatture', id }).toString();
-    const t = await (await fetch(u, { credentials: 'include' })).text();
+    /* La FatturaPA può essere in ISO-8859-1 o windows-1252: si decodifica con l'encoding della dichiarazione XML
+       e la si riscrive in UTF-8, come arriverà all'ERP */
+    const buf = await (await fetch(u, { credentials: 'include' })).arrayBuffer();
+    const enc = (new TextDecoder('windows-1252').decode(buf.slice(0, 200)).match(/<\\?xml[^>]*encoding=["']([\\w.:-]+)["']/i) || [])[1] || 'utf-8';
+    let t; try { t = new TextDecoder(enc).decode(buf); } catch (x) { t = new TextDecoder('utf-8').decode(buf); }
+    t = t.replace(/^(\\s*<\\?xml[^>]*encoding=["'])[\\w.:-]+/i, '$1UTF-8');
     if (/<(\\w+:)?FatturaElettronica[\\s>]/.test(t)) out.push({ nome: 'fattureweb-' + id, xml: t }); else err.push(id);
   } catch (e) { err.push(id); } } };
 await Promise.all([uno(), uno(), uno(), uno()]);

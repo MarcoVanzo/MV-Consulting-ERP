@@ -68,9 +68,18 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   un contratto per viaggio, tipo `viaggio`) o ricorrente a canone (una rata al mese, tipo `noleggio` o altro); le
   fatture successive del canone si agganciano da sole all'import (`trovaIncaricoPerRata`). «Crea tutte le commesse mancanti»
   (`commesse/crea_mancanti`, `CommessaService::creaCommesseMancanti`, tutti gli anni) collega le proposte sicure, lascia a mano
-  quelle «unica commessa con residuo» e crea il resto (una per fattura, una a canone per importi ripetuti ≥3 volte; tipo da
-  `tipoDalTesto`); acconto e saldo con la stessa intestazione (testo prima dei «:») fanno una commessa sola, le note di credito vanno con la fattura che stornano (numero citato o stesso importo) e un documento stornato per intero non diventa commessa; la finestra Importa lo lancia dopo l'import se è spuntata «Crea le commesse che mancano» (ricordata in
-  localStorage). Prova: `php tests/collega_commesse_cli.php`.
+  quelle «unica commessa con residuo» e crea il resto (una per fattura; tipo da `tipoDalTesto`). **Canone** = almeno 3
+  fatture stesso cliente/sottocliente/importo in mesi diversi a 25–35 giorni l'una dall'altra (`serieMensili`; un salto
+  chiude la serie): una rata per ogni mese fatturato, niente orizzonte fisso. Acconto e saldo con la stessa intestazione
+  (testo prima dei «:») fanno una commessa sola se entro 12 mesi dalla prima. Una fattura che **prosegue** una commessa già
+  creata dalle fatture (nota «Commessa creata dalle fatture emesse» o «Canone di …»: stessa intestazione entro 12 mesi, o
+  stesso importo un mese dopo l'ultima rata) si aggancia lì e la commessa cresce di una rata (`commessaDaProseguire`,
+  `aggiungiFattura`): così le fatture importate una alla volta finiscono sulla stessa commessa; le commesse da lettera o
+  da offerta non si allungano mai da sole. Le note di credito vanno con la fattura che stornano (numero citato, anche solo
+  la parte numerica se unica nell'anno, o stesso importo) e un documento stornato per intero non diventa commessa né rata;
+  le percentuali delle rate sommano sempre 100. Lock `GET_LOCK` contro due esecuzioni insieme. La finestra Importa lo
+  lancia dopo l'import se è spuntata «Crea le commesse che mancano» (ricordata in localStorage).
+  Prova: `php tests/collega_commesse_cli.php`.
 - **Grafici** (dal 02/10/2026): `js/core/grafici.js` + `css/grafici.css`, HTML/SVG senza librerie (barre, barra impilata,
   ciambella, divergenti). Vendite › Commesse: da fatturare, valore per tipo, numero contro valore; sopra, il «ponte» con
   Fatture (`Indicatori::ponteFatturato`). Fatture: anzianità del da incassare (`Indicatori::anzianitaCrediti`) e peso dei
@@ -96,10 +105,14 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   finestra Importa file). Premuto sulla lista «Fatture di vendita» di FattureWeb scarica la FatturaPA di ogni fattura già inviata allo SDI
   mostrata (`option=saveXML`) nella sessione dell'utente (il login ha un reCAPTCHA: niente accesso dal server) e la passa
   all'ERP con `postMessage` (`index.html?da=fattureweb`, origine controllata) → Importa file. Nell'import XML ogni riga
-  va alla sua commessa con `CommessaService::incaricoDellaRiga` (chiavi di `chiaviProtocollo`: basta il codice SZ.DPS o
-  uno dei due numeri di protocollo); un record per sottocliente **e** commessa; un documento già entrato dall'elenco
-  Excel (`ContabilitaController::DA_ELENCO`) si completa tenendo l'id, uno già dettagliato si salta.
-  Prova: `php tests/fattura_righe_cli.php`.
+  va alla sua commessa con `CommessaService::incaricoDellaRiga` (chiavi di `chiaviProtocollo` in modo testo libero: basta il
+  codice SZ.DPS o uno dei due numeri di protocollo, ma un «N/AAAA» conta solo dopo «Prot.» o dopo un «+»; mai i mesi di
+  competenza/periodo né «fattura n. 45/2026»); un record per sottocliente **e** commessa; un documento già entrato dall'elenco
+  Excel (`ContabilitaController::DA_ELENCO`) si completa tenendo l'id e, se l'XML non trova commessa o sottocliente, quelli
+  già assegnati; uno già dettagliato si salta. Solo fatture in euro (`Divisa` diversa: rifiutata con avviso); uno scarto
+  tra `ImportoTotaleDocumento` e riepilogo (bollo, arrotondamento) si segnala. Il pulsante aspetta che «Tutti» abbia
+  ricaricato la lista (chiede se resta paginata), decodifica l'XML con l'encoding dichiarato e avvisa se oltre 500 fatture
+  ne restano fuori. Prova: `php tests/fattura_righe_cli.php`.
 - **Elenchi di fatture Excel** (dal 28/09/2026): `importa/lista` (`ImportaController::lista`) legge Lista Fatture di
   Sistemi ed elenchi del portale; il verso lo dà l'intestazione (colonna Fornitore → ricevute in `fatture_passive`,
   Cliente → emesse). Clienti e fornitori mancanti si creano col solo nome (`piva_ricerca = 'da_cercare'`, v088–v089)

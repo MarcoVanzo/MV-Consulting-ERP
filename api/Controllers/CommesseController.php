@@ -134,33 +134,41 @@ class CommesseController {
         Response::json(true, '', $this->svc->proposteCollegamento($year));
     }
 
-    /** Collega fatture a commesse: collegamenti = JSON [{fattura_id, incarico_id}]. */
+    /**
+     * Collega fatture a commesse: collegamenti = JSON [{fattura_id, incarico_id}]. Fattura e commessa devono essere
+     * dello stesso cliente; tutto o niente, totali delle commesse toccate ricalcolati nella stessa transazione.
+     */
     public function collegaACommessa($data) {
         $coppie = json_decode((string)($data['collegamenti'] ?? '[]'), true);
         if (!is_array($coppie) || !$coppie) Response::json(false, 'Nessun collegamento da salvare');
         $p = $this->prefix;
-        $esisteF = $this->pdo->prepare("SELECT incarico_id FROM {$p}fatture WHERE id = ?");
-        $esisteI = $this->pdo->prepare("SELECT 1 FROM {$p}incarichi WHERE id = ?");
-        $toccate = [];
+        $leggiF = $this->pdo->prepare("SELECT incarico_id, cliente_id, numero_fattura FROM {$p}fatture WHERE id = ?");
+        $leggiI = $this->pdo->prepare("SELECT cliente_id FROM {$p}incarichi WHERE id = ?");
         $this->pdo->beginTransaction();
-        foreach ($coppie as $c) {
-            $fid = (int)($c['fattura_id'] ?? 0);
-            $iid = (int)($c['incarico_id'] ?? 0);
-            $esisteF->execute([$fid]);
-            $prima = $esisteF->fetchColumn();
-            $esisteI->execute([$iid]);
-            if ($prima === false || !$esisteI->fetchColumn()) {
-                $this->pdo->rollBack();
-                Response::json(false, 'Fattura o commessa non trovata', null, 404);
+        try {
+            $toccate = [];
+            foreach ($coppie as $c) {
+                $fid = (int)($c['fattura_id'] ?? 0);
+                $iid = (int)($c['incarico_id'] ?? 0);
+                $leggiF->execute([$fid]);
+                $f = $leggiF->fetch(PDO::FETCH_ASSOC);
+                $leggiI->execute([$iid]);
+                $clienteCommessa = $leggiI->fetchColumn();
+                if (!$f || $clienteCommessa === false) throw new InvalidArgumentException('Fattura o commessa non trovata');
+                if ((int)$f['cliente_id'] !== (int)$clienteCommessa) {
+                    throw new InvalidArgumentException("La fattura {$f['numero_fattura']} è di un altro cliente: non può andare su questa commessa");
+                }
+                $this->svc->collegaFatturaACommessa($fid, $iid);
+                $toccate[$iid] = true;
+                if ($f['incarico_id']) $toccate[(int)$f['incarico_id']] = true;
             }
-            $this->svc->collegaFatturaACommessa($fid, $iid);
-            $toccate[$iid] = true;
-            if ($prima) $toccate[(int)$prima] = true;
+            require_once __DIR__ . '/IncarchiController.php';
+            $ic = new IncarchiController();
+            foreach (array_keys($toccate) as $iid) $ic->recalculate($iid);
+            $this->pdo->commit();
+        } catch (Throwable $e) {
+            $this->annulla($e, 'Collegamento non salvato');
         }
-        $this->pdo->commit();
-        require_once __DIR__ . '/IncarchiController.php';
-        $ic = new IncarchiController();
-        foreach (array_keys($toccate) as $iid) $ic->recalculate($iid);
         Audit::log('UPDATE', 'fatture', 'collega_commessa', null, ['collegamenti' => count($coppie)]);
         Response::json(true, count($coppie) === 1 ? 'Fattura collegata alla commessa' : count($coppie) . ' fatture collegate alle commesse');
     }
@@ -168,21 +176,21 @@ class CommesseController {
     /** Nuova commessa dalle fatture scelte (singola o ricorrente a canone): vedi CommessaService::creaDaFatture. */
     public function creaDaFatture($data) {
         $ids = json_decode((string)($data['fatture'] ?? '[]'), true);
+        if (!is_array($ids)) Response::json(false, 'Elenco delle fatture non valido');
         $this->pdo->beginTransaction();
         try {
-            $id = $this->svc->creaDaFatture(is_array($ids) ? $ids : [], [
+            $id = $this->svc->creaDaFatture($ids, [
                 'tipo_commessa' => $data['tipo_commessa'] ?? 'altro',
                 'descrizione' => $data['descrizione'] ?? '',
                 'ricorrente' => !empty($data['ricorrente']) && $data['ricorrente'] !== '0',
                 'mesi' => $data['mesi'] ?? 12,
             ]);
+            require_once __DIR__ . '/IncarchiController.php';
+            (new IncarchiController())->recalculate($id);
             $this->pdo->commit();
-        } catch (InvalidArgumentException $e) {
-            $this->pdo->rollBack();
-            Response::json(false, $e->getMessage());
+        } catch (Throwable $e) {
+            $this->annulla($e, 'Commessa non creata');
         }
-        require_once __DIR__ . '/IncarchiController.php';
-        (new IncarchiController())->recalculate($id);
         Audit::log('INSERT', 'incarichi', (string)$id, null, null, ['da_fatture' => count($ids)]);
         Response::json(true, 'Commessa creata dalle fatture', ['id' => $id]);
     }
@@ -190,20 +198,27 @@ class CommesseController {
     /**
      * Commesse per le fatture emesse che non ne hanno (tutte, o solo quelle in fatture = JSON di id):
      * vedi CommessaService::creaCommesseMancanti. Lanciato anche dopo l'import, se l'utente lo ha scelto.
+     * Un lock impedisce due esecuzioni insieme (due schede, due import): creerebbero le stesse commesse due volte.
      */
     public function creaMancanti($data) {
-        $ids = isset($data['fatture']) ? json_decode((string)$data['fatture'], true) : null;
+        $ids = null;
+        if (isset($data['fatture'])) {
+            $ids = json_decode((string)$data['fatture'], true);
+            if (!is_array($ids)) Response::json(false, 'Elenco delle fatture non valido');
+        }
+        if (!$this->blocca('crea_mancanti')) Response::json(false, 'Le commesse si stanno già creando da un\'altra finestra: riprova tra qualche secondo');
         $this->pdo->beginTransaction();
         try {
-            $esito = $this->svc->creaCommesseMancanti(is_array($ids) ? $ids : null);
+            $esito = $this->svc->creaCommesseMancanti($ids);
+            require_once __DIR__ . '/IncarchiController.php';
+            $ic = new IncarchiController();
+            foreach ($esito['commesse'] as $iid) $ic->recalculate($iid);
             $this->pdo->commit();
-        } catch (InvalidArgumentException $e) {
-            $this->pdo->rollBack();
-            Response::json(false, $e->getMessage());
+        } catch (Throwable $e) {
+            $this->sblocca('crea_mancanti');
+            $this->annulla($e, 'Commesse non create');
         }
-        require_once __DIR__ . '/IncarchiController.php';
-        $ic = new IncarchiController();
-        foreach ($esito['commesse'] as $iid) $ic->recalculate($iid);
+        $this->sblocca('crea_mancanti');
         $parti = [];
         if ($esito['create']) $parti[] = $esito['create'] . ($esito['create'] === 1 ? ' commessa creata' : ' commesse create')
             . ($esito['ricorrenti'] ? " ({$esito['ricorrenti']} a canone)" : '');
@@ -212,6 +227,31 @@ class CommesseController {
         if ($esito['create'] || $esito['collegate']) Audit::log('INSERT', 'incarichi', 'crea_mancanti', null, null, $esito);
         $messaggio = $parti ? ucfirst(implode(', ', $parti)) : 'Nessuna fattura da trasformare in commessa';
         Response::json(true, $messaggio, $esito + ['messaggio' => $messaggio]);
+    }
+
+    /**
+     * Lock con nome (MySQL GET_LOCK, attesa massima 5 secondi). Su SQLite (test) c'è una sola connessione: sempre libero.
+     * MySQL lo rilascia comunque alla chiusura della connessione, anche se la richiesta si interrompe.
+     */
+    private function blocca(string $nome): bool {
+        if ($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return true;
+        $stmt = $this->pdo->prepare('SELECT GET_LOCK(?, 5)');
+        $stmt->execute([$this->prefix . $nome]);
+        return (int)$stmt->fetchColumn() === 1;
+    }
+
+    private function sblocca(string $nome): void {
+        if ($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
+        $this->pdo->prepare('SELECT RELEASE_LOCK(?)')->execute([$this->prefix . $nome]);
+    }
+
+    /** Annulla la transazione e risponde: gli errori di validazione col loro messaggio, gli altri finiscono nel log. */
+    private function annulla(Throwable $e, string $cosa): void {
+        if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+        if ($e instanceof RispostaCatturata) throw $e;
+        if ($e instanceof InvalidArgumentException) Response::json(false, $e->getMessage());
+        error_log("[Commesse] $cosa: " . $e->getMessage());
+        Response::json(false, "$cosa: errore del server, nessuna modifica salvata", null, 500);
     }
 
     /** Incasso di una fattura emessa, dallo scadenzario (data vuota = oggi). */

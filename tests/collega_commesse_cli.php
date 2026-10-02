@@ -124,7 +124,7 @@ $f->execute([21, '21/001', '2026-06-12', 3, 'Corso di formazione privacy Prot. n
 $f->execute([22, '22/001', '2026-06-15', 3, 'Attività extra', 50, 61]);
 $f->execute([23, '23/001', '2026-06-20', null, 'Senza cliente', 80, 97.6]);
 $f->execute([24, '24/001', '2026-06-21', 2, '[Nota di credito] storno', -50, -61]);
-foreach ([[30, '2025-01-31'], [31, '2025-02-28'], [32, '2025-03-31'], [33, '2026-04-30']] as [$fid, $d]) {
+foreach ([[30, '2025-01-31'], [31, '2025-02-28'], [32, '2025-03-31'], [33, '2025-04-30'], [34, '2026-09-30']] as [$fid, $d]) {
     $f->execute([$fid, "$fid/001", $d, 1, 'Canone noleggio software', 90, 109.8]);
 }
 check('tipo dal testo', CommessaService::tipoDalTesto('Viaggio squadra') === 'viaggio' && CommessaService::tipoDalTesto('Varie') === 'altro');
@@ -133,18 +133,26 @@ check('solo le fatture indicate', $solo['create'] === 1 && (int)$pdo->query("SEL
 $inc = $pdo->query("SELECT i.* FROM {$p}incarichi i JOIN {$p}fatture f ON f.incarico_id = i.id WHERE f.id = 20")->fetch();
 check('commessa singola: valore, tipo e descrizione dalla fattura', abs((float)$inc['importo_totale'] - 1200) < 0.01
     && $inc['tipo_commessa'] === 'viaggio' && $inc['descrizione'] === 'Viaggio squadra a Roma', $inc);
+// Come IncarchiController::recalculate: il residuo delle commesse conta per le proposte
+$ricalcola = fn() => $pdo->exec("UPDATE {$p}incarichi SET importo_fatturato = (SELECT COALESCE(SUM(imponibile), 0) FROM {$p}fatture WHERE incarico_id = {$p}incarichi.id)");
+$ricalcola();
 $es = $svc->creaCommesseMancanti();
+$ricalcola();
 check('protocollo citato → collegata alla commessa esistente', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 21")->fetchColumn() === 10);
 check('«Acconto 30%» del valore della commessa → collegata', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 8")->fetchColumn() === 11, $es);
 check('nota di credito e fattura senza cliente saltate', $pdo->query("SELECT COUNT(*) FROM {$p}fatture WHERE id IN (23, 24) AND incarico_id IS NULL")->fetchColumn() == 2);
 $canone = $pdo->query("SELECT DISTINCT incarico_id FROM {$p}fatture WHERE id IN (30, 31, 32, 33)")->fetchAll(PDO::FETCH_COLUMN);
 check('canone ripetuto → una commessa ricorrente', count($canone) === 1 && $canone[0] !== null, $canone);
-$nRate = (int)$pdo->query("SELECT COUNT(*) FROM {$p}incarichi_rate WHERE incarico_id = " . (int)$canone[0])->fetchColumn();
-check('rate per tutti i mesi fatturati (gen 2025 → apr 2026)', $nRate === 16, $nRate);
+$rc = $pdo->query("SELECT percentuale, fattura_id FROM {$p}incarichi_rate WHERE incarico_id = " . (int)$canone[0] . " ORDER BY ordine")->fetchAll();
+check('una rata per ogni mese fatturato (gen → apr 2025), non 12', count($rc) === 4 && !array_filter($rc, fn($r) => !$r['fattura_id']), $rc);
+check('percentuali che sommano 100', abs(array_sum(array_column($rc, 'percentuale')) - 100) < 0.001, $rc);
+check('valore = mesi fatturati × canone', abs((float)$pdo->query("SELECT importo_totale FROM {$p}incarichi WHERE id = " . (int)$canone[0])->fetchColumn() - 360) < 0.01);
+check('stesso importo dopo un anno e mezzo: non è il canone', (int)$pdo->query("SELECT COALESCE(incarico_id, 0) FROM {$p}fatture WHERE id = 34")->fetchColumn() !== (int)$canone[0]);
 check('canone di assistenza 150 € (3 volte) → ricorrente', (int)$pdo->query("SELECT COUNT(DISTINCT incarico_id) FROM {$p}fatture WHERE id IN (10, 11, 12)")->fetchColumn() === 1);
 $rimaste = (int)$pdo->query("SELECT COUNT(*) FROM {$p}fatture WHERE incarico_id IS NULL AND imponibile > 0 AND cliente_id IS NOT NULL")->fetchColumn();
 check('restano solo quelle da scegliere', $rimaste === $es['da_scegliere'], [$rimaste, $es]);
 $di = $svc->creaCommesseMancanti();
+$ricalcola();
 check("seconda passata: non crea niente", $di["create"] === 0 && $di["collegate"] === 0, [$di, $pdo->query("SELECT id, cliente_id, imponibile FROM {$p}fatture WHERE incarico_id IN (" . implode(",", $di["commesse"] ?: [0]) . ")")->fetchAll()]);
 
 echo "Viaggi in acconto e saldo, note di credito\n";
@@ -188,6 +196,132 @@ $pdo->exec("INSERT INTO {$p}incarichi (id, cliente_id, data_incarico, tipo_comme
 $f->execute([64, '10/001', '2026-02-11', 6, '[Nota di credito] storno parziale ft. 65 del 25/11/2025 SZ.DPS.F169.25', -300, -366]);
 $svc->creaCommesseMancanti([64]);
 check('nota con protocollo → commessa del protocollo', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 64")->fetchColumn() === 62);
+
+echo "Ricorrenza: mesi diversi e passo regolare\n";
+$pdo->exec("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (7, 'Studio Zeta'), (8, 'Gruppo Eta'), (9, 'Agenzia Theta'), (10, 'Circolo Iota')");
+foreach ([[70, '2026-01-05'], [71, '2026-01-20'], [72, '2026-06-10'], [73, '2026-06-30']] as [$fid, $d]) {
+    $f->execute([$fid, "$fid/001", $d, 7, 'Consulenza', 400, 488]);
+}
+$pr = $svc->proposteCollegamento(2026);
+$per = [];
+foreach ($pr['fatture'] as $x) $per[(int)$x['id']] = $x;
+check('stesso importo 4 volte ma senza passo mensile: non ricorrente', !$per[70]['ricorrente'] && !$per[73]['ricorrente'], [$per[70]['ricorrente'], $per[73]['ricorrente']]);
+$es = $svc->creaCommesseMancanti([70, 71, 72, 73]);
+check('…e non diventa un canone', $es['ricorrenti'] === 0, $es);
+$ricalcola();
+
+echo "Canone importato una fattura alla volta\n";
+$canoneId = null;
+foreach ([[80, '2026-01-31'], [81, '2026-02-28'], [82, '2026-03-31'], [83, '2026-04-30']] as $k => [$fid, $d]) {
+    $f->execute([$fid, "$fid/001", $d, 8, 'Noleggio stampante', 120, 146.4]);
+    $es = $svc->creaCommesseMancanti();
+    $ricalcola();
+    $inc = (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = $fid")->fetchColumn();
+    if ($k === 0) { $canoneId = $inc; continue; }
+    check("fattura " . ($k + 1) . ": sulla stessa commessa", $inc === $canoneId && $es['create'] === 0, [$inc, $canoneId, $es]);
+}
+$inc = $pdo->query("SELECT importo_totale, note FROM {$p}incarichi WHERE id = $canoneId")->fetch();
+check('la commessa cresce: 4 × 120', abs((float)$inc['importo_totale'] - 480) < 0.01, $inc);
+check('da 3 mesi è un canone', str_starts_with((string)$inc['note'], 'Canone di 120,00'), $inc);
+$rc = $pdo->query("SELECT descrizione, percentuale, fattura_id FROM {$p}incarichi_rate WHERE incarico_id = $canoneId ORDER BY ordine")->fetchAll();
+check('una rata per fattura, già fatturata', array_map(fn($r) => (int)$r['fattura_id'], $rc) === [80, 81, 82, 83], $rc);
+check('rate «Canone mese»', $rc[3]['descrizione'] === 'Canone aprile 2026', $rc);
+check('percentuali che sommano 100', abs(array_sum(array_column($rc, 'percentuale')) - 100) < 0.001, $rc);
+check("offerta allineata al valore", abs((float)$pdo->query("SELECT imponibile FROM {$p}offerte WHERE incarico_id = $canoneId")->fetchColumn() - 480) < 0.01);
+
+echo "Acconto e saldo importati in momenti diversi\n";
+$viaggio = 'Soggiorno sportivo a Rimini della squadra giovanile';
+$f->execute([90, '90/001', '2026-02-10', 9, "$viaggio: acconto 30%", 3000, 3000]);
+$svc->creaCommesseMancanti();
+$ricalcola();
+$f->execute([91, '91/001', '2026-07-10', 9, "$viaggio: saldo", 7000, 7000]);
+$svc->creaCommesseMancanti();
+$ricalcola();
+$v = $pdo->query("SELECT DISTINCT incarico_id FROM {$p}fatture WHERE id IN (90, 91)")->fetchAll(PDO::FETCH_COLUMN);
+check('saldo sulla commessa dell\'acconto', count($v) === 1 && $v[0] !== null, $v);
+check('valore = acconto + saldo', abs((float)$pdo->query("SELECT importo_totale FROM {$p}incarichi WHERE id = " . (int)$v[0])->fetchColumn() - 10000) < 0.01);
+$f->execute([92, '92/001', '2027-05-10', 9, "$viaggio: acconto 30%", 3000, 3000]);
+$svc->creaCommesseMancanti();
+$ricalcola();
+check('stessa intestazione dopo più di 12 mesi: commessa nuova', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 92")->fetchColumn() !== (int)$v[0]);
+
+echo "Stessa intestazione nello stesso import: finestra di 12 mesi\n";
+$torneo = 'Torneo internazionale di pallavolo under 16 a Cesenatico';
+$f->execute([93, '93/001', '2026-03-01', 10, "$torneo: acconto", 2000, 2000]);
+$f->execute([94, '94/001', '2026-06-01', 10, "$torneo: saldo", 3000, 3000]);
+$f->execute([95, '95/001', '2027-06-01', 10, "$torneo: acconto", 2500, 2500]);
+$svc->creaCommesseMancanti([93, 94, 95]);
+$t = array_map('intval', $pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id IN (93, 94, 95) ORDER BY id")->fetchAll(PDO::FETCH_COLUMN));
+check('acconto e saldo insieme, l\'edizione dopo un anno a parte', $t[0] === $t[1] && $t[2] !== $t[0] && $t[2] > 0, $t);
+$ricalcola();
+
+echo "Commessa da lettera d'incarico: non si allunga da sola\n";
+$pdo->exec("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (11, 'Ente Kappa')");
+$pdo->exec("INSERT INTO {$p}incarichi (id, cliente_id, data_incarico, tipo_commessa, importo_totale, importo_fatturato, note) VALUES (110, 11, '2026-01-01', 'dpo', 1000, 1000, 'Da lettera')");
+$pdo->exec("INSERT INTO {$p}incarichi_rate (incarico_id, ordine, descrizione, percentuale, importo, data_prevista, fattura_id) VALUES (110, 1, 'Saldo', 100, 1000, '2026-01-31', 999)");
+$f->execute([111, '111/001', '2026-02-28', 11, 'Servizio DPO', 1000, 1220]);
+$svc->creaCommesseMancanti([111]);
+check('valore della lettera invariato', (float)$pdo->query("SELECT importo_totale FROM {$p}incarichi WHERE id = 110")->fetchColumn() === 1000.0
+    && (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 111")->fetchColumn() !== 110);
+
+echo "Percentuali e storni per intero\n";
+$pdo->exec("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (12, 'Lambda Srl')");
+$f->execute([120, '120/001', '2026-03-01', 12, 'Fase 1', 100, 122]);
+$f->execute([121, '121/001', '2026-03-10', 12, 'Fase 2', 100, 122]);
+$f->execute([122, '122/001', '2026-03-20', 12, 'Fase 3', 100, 122]);
+$id3 = $svc->creaDaFatture([120, 121, 122], []);
+$pc = array_map('floatval', $pdo->query("SELECT percentuale FROM {$p}incarichi_rate WHERE incarico_id = $id3 ORDER BY ordine")->fetchAll(PDO::FETCH_COLUMN));
+check('33,33 + 33,33 + 33,34 = 100', $pc === [33.33, 33.33, 33.34], $pc);
+$f->execute([123, '123/001', '2026-04-01', 12, 'Fase A', 800, 976]);
+$f->execute([124, '124/001', '2026-04-02', 12, 'Fase B', 200, 244]);
+$f->execute([125, '125/001', '2026-04-03', 12, '[Nota di credito] storno', -200, -244]);
+$id4 = $svc->creaDaFatture([123, 124, 125], []);
+$r4 = $pdo->query("SELECT importo, percentuale, fattura_id FROM {$p}incarichi_rate WHERE incarico_id = $id4 ORDER BY ordine")->fetchAll();
+check('fattura stornata per intero: nessuna rata da 0 €', count($r4) === 1 && (float)$r4[0]['importo'] === 800.0 && (float)$r4[0]['percentuale'] === 100.0, $r4);
+
+echo "Nota di credito che cita il numero senza registro\n";
+$pdo->exec("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (13, 'Mu Viaggi')");
+$f->execute([130, '12/2026', '2026-05-01', 13, 'Trasferta squadra', 1000, 1220]);
+$f->execute([131, '13/2026', '2026-05-02', 13, 'Trasferta staff', 300, 366]);
+$svc->creaCommesseMancanti([130, 131]);
+$f->execute([132, '20/2026', '2026-06-01', 13, '[Nota di credito] storno parziale fattura n. 12', -300, -366]);
+$svc->creaCommesseMancanti([132]);
+check('«n. 12» → fattura 12/2026 (non quella da 300 €)', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 132")->fetchColumn()
+    === (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 130")->fetchColumn());
+$f->execute([133, '7/001', '2026-07-01', 13, 'Noleggio pulmino', 450, 549]);
+$f->execute([134, '7/002', '2026-07-02', 13, 'Noleggio furgone', 600, 732]);
+$svc->creaCommesseMancanti([133, 134]);
+$f->execute([135, '21/2026', '2026-07-15', 13, '[Nota di credito] storno fattura n. 7', -600, -732]);
+$svc->creaCommesseMancanti([135]);
+check('numero ambiguo nell\'anno → si decide con l\'importo', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 135")->fetchColumn()
+    === (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 134")->fetchColumn());
+
+echo "Endpoint: controlli prima di salvare\n";
+require_once __DIR__ . '/../api/Shared/Response.php';
+require_once __DIR__ . '/../api/Shared/Audit.php';
+require_once __DIR__ . '/../api/Controllers/CommesseController.php';
+putenv('DB_PREFIX=' . $p);
+(new ReflectionProperty(Database::class, 'pdo'))->setValue(null, $pdo);
+function risposta(callable $fn): array
+{
+    Response::$cattura = true;
+    try { $fn(); return ['success' => false, 'message' => 'nessuna risposta']; }
+    catch (RispostaCatturata $r) { return $r->risposta; }
+    finally { Response::fineCattura(); }
+}
+$f->execute([140, '140/001', '2026-08-01', 12, 'Fase extra', 50, 61]);
+$r = risposta(fn() => (new CommesseController())->collegaACommessa(['collegamenti' => json_encode([['fattura_id' => 140, 'incarico_id' => 110]])]));
+check('fattura di un altro cliente: rifiutata', $r['success'] === false && str_contains($r['message'], 'altro cliente')
+    && $pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 140")->fetchColumn() === null, $r);
+check('…e niente transazione lasciata aperta', !$pdo->inTransaction());
+$r = risposta(fn() => (new CommesseController())->collegaACommessa(['collegamenti' => json_encode([['fattura_id' => 140, 'incarico_id' => $id3]])]));
+check('stesso cliente: collegata e commessa ricalcolata', $r['success'] === true
+    && (float)$pdo->query("SELECT importo_fatturato FROM {$p}incarichi WHERE id = $id3")->fetchColumn() === 350.0, $r);
+$r = risposta(fn() => (new CommesseController())->creaMancanti(['fatture' => 'non è json']));
+check('crea_mancanti con elenco non valido: errore, non tutte le fatture', $r['success'] === false && str_contains($r['message'], 'non valido'), $r);
+$f->execute([141, '141/001', '2026-08-02', 12, 'Consulenza agosto', 70, 85.4]);
+$r = risposta(fn() => (new CommesseController())->creaMancanti(['fatture' => '[141]']));
+check('crea_mancanti con elenco valido: solo quella fattura', $r['success'] === true && array_sum(array_intersect_key($r['data'] ?? [], array_flip(['create', 'collegate', 'da_scegliere']))) === 1, $r);
 
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);
