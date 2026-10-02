@@ -134,5 +134,11 @@ $r = risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => xml
 $nc = $pdo->query("SELECT incarico_id, imponibile FROM {$p}fatture WHERE numero_fattura = '5/001' AND tipo_documento = 'TD04'")->fetchAll();
 check('nota di credito separata e negativa', count($nc) === 1 && (float)$nc[0]['imponibile'] === -100.0 && (int)$nc[0]['incarico_id'] === 102, $nc);
 
+echo "Cliente persona fisica\n";
+$xp = str_replace(['<IdCodice>01234567897</IdCodice>', '<Anagrafica><Denominazione>Associazione Esempio Servizi</Denominazione></Anagrafica>'],
+    ['<IdCodice>12345678903</IdCodice>', '<Anagrafica><Nome>Mario</Nome><Cognome>Rossi</Cognome></Anagrafica>'], xml('7/001', '2026-05-31', [['Noleggio', 200]]));
+$r = risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => $xp]));
+check('cliente creato con nome e cognome', $pdo->query("SELECT ragione_sociale FROM {$p}clienti WHERE partita_iva = '12345678903'")->fetchColumn() === 'Mario Rossi', $r);
+
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);
