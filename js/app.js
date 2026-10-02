@@ -88,11 +88,12 @@ function initApplication(userData) {
 
     // ── Init core UI ──
     UI.initModalEvents();
+    UI.initTabelleSchede();
 
     // ── Navigazione: sei viste, ognuna con le sue schede; indirizzo nell'URL (#vista/scheda) ──
     const CARICA = {
         oggi:        () => ModOggi.load(),
-        vendite:     { 'comm-offerte': () => ModOfferte.load(), 'tab-incarichi': () => ModIncarichi.load(), 'comm-margini': () => ModCommessa.loadMargini() },
+        vendite:     { 'comm-offerte': () => ModOfferte.load(), 'tab-incarichi': () => ModIncarichi.load() },
         incassi:     { 'tab-fatture': () => ModContabilita.load(), 'inc-ricevute': () => ModPartner.loadPassive() },
         banca:       { 'tab-riconciliazione': () => ModRiconciliazione.load(), 'tab-classificare': () => ModMovimenti.loadCoda(), 'tab-andamento': () => ModAndamento.load() },
         trasferte:   { 'trasferte-viaggi': () => ModTrasferte.load({ refreshMezzi: true }), 'trasferte-spese': () => ModSpese.load(), 'trasferte-mezzi': () => ModMezzi.init() },

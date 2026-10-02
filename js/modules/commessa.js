@@ -181,42 +181,6 @@ const ModCommessa = (() => {
         ].filter(Boolean).join('\n');
     }
 
-    // ── Vista Margini ───────────────────────────────────
-
-    async function loadMargini() {
-        const box = document.getElementById('comm-margini');
-        try {
-            const res = await Store.api('margini', 'commesse', { year: ModCommerciale.year() });
-            const t = res.totali, rows = res.commesse || [];
-            const pct = v => (v === null || v === undefined) ? '—' : UI.formatNumber(v, 0) + '%';
-            box.innerHTML = `
-                <div class="kpi-grid">
-                    <div class="kpi-card kpi-blue"><div class="kpi-label">Valore commesse</div><div class="kpi-value">${UI.formatCurrency(t.ricavo_previsto)}</div><div class="kpi-sub">${rows.length} commesse</div></div>
-                    <div class="kpi-card kpi-yellow"><div class="kpi-label">Costi partner previsti</div><div class="kpi-value">${UI.formatCurrency(t.costi_previsti)}</div><div class="kpi-sub">ricevuti ${UI.formatCurrency(t.costi_effettivi)}</div></div>
-                    <div class="kpi-card kpi-green"><div class="kpi-label">Margine previsto</div><div class="kpi-value">${UI.formatCurrency(t.margine_previsto)}</div><div class="kpi-sub">${pct(t.margine_previsto_pct)}</div></div>
-                    <div class="kpi-card kpi-red"><div class="kpi-label">Margine ad oggi</div><div class="kpi-value">${UI.formatCurrency(t.margine_effettivo)}</div><div class="kpi-sub">su fatturato ${UI.formatCurrency(t.fatturato)} · ${pct(t.margine_effettivo_pct)}</div></div>
-                </div>
-                <div class="table-container"><table class="data-table"><thead><tr>
-                    <th>Cliente</th><th>Commessa</th><th>Data</th><th class="text-right">Valore</th><th class="text-right">Costi prev.</th>
-                    <th class="text-right">Margine prev.</th><th class="text-right">Fatturato</th><th class="text-right">Costi ricevuti</th><th class="text-right">Margine oggi</th></tr></thead><tbody>
-                ${rows.length ? rows.map(r => `<tr style="cursor:pointer" data-open="${r.id}">
-                    <td class="td-primary">${UI.esc(r.cliente_nome || '—')}${r.sottocliente_nome ? ` <span style="color:var(--text-muted)">/ ${UI.esc(r.sottocliente_nome)}</span>` : ''}</td>
-                    <td>${UI.esc(r.descrizione || UI.tipoCommessa(r.tipo_commessa))}</td>
-                    <td>${UI.formatDate(r.data_incarico)}</td>
-                    <td class="text-right">${UI.formatCurrency(r.ricavo_previsto)}</td>
-                    <td class="text-right">${UI.formatCurrency(r.costi_previsti)}</td>
-                    <td class="text-right td-primary">${UI.formatCurrency(r.margine_previsto)} <span style="color:var(--text-muted)">${pct(r.margine_previsto_pct)}</span></td>
-                    <td class="text-right">${UI.formatCurrency(r.fatturato)}</td>
-                    <td class="text-right">${UI.formatCurrency(r.costi_effettivi)}</td>
-                    <td class="text-right td-primary">${UI.formatCurrency(r.margine_effettivo)}</td></tr>`).join('')
-                    : '<tr><td colspan="9"><div class="empty-state"><i class="ph ph-chart-pie-slice"></i><h3>Nessuna commessa</h3></div></td></tr>'}
-                </tbody></table></div>`;
-            box.querySelectorAll('[data-open]').forEach(tr => tr.addEventListener('click', () => open(parseInt(tr.dataset.open, 10), loadMargini)));
-        } catch (e) {
-            box.innerHTML = `<div class="empty-state"><h3>Errore</h3><p>${UI.esc(e.message)}</p></div>`;
-        }
-    }
-
-    return { open, loadMargini };
+    return { open };
 })();
 window.ModCommessa = ModCommessa;

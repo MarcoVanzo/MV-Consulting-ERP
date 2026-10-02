@@ -162,11 +162,11 @@ class ContabilitaController {
         // KPI: definizioni uniche in Indicatori (docs/indicatori.md)
         $kpis = (new Indicatori($this->pdo, $p))->fatture((int)$year, $esclusi);
 
-        // Fatturato mensile (per grafico)
+        // Fatturato mensile (per grafico): IVA inclusa, come i KPI della scheda
         $stmt2 = $this->pdo->prepare("SELECT 
             MONTH(data_emissione) as mese,
-            COALESCE(SUM(imponibile), 0) as fatturato,
-            COALESCE(SUM(CASE WHEN stato = 'pagata' THEN imponibile ELSE 0 END), 0) as pagato,
+            COALESCE(SUM(importo_totale), 0) as fatturato,
+            COALESCE(SUM(CASE WHEN stato = 'pagata' THEN importo_totale ELSE 0 END), 0) as pagato,
             COUNT(id) as num_fatture
             FROM {$p}fatture WHERE YEAR(data_emissione) = ?$filtro
             GROUP BY MONTH(data_emissione) ORDER BY mese ASC");
@@ -661,6 +661,15 @@ class ContabilitaController {
                         ->trovaIncaricoPerRiferimento(implode("\n", $data['descrizioni']), $clienteId ? (int)$clienteId : null);
                     if ($incaricoId) {
                         $errors[] = "Fattura n. $numeroFattura collegata all'incarico #$incaricoId dal riferimento all'offerta.";
+                    }
+                }
+
+                // Commessa ricorrente (canone): rata libera dello stesso importo prevista entro 40 giorni
+                if (!$incaricoId && !$isNotaCredito) {
+                    $incaricoId = (new CommessaService($this->pdo, $this->prefix))
+                        ->trovaIncaricoPerRata($clienteId ? (int)$clienteId : null, (float)$imponibile, (string)$dataEmissione);
+                    if ($incaricoId) {
+                        $errors[] = "Fattura n. $numeroFattura collegata all'incarico #$incaricoId: rata di pari importo.";
                     }
                 }
 

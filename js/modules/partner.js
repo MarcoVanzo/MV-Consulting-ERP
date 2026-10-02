@@ -13,7 +13,7 @@ const ModPartner = (() => {
         return _fornitori;
     }
 
-    /** Ricarica le due schede: fatture ricevute (Incassi) e anagrafica partner/fornitori (Anagrafiche). */
+    /** Ricarica le due schede: fatture ricevute (Fatture) e anagrafica partner/fornitori (Anagrafiche). */
     async function load() {
         await Promise.all([loadPassive(), loadFornitori()]);
     }
@@ -35,7 +35,7 @@ const ModPartner = (() => {
                 <div class="table-container">
                     <div class="table-toolbar"><div class="filters-row" style="margin-bottom:0">${chips}</div>
                         <span style="color:var(--text-muted);font-size:0.85rem">Da pagare: ${UI.formatCurrency(daPagare)}</span></div>
-                    <table class="data-table"><thead><tr>
+                    <table class="data-table tabella-schede"><thead><tr>
                         <th>Numero</th><th>Data</th><th>Fornitore</th><th>Commessa</th><th class="text-right">Imponibile</th>
                         <th class="text-right">Netto a pagare</th><th>Scadenza</th><th>Stato</th><th></th></tr></thead>
                     <tbody>${rowsPassive()}</tbody></table>
@@ -86,7 +86,7 @@ const ModPartner = (() => {
             return `<tr>
                 <td class="td-mono">${UI.esc(f.numero)}</td>
                 <td>${UI.formatDate(f.data_emissione)}</td>
-                <td class="td-primary">${UI.esc(f.fornitore_nome || '—')}</td>
+                <td class="td-primary cella-titolo">${UI.esc(f.fornitore_nome || '—')}</td>
                 <td>${f.incarico_id ? `<a href="#" data-act="commessa" data-id="${f.incarico_id}">${UI.esc(f.cliente_nome || '#' + f.incarico_id)}</a>` : '<span class="text-danger">da collegare</span>'}${f.condizione_pagamento === 'back_to_back' ? ' <span class="badge badge-purple" title="Pago quando incasso">B2B</span>' : ''}</td>
                 <td class="text-right">${UI.formatCurrency(f.imponibile)}</td>
                 <td class="text-right td-primary">${UI.formatCurrency(f.importo_totale)}${num(f.ritenuta) ? `<div style="font-size:0.72rem;color:var(--text-muted)">rit. ${UI.formatCurrency(f.ritenuta)}</div>` : ''}</td>

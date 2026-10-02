@@ -162,7 +162,7 @@
             <div class="sidebar-nav">
                 <button type="button" class="nav-item active" data-view="oggi" id="nav-oggi"><i class="ph ph-sun-horizon" aria-hidden="true"></i><span>Oggi</span></button>
                 <button type="button" class="nav-item" data-view="vendite" id="nav-vendite"><i class="ph ph-handshake" aria-hidden="true"></i><span>Vendite</span></button>
-                <button type="button" class="nav-item" data-view="incassi" id="nav-incassi"><i class="ph ph-receipt" aria-hidden="true"></i><span>Incassi</span></button>
+                <button type="button" class="nav-item" data-view="incassi" id="nav-incassi"><i class="ph ph-receipt" aria-hidden="true"></i><span>Fatture</span></button>
                 <button type="button" class="nav-item" data-view="banca" id="nav-banca"><i class="ph ph-bank" aria-hidden="true"></i><span>Banca</span>
                     <span class="badge badge-yellow nav-badge" id="nav-badge-classificare" style="display:none" title="Movimenti da classificare"></span></button>
                 <button type="button" class="nav-item" data-view="trasferte" id="nav-trasferte"><i class="ph ph-car-profile" aria-hidden="true"></i><span>Trasferte</span></button>
@@ -232,7 +232,6 @@
                 <div class="vtabs" role="tablist" aria-label="Vendite">
                     <button class="vtab active" role="tab" type="button" data-pane="comm-offerte" aria-selected="true"><i class="ph ph-file-text" aria-hidden="true"></i> Offerte</button>
                     <button class="vtab" role="tab" type="button" data-pane="tab-incarichi" aria-selected="false"><i class="ph ph-briefcase" aria-hidden="true"></i> Commesse</button>
-                    <button class="vtab" role="tab" type="button" data-pane="comm-margini" aria-selected="false"><i class="ph ph-chart-pie-slice" aria-hidden="true"></i> Margini</button>
                 </div>
                 <div class="vpane active" id="comm-offerte" role="tabpanel"></div>
                 <div class="vpane" id="tab-incarichi" role="tabpanel">
@@ -243,50 +242,49 @@
                         </button>
                     </div>
                     <div class="kpi-grid" id="incarichi-kpis"></div>
+                    <div id="incarichi-da-collegare"></div>
                     <div class="table-container">
                         <div class="table-toolbar">
                             <div class="filters-row" style="margin-bottom:0">
-                                <span class="filter-chip active" data-inc-stato="">Tutti</span>
-                                <span class="filter-chip" data-inc-stato="attivo">Attivi</span>
-                                <span class="filter-chip" data-inc-stato="parziale">Parziali</span>
-                                <span class="filter-chip" data-inc-stato="fatturato">Fatturati</span>
-                                <span class="filter-chip" data-inc-stato="pagato">Pagati</span>
+                                <span class="filter-chip active" data-inc-stato="">Tutte</span>
+                                <span class="filter-chip" data-inc-stato="attivo">Da fatturare</span>
+                                <span class="filter-chip" data-inc-stato="parziale">Fatturate in parte</span>
+                                <span class="filter-chip" data-inc-stato="fatturato">Fatturate</span>
                             </div>
                         </div>
-                        <table class="data-table" id="table-incarichi">
+                        <table class="data-table tabella-schede" id="table-incarichi">
                             <thead>
                                 <tr>
                                     <th style="width:30px"></th>
                                     <th>Cliente</th>
                                     <th>Tipo</th>
                                     <th>Data</th>
-                                    <th class="text-right">GG</th>
-                                    <th class="text-right">Importo</th>
-                                    <th>Progresso</th>
+                                    <th class="text-right">Valore</th>
+                                    <th class="text-right">Margine prev.</th>
+                                    <th>Fatturato</th>
                                     <th>Stato</th>
                                     <th style="width:80px"></th>
                                 </tr>
                             </thead>
                             <tbody id="tbody-incarichi">
-                                <tr><td colspan="9"><div class="empty-state"><i class="ph ph-clipboard-text"></i><h3>Nessun incarico</h3><p>Carica il primo incarico con il pulsante sopra</p></div></td></tr>
+                                <tr><td colspan="9"><div class="empty-state"><i class="ph ph-clipboard-text"></i><h3>Nessuna commessa</h3><p>Crea la prima commessa con il pulsante sopra</p></div></td></tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
-                <div class="vpane" id="comm-margini" role="tabpanel"></div>
             </section>
 
-            <!-- ═══ VIEW: INCASSI (fatture emesse e ricevute) ═══ -->
+            <!-- ═══ VIEW: FATTURE (emesse e ricevute; id «incassi» per gli indirizzi già salvati) ═══ -->
             <section class="view-section" id="view-incassi">
                 <div class="page-header">
-                    <h1 class="page-title"><i class="ph ph-receipt" aria-hidden="true"></i> Incassi e pagamenti</h1>
+                    <h1 class="page-title"><i class="ph ph-receipt" aria-hidden="true"></i> Fatture</h1>
                     <div class="page-actions">
                         <select class="form-control sel-anno" style="width: auto;" aria-label="Anno"></select>
                     </div>
                 </div>
-                <div class="vtabs" role="tablist" aria-label="Incassi">
-                    <button class="vtab active" role="tab" type="button" data-pane="tab-fatture" aria-selected="true"><i class="ph ph-arrow-down-left" aria-hidden="true"></i> Fatture emesse</button>
-                    <button class="vtab" role="tab" type="button" data-pane="inc-ricevute" aria-selected="false"><i class="ph ph-arrow-up-right" aria-hidden="true"></i> Fatture ricevute</button>
+                <div class="vtabs" role="tablist" aria-label="Fatture">
+                    <button class="vtab active" role="tab" type="button" data-pane="tab-fatture" aria-selected="true"><i class="ph ph-arrow-down-left" aria-hidden="true"></i> Emesse</button>
+                    <button class="vtab" role="tab" type="button" data-pane="inc-ricevute" aria-selected="false"><i class="ph ph-arrow-up-right" aria-hidden="true"></i> Ricevute</button>
                 </div>
                 <div class="vpane active" id="tab-fatture" role="tabpanel">
                     <div class="page-actions" style="padding: 0 32px 16px 32px; display: flex; gap: 8px; flex-wrap: wrap;">
@@ -298,7 +296,7 @@
                     <div class="kpi-grid" id="contabilita-kpis"></div>
                     <div class="chart-card" id="contabilita-chart-card">
                         <div class="chart-card-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-                            <span>Andamento Mensile</span>
+                            <span>Andamento mensile <small style="color:var(--text-muted);font-weight:400">· IVA inclusa</small></span>
                             <button class="btn btn-sm btn-secondary" id="btn-filtro-clienti"><i class="ph ph-funnel"></i> <span>Clienti nel conteggio</span></button>
                         </div>
                         <div class="chart-bars" id="contabilita-chart"></div>
@@ -312,13 +310,13 @@
                                 <span class="filter-chip" data-stato="pagata">Pagate</span>
                             </div>
                         </div>
-                        <table class="data-table" id="table-fatture">
+                        <table class="data-table tabella-schede" id="table-fatture">
                             <thead>
                                 <tr>
                                     <th>N. Fattura</th>
                                     <th>Data</th>
                                     <th>Cliente</th>
-                                    <th>Incarico</th>
+                                    <th>Commessa</th>
                                     <th class="text-right">Imponibile</th>
                                     <th class="text-right">Totale</th>
                                     <th>Stato</th>

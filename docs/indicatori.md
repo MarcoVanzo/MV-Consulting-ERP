@@ -20,6 +20,7 @@ situazione di oggi gli incassi aperti si vedono tutti.
 | Indicatore | Definizione | Base |
 |---|---|---|
 | Fatturato | somma dell'imponibile delle fatture emesse (note di credito sottratte) | netto IVA |
+| Fatturato (vista Fatture) | lo stesso con l'IVA (`totale`): in Fatture tutti i numeri sono IVA inclusa, l'imponibile è nel sottotitolo | IVA inclusa |
 | Incassato (fatture) | fatture con stato `pagata` | IVA inclusa |
 | Da incassare | fatture non `pagata` | IVA inclusa |
 | Scaduto | da incassare con `data_scadenza` passata (non dipende dal cron che mette `scaduta`) | IVA inclusa |
@@ -27,8 +28,9 @@ situazione di oggi gli incassi aperti si vedono tutti.
 | Scaduto (per cliente) | non supera mai quanto resta da incassare a quel cliente: una nota di credito aperta lo riduce. Una nota di credito che storna per intero fatture aperte le chiude all'import (DatiFattureCollegate) | IVA inclusa |
 | Valore commesse | somma di `incarichi.importo_totale` | netto IVA |
 | Fatturato commesse | imponibile delle fatture collegate alla commessa | netto IVA |
-| Fatturato senza commessa | fatturato dell'anno (stessa definizione e stessi clienti esclusi di «Fatturato») delle fatture non collegate a una commessa: è il motivo per cui «Fatturato su commesse» in Vendite non coincide con «Fatturato» in Incassi, insieme alle date (commessa dell'anno vs fattura dell'anno) | netto IVA |
-| Incassato commesse | imponibile delle fatture collegate e pagate | netto IVA |
+| Fatturato senza commessa | fatturato dell'anno (stessa definizione e stessi clienti esclusi di «Fatturato») delle fatture non collegate a una commessa: è il motivo per cui «Fatturato su commesse» in Vendite non coincide con l'imponibile del «Fatturato» in Fatture, insieme alle date (commessa dell'anno vs fattura dell'anno) | netto IVA |
+| Incassato commesse | imponibile delle fatture collegate e pagate (non più mostrato in Vendite, che si ferma alla fattura) | netto IVA |
+| Margine previsto (Vendite) | valore delle commesse dell'anno − costi partner previsti (`CommessaService::margini`) | netto IVA |
 | Da fatturare (commesse) | valore della commessa non ancora coperto da fatture, mai negativo | netto IVA |
 | Rate da fatturare | rate senza fattura con data prevista entro l'orizzonte (le rate senza data contano sempre), escluse quelle di commesse già fatturate per intero | netto IVA |
 | Pipeline | offerte in stato `inviata` (le bozze sono a parte: non le ha ancora viste nessuno) | netto IVA |
@@ -40,9 +42,9 @@ situazione di oggi gli incassi aperti si vedono tutti.
 | Trasferte: indennità | per giornata con cliente (TrasferteRegole): vitto e alloggio pagati, da chiunque, la riducono | € |
 | Trasferte: da rimborsare | rimborso km + indennità + spese pagate di tasca propria; le spese con carta aziendale o bonifico le ha già pagate la società | € |
 
-«Incassato» ha due basi volutamente diverse: nelle fatture è quello che il cliente ha pagato
-(IVA inclusa), nelle commesse è l'imponibile, per confrontarlo col valore della commessa.
-Le etichette nelle schede dicono sempre quale delle due si sta guardando.
+Ogni vista guarda una fase sola: Vendite arriva fino alla fattura (valore, fatturato, da fatturare,
+margine previsto, tutto netto IVA); gli incassi si leggono solo in Fatture, dove tutti i numeri sono IVA inclusa. Così lo stesso nome non
+compare in due viste con due numeri diversi.
 
 ## Stato «pagata»
 

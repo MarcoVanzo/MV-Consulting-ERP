@@ -128,6 +128,65 @@ class CommesseController {
         Response::json(true, '', $stmt->fetchAll());
     }
 
+    /** Fatture dell'anno senza commessa, con la commessa proposta (CommessaService::proposteCollegamento). */
+    public function daCollegare() {
+        $year = (int)($_POST['year'] ?? $_GET['year'] ?? date('Y'));
+        Response::json(true, '', $this->svc->proposteCollegamento($year));
+    }
+
+    /** Collega fatture a commesse: collegamenti = JSON [{fattura_id, incarico_id}]. */
+    public function collegaACommessa($data) {
+        $coppie = json_decode((string)($data['collegamenti'] ?? '[]'), true);
+        if (!is_array($coppie) || !$coppie) Response::json(false, 'Nessun collegamento da salvare');
+        $p = $this->prefix;
+        $esisteF = $this->pdo->prepare("SELECT incarico_id FROM {$p}fatture WHERE id = ?");
+        $esisteI = $this->pdo->prepare("SELECT 1 FROM {$p}incarichi WHERE id = ?");
+        $toccate = [];
+        $this->pdo->beginTransaction();
+        foreach ($coppie as $c) {
+            $fid = (int)($c['fattura_id'] ?? 0);
+            $iid = (int)($c['incarico_id'] ?? 0);
+            $esisteF->execute([$fid]);
+            $prima = $esisteF->fetchColumn();
+            $esisteI->execute([$iid]);
+            if ($prima === false || !$esisteI->fetchColumn()) {
+                $this->pdo->rollBack();
+                Response::json(false, 'Fattura o commessa non trovata', null, 404);
+            }
+            $this->svc->collegaFatturaACommessa($fid, $iid);
+            $toccate[$iid] = true;
+            if ($prima) $toccate[(int)$prima] = true;
+        }
+        $this->pdo->commit();
+        require_once __DIR__ . '/IncarchiController.php';
+        $ic = new IncarchiController();
+        foreach (array_keys($toccate) as $iid) $ic->recalculate($iid);
+        Audit::log('UPDATE', 'fatture', 'collega_commessa', null, ['collegamenti' => count($coppie)]);
+        Response::json(true, count($coppie) === 1 ? 'Fattura collegata alla commessa' : count($coppie) . ' fatture collegate alle commesse');
+    }
+
+    /** Nuova commessa dalle fatture scelte (singola o ricorrente a canone): vedi CommessaService::creaDaFatture. */
+    public function creaDaFatture($data) {
+        $ids = json_decode((string)($data['fatture'] ?? '[]'), true);
+        $this->pdo->beginTransaction();
+        try {
+            $id = $this->svc->creaDaFatture(is_array($ids) ? $ids : [], [
+                'tipo_commessa' => $data['tipo_commessa'] ?? 'altro',
+                'descrizione' => $data['descrizione'] ?? '',
+                'ricorrente' => !empty($data['ricorrente']) && $data['ricorrente'] !== '0',
+                'mesi' => $data['mesi'] ?? 12,
+            ]);
+            $this->pdo->commit();
+        } catch (InvalidArgumentException $e) {
+            $this->pdo->rollBack();
+            Response::json(false, $e->getMessage());
+        }
+        require_once __DIR__ . '/IncarchiController.php';
+        (new IncarchiController())->recalculate($id);
+        Audit::log('INSERT', 'incarichi', (string)$id, null, null, ['da_fatture' => count($ids)]);
+        Response::json(true, 'Commessa creata dalle fatture', ['id' => $id]);
+    }
+
     /** Incasso di una fattura emessa, dallo scadenzario (data vuota = oggi). */
     public function segnaIncassata($data) {
         $id = (int)($data['fattura_id'] ?? 0);
@@ -143,18 +202,6 @@ class CommesseController {
         }
         Audit::log('UPDATE', 'fatture', (string)$id, null, ['stato' => 'pagata', 'data_pagamento' => $dataPag]);
         Response::json(true, 'Incasso registrato');
-    }
-
-    public function margini() {
-        $year = (int)($_POST['year'] ?? $_GET['year'] ?? date('Y'));
-        $rows = $this->svc->margini($year);
-        $tot = ['ricavo_previsto' => 0, 'costi_previsti' => 0, 'fatturato' => 0, 'costi_effettivi' => 0, 'incassato' => 0, 'pagato_partner' => 0];
-        foreach ($rows as $r) foreach ($tot as $k => $v) $tot[$k] += (float)$r[$k];
-        $tot['margine_previsto'] = round($tot['ricavo_previsto'] - $tot['costi_previsti'], 2);
-        $tot['margine_effettivo'] = round($tot['fatturato'] - $tot['costi_effettivi'], 2);
-        $tot['margine_previsto_pct'] = $tot['ricavo_previsto'] > 0 ? round($tot['margine_previsto'] / $tot['ricavo_previsto'] * 100, 1) : null;
-        $tot['margine_effettivo_pct'] = $tot['fatturato'] > 0 ? round($tot['margine_effettivo'] / $tot['fatturato'] * 100, 1) : null;
-        Response::json(true, '', ['commesse' => $rows, 'totali' => $tot]);
     }
 
     public function scadenzario() {

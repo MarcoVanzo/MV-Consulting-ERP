@@ -220,3 +220,42 @@ button.nav-item { width: 100%; background: none; border: 0; font: inherit; color
 }
 .cat-tendina option { color: var(--text-primary); background: var(--bg-dark); text-transform: none; }
 .cat-tendina:disabled { opacity: 0.6; cursor: progress; }
+
+/* Tabelle .tabella-schede su telefono: una scheda per riga, su due colonne, con l'etichetta sopra il valore
+   (data-label messo da UI.initTabelleSchede). La cella .cella-titolo (cliente o fornitore) fa da titolo. */
+@media (max-width: 700px) {
+  .tabella-schede thead { display: none; }
+  .tabella-schede, .tabella-schede tbody { display: block; }
+  .tabella-schede tbody tr {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; padding: 12px 14px; margin: 0 0 10px;
+    border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-surface);
+  }
+  .tabella-schede tbody td {
+    display: block; min-width: 0 !important; max-width: none !important;
+    padding: 0; border: 0; text-align: left !important; font-size: 0.85rem;
+  }
+  .tabella-schede tbody td::before {
+    content: attr(data-label); display: block; margin-bottom: 2px;
+    color: var(--text-muted); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .tabella-schede tbody td.cella-titolo {
+    grid-column: 1 / -1; order: -1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    font-size: 0.92rem; color: var(--text-primary);
+  }
+  .tabella-schede tbody td.cella-titolo::before { content: none; }
+  .tabella-schede tbody td.senza-etichetta { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+  .tabella-schede tbody td.senza-etichetta:first-child { order: -2; justify-content: flex-start; }
+  .tabella-schede tbody td.senza-etichetta::before { content: none; }
+  .tabella-schede tbody td.senza-etichetta:empty { display: none; }
+  .tabella-schede tbody td > div { width: 100%; }
+  .tabella-schede tbody td[colspan] { grid-column: 1 / -1; display: block; text-align: center !important; }
+  .tabella-schede tbody td[colspan]::before { content: none; }
+  .tabella-schede tbody tr:has(td[colspan]) { display: block; }
+  .tabella-schede select { min-width: 0 !important; width: 100%; }
+  .table-container:has(.tabella-schede) { overflow: visible; padding: 0 8px 2px; }
+}
+
+/* KPI su telefono: le cifre da sei zeri non escono dalla card */
+@media (max-width: 480px) {
+  .kpi-card .kpi-value { font-size: clamp(1.05rem, 5.6vw, 1.5rem); white-space: nowrap; }
+}
