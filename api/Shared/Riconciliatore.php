@@ -182,6 +182,8 @@ class Riconciliatore
             $ctx['avvisi'] = (float)$mov['importo'] > 0 && ($mov['origine'] ?? 'estratto_conto') === 'estratto_conto' ? $this->docs->avvisiPerAccredito($mov) : [];
             $an = $this->analizza($mov, $incerto, $ctx);
             if ($an['avviso_id']) {
+                // Fatture citate in causale che mancavano all'avviso: si aggiungono prima del collegamento
+                if (!empty($an['completa_avviso'])) $this->registra($an['avviso_id'], $an['completa_avviso'], 'auto', $userId);
                 $this->collegaAvviso($id, $an['avviso_id']);
                 $esito['esito'] = 'abbinato';
                 $esito['dettaglio'] = 'Avviso di pagamento già registrato';
@@ -309,6 +311,12 @@ class Riconciliatore
             $unico = count($acc) === 1 && (int)$acc[0]['id'] === (int)$mov['id'] && ($ctx['candidati_avviso'][(int)$a['id']] ?? 1) === 1;
             if ($unico && $this->avvisoCoerente((int)$a['id'], $ctx)) {
                 $res['avviso_id'] = (int)$a['id'];
+                return $res;
+            }
+            $extra = $unico ? $this->completaAvviso($a, $ctx, (string)($mov['data_valuta'] ?: $mov['data_operazione'])) : null;
+            if ($extra) {
+                $res['avviso_id'] = (int)$a['id'];
+                $res['completa_avviso'] = $extra;
                 return $res;
             }
         }
@@ -656,6 +664,45 @@ class Riconciliatore
             return $nell > 0;
         }
         return $ctx['anagrafica_id'] !== null && in_array($ctx['anagrafica_id'], array_column($docs, 'cliente_id'), true);
+    }
+
+    /**
+     * Avviso con una parte delle fatture: le altre citate nella causale dell'accredito (aperte o segnate pagate senza
+     * bonifico, dello stesso cliente) ne completano l'importo? Restituisce i documenti da aggiungere all'avviso se
+     * un'unica combinazione fa esattamente quello che manca e copre ogni numero citato che l'avviso non ha; altrimenti null.
+     */
+    private function completaAvviso(array $avv, array $ctx, string $data): ?array
+    {
+        if (!$ctx['refs']) return null;
+        $docs = $this->docs->delMovimento((int)$avv['id']);
+        $clienti = array_values(array_unique(array_column($docs, 'cliente_id')));
+        if (count($clienti) !== 1 || $clienti[0] === null) return null;
+        $cli = $clienti[0];
+        if ($ctx['anagrafica_id'] !== null && $ctx['anagrafica_id'] !== $cli) return null;
+        $manca = (int)round(abs((float)$avv['importo']) * 100) - (int)round($this->riconciliatoSulMovimento((int)$avv['id']) * 100);
+        if ($manca <= 0) return null;
+        $pool = [];
+        $fuori = [];   // numeri citati che l'avviso non ha: candidati per ciascuno
+        foreach ($ctx['refs'] as $i => $ref) {
+            $nell = false;
+            foreach ($docs as $d) if (RiconciliazioneMatch::corrisponde($ref, $d['numero'], $d['data_emissione'])) $nell = true;
+            $ids = [];
+            foreach (array_merge($this->aperti('fattura'), $this->pagate('fattura', $data)) as $d) {
+                if ($d['anagrafica_id'] !== $cli || $d['residuo'] <= 0) continue;
+                if (RiconciliazioneMatch::corrisponde($ref, $d['numero'], $d['data_emissione'])) { $pool[$d['id']] = $d; $ids[] = $d['id']; }
+            }
+            if (!$nell) {
+                if (!$ids) return null;
+                $fuori[$i] = $ids;
+            }
+        }
+        if (!$fuori) return null;
+        $sol = RiconciliazioneMatch::subsetSum(RiconciliazioneDocumenti::voci(array_slice($pool, 0, self::MAX_APERTE, true)), $manca, 3, 200000, 6);
+        $valide = array_values(array_filter($sol['soluzioni'], function ($s) use ($fuori) {
+            foreach ($fuori as $ids) if (!array_intersect($ids, array_keys($s))) return false;
+            return true;
+        }));
+        return count($valide) === 1 && !$sol['troncato'] ? $this->daSoluzione($valide[0], $pool) : null;
     }
 
     private function riconciliatoSulMovimento(int $id): float

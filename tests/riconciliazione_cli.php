@@ -719,6 +719,27 @@ $ric->registraAvviso(['data' => '2026-08-20', 'importo' => 777, 'descrizione' =>
 $importa([$mv('V2', 777.0, '2026-08-21', 'Bonifico a vs favore GAMMA IMPIANTI FATT. 712/001 DEL 01/03/2026-FATT. 713/001 DEL 01/03/2026')]);
 check('avviso parziale ma la causale cita una fattura aperta: niente aggancio', !(int)$ric->movimento($idPer('V2'))['avviso_id']);
 
+// Avviso parziale e causale che cita anche fatture aperte o già pagate dello stesso cliente: se ne completano
+// esattamente l'importo si aggiungono all'avviso e l'accredito si collega
+$fatt(720, '720/001', '2026-03-01', 20, 300);
+$fatt(721, '721/001', '2026-03-01', 20, 400);
+$fatt(722, '722/001', '2026-03-01', 20, 250, 'pagata');
+$ric = new Riconciliatore($pdo, $p, $dopo);
+$av3 = $ric->registraAvviso(['data' => '2026-09-10', 'importo' => 950, 'descrizione' => 'Avviso 720', 'file_nome' => 'avv11.pdf'],
+    [['tipo' => 'fattura', 'id' => 720, 'importo' => 300]], 7);
+$importa([$mv('V3', 950.0, '2026-09-11', 'Bonifico a vs favore GAMMA IMPIANTI FATT. 720/001 DEL 01/03/2026-FATT. 721/001 DEL 01/03/2026-FATT. 722/001 DEL 01/03/2026')]);
+check('avviso completato con le fatture citate: aperta saldata, già pagata coperta, accredito collegato',
+    (int)$ric->movimento($idPer('V3'))['avviso_id'] === $av3 && $stato(721) === 'pagata' && $stato(722) === 'pagata'
+    && $ric->movimento($av3)['stato'] === 'riconciliato'
+    && abs((float)$pdo->query("SELECT SUM(importo) FROM {$p}riconciliazioni WHERE movimento_id = $av3")->fetchColumn() - 950) < 0.01);
+$fatt(723, '723/001', '2026-03-01', 20, 300);
+$fatt(724, '724/001', '2026-03-01', 20, 401);
+$ric = new Riconciliatore($pdo, $p, $dopo);
+$ric->registraAvviso(['data' => '2026-09-20', 'importo' => 700, 'descrizione' => 'Avviso 723', 'file_nome' => 'avv12.pdf'],
+    [['tipo' => 'fattura', 'id' => 723, 'importo' => 300]], 7);
+$importa([$mv('V4', 700.0, '2026-09-21', 'Bonifico a vs favore GAMMA IMPIANTI FATT. 723/001 DEL 01/03/2026-FATT. 724/001 DEL 01/03/2026')]);
+check('...ma se l\'importo non torna niente aggancio', !(int)$ric->movimento($idPer('V4'))['avviso_id'] && $stato(724) !== 'pagata');
+
 // ═══ 4. Estratto conto vero (facoltativo) ═══════════════════
 $file = getenv('CBI_FILE') ?: '';
 if ($file !== '' && is_readable($file)) {
