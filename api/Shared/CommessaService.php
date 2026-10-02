@@ -52,6 +52,29 @@ class CommessaService
         return array_values(array_unique(array_filter($chiavi)));
     }
 
+    /**
+     * Commessa di una riga di fattura: quella che ha un protocollo in comune col testo della riga
+     * («… Prot. n. 3991/2026 + 452/2027 (SZ.DPS.F307.26)»). $incarichi: righe con id, numero_protocollo,
+     * sottocliente_id. Più commesse candidate: vince quella del sottocliente della riga, se noto.
+     */
+    public static function incaricoDellaRiga(string $descrizione, array $incarichi, ?int $sottoclienteId = null): ?array
+    {
+        // Solo i codici veri: senza numeri di protocollo né codice alfanumerico la riga non si abbina
+        // Le date («ft. 65 del 25/11/2025») non sono protocolli
+        $descrizione = preg_replace('/\b\d{1,2}\/\d{1,2}\/\d{4}\b/', ' ', $descrizione);
+        if (!preg_match('/\d\s*\/\s*\d{4}|\b[A-Z]{2,}(?:\s*\.\s*[A-Z0-9]+){2,}\b/i', $descrizione)) return null;
+        $chiavi = self::chiaviProtocollo($descrizione);
+        $trovati = [];
+        foreach ($incarichi as $inc) {
+            if (array_intersect($chiavi, self::chiaviProtocollo($inc['numero_protocollo'] ?? ''))) $trovati[] = $inc;
+        }
+        if (count($trovati) > 1 && $sottoclienteId) {
+            $stesso = array_values(array_filter($trovati, fn($i) => (int)($i['sottocliente_id'] ?? 0) === $sottoclienteId));
+            if ($stesso) $trovati = $stesso;
+        }
+        return $trovati[0] ?? null;
+    }
+
     /** Commessa già registrata con lo stesso protocollo (vedi chiaviProtocollo), o null. */
     public function commessaConProtocollo(?string $protocollo, ?int $esclusa = null): ?array
     {
