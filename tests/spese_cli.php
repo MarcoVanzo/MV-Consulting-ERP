@@ -13,6 +13,7 @@ if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require_once __DIR__ . '/../api/Shared/Database.php';
 require_once __DIR__ . '/../api/Shared/Response.php';
 require_once __DIR__ . '/../api/Controllers/SpeseController.php';
+require_once __DIR__ . '/../api/Controllers/TrasferteController.php';
 
 $ok = 0;
 $ko = 0;
@@ -66,6 +67,9 @@ $ped = array_values(array_filter($el, fn($s) => $s['categoria'] === 'pedaggio'))
 check('taxi in contanti da segnalare (non tracciabile)', $taxi['da_segnalare'] === true && $taxi['tracciabile'] === false);
 check('pedaggio con carta: tracciabile', $ped['da_segnalare'] === false && $ped['tracciabile'] === true);
 // Carburante di tasca propria nel giorno del rimborso km: già compreso nel costo ACI
+$pdo->exec("INSERT INTO {$p}clienti (id, ragione_sociale, citta) VALUES (1, 'Cliente di prova', 'Treviso')");
+$pdo->exec("INSERT INTO {$p}settings VALUES ('trasferte_costo_km', '0.5')");
+$sp = new Spese($pdo, $p); // il costo al km si legge una volta per istanza (una per richiesta)
 $pdo->exec("INSERT INTO {$p}trasferte (data_trasferta, cliente_id, km_andata) VALUES ('2026-09-07', 1, 40)");
 $pdo->exec("INSERT INTO {$p}spese (data, categoria, importo, metodo) VALUES ('2026-09-07', 'carburante', 60, 'carta_personale'),
     ('2026-09-07', 'carburante', 50, 'carta'), ('2026-09-08', 'carburante', 30, 'contanti')");
@@ -74,6 +78,21 @@ $doppio = array_column($carb, 'carburante_doppio', 'metodo');
 check('carburante di tasca propria nel giorno con km: segnalato', $doppio['carta_personale'] === true, $doppio);
 check('carburante con carta aziendale: non segnalato', $doppio['carta'] === false, $doppio);
 check('carburante in un giorno senza km: non segnalato', $doppio['contanti'] === false, $doppio);
+$cp = array_values(array_filter($carb, fn($s) => $s['metodo'] === 'carta_personale'))[0];
+check('carburante doppio: non rimborsabile', $cp['rimborsabile'] === false, $cp);
+$gc = $sp->perGiorno('2026-09-07', '2026-09-08');
+check('carburante doppio escluso per giorno (non in da rimborsare)', abs($gc['2026-09-07']['escluse'] - 60) < 0.01 && abs($gc['2026-09-08']['escluse']) < 0.01, $gc);
+$pm = $sp->perMetodo('2026-09-07', '2026-09-08');
+check('carburante doppio escluso dal totale da rimborsare', abs($pm['da_rimborsare'] - 30) < 0.01 && abs($pm['carburante_doppio'] - 60) < 0.01 && abs($pm['aziendali'] - 50) < 0.01, $pm);
+$rc = Spese::applicaAlleTrasferte([['data_trasferta' => '2026-09-07']], $gc);
+check('carburante doppio sulla riga della trasferta', abs($rc[0]['spese_escluse'] - 60) < 0.01, $rc);
+// Senza un costo al km (né generale né del mezzo) non c'è rimborso km: il pieno si rimborsa
+$pdo->exec("DELETE FROM {$p}settings WHERE setting_key = 'trasferte_costo_km'");
+check('senza costo al km: carburante non doppio', abs((new Spese($pdo, $p))->perMetodo('2026-09-07', '2026-09-08')['carburante_doppio']) < 0.01);
+$pdo->exec("INSERT INTO {$p}mezzi (id, costo_km) VALUES (1, 0.42)");
+$pdo->exec("UPDATE {$p}trasferte SET mezzo_id = 1");
+check('costo ACI del mezzo: carburante doppio', abs((new Spese($pdo, $p))->perMetodo('2026-09-07', '2026-09-08')['carburante_doppio'] - 60) < 0.01);
+$pdo->exec("DELETE FROM {$p}mezzi");
 $pdo->exec("DELETE FROM {$p}spese WHERE categoria = 'carburante'");
 $pdo->exec("DELETE FROM {$p}trasferte");
 
@@ -110,11 +129,26 @@ $pdo->exec("INSERT INTO {$p}settings VALUES ('trasferte_costo_km', '0.5')");
 $pdo->exec("INSERT INTO {$p}trasferte (data_trasferta, cliente_id, km_andata, km_ritorno) VALUES ('2026-09-03', 1, 40, 40)");
 $c = new SpeseController($pdo, $p);
 $r = risposta(fn() => $c->rimborso(['mese' => '2026-09', 'azione' => 'presenta']));
+$_GET = ['year' => '2026', 'month' => '9'];
 $rb = $pdo->query("SELECT * FROM {$p}rimborsi WHERE mese = '2026-09'")->fetch();
 // km 80 × 0,5 = 40; indennità 30,99 (vitto pagato: riduce l'indennità anche se con carta aziendale);
 // da rimborsare solo le spese pagate di tasca propria: 4 (vitto in contanti) + 22 (taxi) = 26
 check('presentata con i totali congelati', $r['success'] && abs($rb['importo_km'] - 40) < 0.01 && abs($rb['indennita'] - 30.99) < 0.01
     && abs($rb['spese'] - 26) < 0.01 && abs($rb['totale'] - 96.99) < 0.01, $rb);
+// Trasferte › Viaggi di un mese presentato: totali congelati e ricalcolo di oggi, per l'avviso
+$ref = new ReflectionProperty(Database::class, 'pdo');
+$ref->setValue(null, $pdo);
+foreach (["ALTER TABLE {$p}sottoclienti ADD COLUMN nome TEXT", "ALTER TABLE {$p}mezzi ADD COLUMN nome TEXT", "ALTER TABLE {$p}mezzi ADD COLUMN targa TEXT"] as $sql) $pdo->exec($sql);
+$tc = new TrasferteController(new Percorsi($pdo, $p));
+$l = risposta(fn() => $tc->list());
+$np = $l['data']['note_presentate']['2026-09'] ?? null;
+check('lista: nota presentata con i totali congelati, ricalcolo uguale', $np && abs($np['congelato']['totale'] - 96.99) < 0.01 && $np['differisce'] === false, $l['data']['note_presentate'] ?? $l);
+// Una regola cambiata dopo la presentazione (qui: il cliente risulta nel comune della sede) cambia il ricalcolo, non la nota
+$pdo->exec("UPDATE {$p}clienti SET citta = 'Zero Branco' WHERE id = 1");
+$np = risposta(fn() => $tc->list())['data']['note_presentate']['2026-09'];
+check('lista: ricalcolo diverso segnalato, totali presentati intatti', $np['differisce'] === true && abs($np['congelato']['indennita'] - 30.99) < 0.01
+    && abs($np['ricalcolo']['indennita']) < 0.01, $np);
+$pdo->exec("UPDATE {$p}clienti SET citta = 'Treviso' WHERE id = 1");
 check('ripresentare senza riaprire: rifiutato', risposta(fn() => $c->rimborso(['mese' => '2026-09', 'azione' => 'presenta']))['success'] === false);
 check('spesa dalla carta in un mese presentato: bloccata', risposta(fn() => $c->daMovimento(['movimento_id' => 4, 'categoria' => 'alloggio']))['success'] === false);
 $r = risposta(fn() => $c->save(['data' => '2026-09-12', 'categoria' => 'parcheggio', 'importo' => '3,50', 'metodo' => 'carta']));

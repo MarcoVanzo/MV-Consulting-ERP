@@ -7,6 +7,7 @@ const ModTrasferte = (() => {
     let _trasferte = [];
     let _totali = {};
     let _giornate = {};
+    let _note = {};
     let _mezziCache = [];
     let _richiesta = 0;
     const DA_ASSEGNARE = '<span style="color: var(--danger); font-size: 0.8rem; font-weight: 500;">Da assegnare</span>';
@@ -26,6 +27,7 @@ const ModTrasferte = (() => {
             _trasferte = data?.trasferte || [];
             _totali = data?.totali || {};
             _giornate = data?.giornate || {};
+            _note = data?.note_presentate || {};
             await syncCostoKm(data?.costo_km);
 
             // Precarica mezzi se non ancora in cache
@@ -34,6 +36,7 @@ const ModTrasferte = (() => {
             }
             populateMezzoToolbar();
             renderKpis();
+            renderAvvisi();
             renderTable();
         } catch (err) {
             console.error('[Trasferte] Load error:', err);
@@ -99,6 +102,27 @@ const ModTrasferte = (() => {
         return parseFloat(_giornate[data]?.indennita) || 0;
     }
 
+    /** Giornata con un cliente senza città: non si sa se è fuori comune, l'indennità aspetta la verifica */
+    function daVerificare(data) {
+        return !!_giornate[data]?.da_verificare;
+    }
+    const TITOLO_VERIFICA = 'Manca la città del cliente o del sottocliente: senza non si sa se la giornata è fuori dal comune della sede. Inseriscila in anagrafica.';
+
+    /** Mese (AAAA-MM) → «MM/AAAA» */
+    const meseFmt = m => `${String(m).slice(5, 7)}/${String(m).slice(0, 4)}`;
+
+    /**
+     * Differenza fra i totali congelati delle note presentate e il ricalcolo di oggi: nei mesi presentati
+     * valgono i totali presentati, quindi i KPI si correggono di questa differenza.
+     */
+    function deltaNote() {
+        const d = { importo_km: 0, indennita: 0, spese: 0 };
+        Object.values(_note).forEach(n => {
+            Object.keys(d).forEach(k => { d[k] += (parseFloat(n.congelato?.[k]) || 0) - (parseFloat(n.ricalcolo?.[k]) || 0); });
+        });
+        return d;
+    }
+
     /**
      * Trasferte raggruppate per giornata. Mattina: fascia mattino; pomeriggio: fascia pomeriggio;
      * le giornate intere vanno nella colonna meno piena. Nessuna trasferta resta fuori.
@@ -108,7 +132,7 @@ const ModTrasferte = (() => {
         _trasferte.forEach(t => {
             const g = grouped[t.data_trasferta] ??= {
                 data: t.data_trasferta, mattina: [], pomeriggio: [], km_totali: 0,
-                vitto: 0, alloggio: 0, altre: 0, aziendali: 0, rimborso_km: 0, pernottamento: false, destinazioni: []
+                vitto: 0, alloggio: 0, altre: 0, aziendali: 0, escluse: 0, rimborso_km: 0, pernottamento: false, destinazioni: []
             };
             if (t.pernottamento == 1 || t.pernottamento == true) g.pernottamento = true;
             const entry = { nome: t.sottocliente_nome || t.cliente_nome || '', id: t.id };
@@ -123,6 +147,7 @@ const ModTrasferte = (() => {
             g.alloggio += parseFloat(t.alloggio || 0);
             g.altre += parseFloat(t.altre_spese || 0);
             g.aziendali += parseFloat(t.spese_aziendali || 0);
+            g.escluse += parseFloat(t.spese_escluse || 0);
             g.rimborso_km += rimborsoKmDi(t);
         });
         return Object.values(grouped);
@@ -131,9 +156,11 @@ const ModTrasferte = (() => {
     function renderKpis() {
         const totIndennita = parseFloat(_totali.indennita) || 0;
 
-        const costoKmTotale = _trasferte.reduce((a, t) => a + rimborsoKmDi(t), 0);
-        const speseDaRimborsare = (_totali.totale_spese || 0) - (_totali.spese_aziendali || 0);
-        const totaleComplessivo = speseDaRimborsare + costoKmTotale + totIndennita;
+        // Nei mesi con la nota presentata valgono i totali congelati, non il ricalcolo di oggi
+        const delta = deltaNote();
+        const costoKmTotale = _trasferte.reduce((a, t) => a + rimborsoKmDi(t), 0) + delta.importo_km;
+        const speseDaRimborsare = (_totali.totale_spese || 0) - (_totali.spese_aziendali || 0) - (_totali.spese_escluse || 0) + delta.spese;
+        const congelati = Object.keys(_note).length ? '<div class="kpi-sub">con i totali delle note presentate</div>' : '';
 
         document.getElementById('trasferte-kpis').innerHTML = `
             <div class="kpi-card kpi-blue">
@@ -146,13 +173,32 @@ const ModTrasferte = (() => {
             </div>
             <div class="kpi-card kpi-yellow">
                 <div class="kpi-label">Rimborso KM + Ind.</div>
-                <div class="kpi-value">${UI.formatCurrency(costoKmTotale + totIndennita)}</div>
+                <div class="kpi-value">${UI.formatCurrency(costoKmTotale + totIndennita + delta.indennita)}</div>${congelati}
             </div>
             <div class="kpi-card kpi-red">
                 <div class="kpi-label">Spese da rimborsare</div>
-                <div class="kpi-value">${UI.formatCurrency(speseDaRimborsare)}</div>
+                <div class="kpi-value">${UI.formatCurrency(speseDaRimborsare)}</div>${congelati}
             </div>
         `;
+    }
+
+    /** Avvisi sopra la tabella: note presentate (e se il ricalcolo di oggi darebbe altro), giornate da verificare */
+    function renderAvvisi() {
+        const box = document.getElementById('trasferte-avvisi');
+        if (!box) return;
+        const note = Object.values(_note).map(n => {
+            const c = n.congelato || {}, r = n.ricalcolo || {};
+            const testa = `Nota spese di ${UI.esc(meseFmt(n.mese))} presentata il ${UI.esc(UI.formatDate(n.data_presentazione))}: valgono i totali presentati (${UI.esc(UI.formatCurrency(c.totale))}).`;
+            if (!n.differisce) return `<div class="notice">${testa}</div>`;
+            const voci = [['importo_km', 'rimborso km'], ['indennita', 'indennità'], ['spese', 'spese']]
+                .filter(([k]) => Math.abs((parseFloat(c[k]) || 0) - (parseFloat(r[k]) || 0)) >= 0.01)
+                .map(([k, l]) => `${l} ${UI.esc(UI.formatCurrency(r[k]))} invece di ${UI.esc(UI.formatCurrency(c[k]))}`);
+            return `<div class="notice">${testa} Con le regole di oggi il mese darebbe ${UI.esc(UI.formatCurrency(r.totale))} (${voci.join(', ')}):
+                le righe qui sotto sono ricalcolate. Per rifarla riapri la nota (Trasferte › Spese).</div>`;
+        });
+        const nVer = Object.values(_giornate).filter(g => g.da_verificare).length;
+        if (nVer) note.push(`<div class="notice">${UI.esc(UI.plurale(nVer, 'giornata', 'giornate'))} con l'indennità da verificare: ${UI.esc(TITOLO_VERIFICA)}</div>`);
+        box.innerHTML = note.join('');
     }
 
     function renderTable() {
@@ -175,8 +221,9 @@ const ModTrasferte = (() => {
 
         tbody.innerHTML = rows.map(g => {
             const indennita = indennitaDi(g.data);
-            // Le spese pagate dalla società (carta aziendale, bonifico) non si rimborsano
-            const spese = g.vitto + g.alloggio + g.altre - g.aziendali;
+            // Le spese pagate dalla società (carta aziendale, bonifico) non si rimborsano, né il carburante
+            // di tasca propria nei giorni con rimborso km (la tariffa ACI lo comprende già)
+            const spese = g.vitto + g.alloggio + g.altre - g.aziendali - g.escluse;
             const rimborsoTotale = g.rimborso_km + indennita + spese;
             const dataAttr = UI.esc(g.data);
             // Una spesa di alloggio vale come notte fuori anche senza il pulsante (così calcola il server)
@@ -189,8 +236,8 @@ const ModTrasferte = (() => {
                 <td class="td-primary">${cella(g.mattina)}</td>
                 <td class="td-primary">${cella(g.pomeriggio)}</td>
                 <td class="text-right">${UI.formatNumber(g.km_totali)}</td>
-                <td class="text-right">${UI.formatCurrency(indennita)}</td>
-                <td class="text-right fw-600" title="${spese ? 'Comprende ' + UI.esc(UI.formatCurrency(spese)) + ' di spese da rimborsare (scheda Spese)' : ''}${g.aziendali ? ' · ' + UI.esc(UI.formatCurrency(g.aziendali)) + ' pagati dalla società' : ''}">${UI.formatCurrency(rimborsoTotale)}</td>
+                <td class="text-right">${daVerificare(g.data) ? `<span class="badge badge-yellow" title="${UI.esc(TITOLO_VERIFICA)}">da verificare</span>` : UI.formatCurrency(indennita)}</td>
+                <td class="text-right fw-600" title="${spese ? 'Comprende ' + UI.esc(UI.formatCurrency(spese)) + ' di spese da rimborsare (scheda Spese)' : ''}${g.aziendali ? ' · ' + UI.esc(UI.formatCurrency(g.aziendali)) + ' pagati dalla società' : ''}${g.escluse ? ' · ' + UI.esc(UI.formatCurrency(g.escluse)) + ' di carburante esclusi: già nel rimborso km' : ''}">${UI.formatCurrency(rimborsoTotale)}</td>
                 <td>
                     <div class="flex gap-2 justify-end" style="align-items: center;">
                         <button type="button" class="btn btn-sm ${notte ? 'btn-primary' : 'btn-ghost'}" style="margin-right: 10px; display: flex; align-items: center; gap: 6px; ${notte ? 'box-shadow: 0 0 8px var(--accent);' : ''}" ${daAlloggio ? 'disabled title="Notte fuori: c\'è una spesa di alloggio in questa giornata"' : 'title="Dormo fuori"'} onclick="ModTrasferte.togglePernottamento('${dataAttr}', ${!g.pernottamento}, this)">
@@ -568,7 +615,7 @@ const ModTrasferte = (() => {
         const tableRows = rows.map(g => {
             const indennita = indennitaDi(g.data);
             const rimborsoKm = g.rimborso_km;
-            const totaleRiga = rimborsoKm + indennita + g.vitto + g.alloggio + g.altre - g.aziendali;
+            const totaleRiga = rimborsoKm + indennita + g.vitto + g.alloggio + g.altre - g.aziendali - g.escluse;
 
             totKm += g.km_totali;
             totIndennita += indennita;
@@ -588,13 +635,28 @@ const ModTrasferte = (() => {
                 <td>${UI.esc(g.destinazioni.join(', ')) || '—'}</td>
                 <td class="num">${g.km_totali.toFixed(1)}</td>
                 <td class="num">${UI.formatCurrency(rimborsoKm)}</td>
-                <td class="num">${UI.formatCurrency(indennita)}</td>
+                <td class="num">${daVerificare(g.data) ? 'da verificare' : UI.formatCurrency(indennita)}</td>
                 <td class="num">${g.vitto ? UI.formatCurrency(g.vitto) : '—'}</td>
                 <td class="num">${g.alloggio ? UI.formatCurrency(g.alloggio) : '—'}</td>
                 <td class="num">${g.altre ? UI.formatCurrency(g.altre) : '—'}</td>
                 <td class="num tot">${UI.formatCurrency(totaleRiga)}</td>
             </tr>`;
         }).join('');
+
+        // Mese con la nota presentata: il totale da rimborsare è quello congelato alla presentazione
+        const nota = mesePdf ? _note[mesePdf] : null;
+        const totRicalcolo = totTotale + (parseFloat(_totali.spese_fuori_giornata) || 0);
+        const notaDiversa = nota && Math.abs((parseFloat(nota.congelato?.totale) || 0) - totRicalcolo) >= 0.01;
+        const rigaNota = !nota ? '' : `<tr class="footer-row">
+                <td colspan="4">NOTA PRESENTATA IL ${UI.esc(UI.formatDate(nota.data_presentazione))} — DA RIMBORSARE</td>
+                <td class="num">${(parseFloat(nota.congelato.km) || 0).toFixed(1)}</td>
+                <td class="num">${UI.formatCurrency(nota.congelato.importo_km)}</td>
+                <td class="num">${UI.formatCurrency(nota.congelato.indennita)}</td>
+                <td class="num" colspan="3">${UI.formatCurrency(nota.congelato.spese)} di spese</td>
+                <td class="num">${UI.formatCurrency(nota.congelato.totale)}</td>
+            </tr>${notaDiversa ? `<tr><td colspan="11">Le righe per giornata sono ricalcolate con le regole di oggi e danno ${UI.formatCurrency(totRicalcolo)}:
+                vale il totale della nota presentata (${UI.formatCurrency(nota.congelato.totale)}).</td></tr>` : ''}`;
+        const escluse = rows.reduce((a, g) => a + g.escluse, 0);
 
         const mesi = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
         const periodo = month ? `${mesi[parseInt(month) - 1]} ${year}` : `Anno ${year}`;
@@ -663,7 +725,7 @@ const ModTrasferte = (() => {
             ${parseFloat(_totali.spese_fuori_giornata) > 0 ? `<tr><td colspan="9">Spese in giorni senza trasferta (dettaglio sotto)</td>
                 <td class="num">${UI.formatCurrency(_totali.spese_fuori_giornata)}</td><td class="num tot">${UI.formatCurrency(_totali.spese_fuori_giornata)}</td></tr>` : ''}
             <tr class="footer-row">
-                <td colspan="4">DA RIMBORSARE (${rows.length} giornate)</td>
+                <td colspan="4">${nota ? (notaDiversa ? 'RICALCOLO DI OGGI' : 'TOTALE') : 'DA RIMBORSARE'} (${rows.length} giornate)</td>
                 <td class="num">${totKm.toFixed(1)}</td>
                 <td class="num">${UI.formatCurrency(totRimborsoKm)}</td>
                 <td class="num">${UI.formatCurrency(totIndennita)}</td>
@@ -672,7 +734,10 @@ const ModTrasferte = (() => {
                 <td class="num">${UI.formatCurrency(totAltre + (parseFloat(_totali.spese_fuori_giornata) || 0))}</td>
                 <td class="num">${UI.formatCurrency(totTotale + (parseFloat(_totali.spese_fuori_giornata) || 0))}</td>
             </tr>
+            ${rigaNota}
             ${parseFloat(_totali.spese_aziendali) > 0 ? `<tr><td colspan="11">Vitto, alloggio e altre spese comprendono ${UI.formatCurrency(_totali.spese_aziendali)} pagati dalla società (carta aziendale, bonifico): esclusi dal totale da rimborsare</td></tr>` : ''}
+            ${escluse > 0 ? `<tr><td colspan="11">Le altre spese comprendono ${UI.formatCurrency(escluse)} di carburante pagato di tasca propria nei giorni con rimborso km: la tariffa ACI lo comprende già, escluso dal totale</td></tr>` : ''}
+            ${rows.some(g => daVerificare(g.data)) ? `<tr><td colspan="11">Indennità «da verificare»: manca la città del cliente, non si sa se la giornata è fuori dal comune della sede; non è nel totale</td></tr>` : ''}
         </tbody>
     </table>
     ${speseMese.length ? `<table>
@@ -680,7 +745,7 @@ const ModTrasferte = (() => {
         <tbody>${speseMese.slice().reverse().map(sp => `<tr><td>${UI.formatDate(sp.data)}</td><td>${UI.esc(sp.categoria)}</td>
             <td>${UI.esc(sp.esercente || sp.descrizione || '—')}</td><td>${UI.esc(sp.metodo)}${sp.da_segnalare ? ' (non tracciabile)' : ''}${sp.carburante_doppio ? ' (già nel rimborso km)' : ''}</td>
             <td>${sp.ha_documento ? 'allegato' : 'manca'}</td><td class="num">${UI.formatCurrency(sp.importo)}</td>
-            <td class="num">${sp.rimborsabile ? UI.formatCurrency(sp.importo) : 'pagata dalla società'}</td></tr>`).join('')}</tbody>
+            <td class="num">${sp.carburante_doppio ? 'esclusa: già nel rimborso km' : sp.rimborsabile ? UI.formatCurrency(sp.importo) : 'pagata dalla società'}</td></tr>`).join('')}</tbody>
     </table>` : ''}
     <div class="footer-note">Documento generato automaticamente da MV Consulting ERP</div>
 </body>

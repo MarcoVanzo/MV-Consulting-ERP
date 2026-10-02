@@ -130,45 +130,86 @@ class Indicatori
         return $this->numeri($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
     }
 
+    /** Fasce di anzianità, dalla più recente alla più vecchia. */
+    private const FASCE_ANZIANITA = ['a_scadere', 'giorni_1_30', 'giorni_31_60', 'oltre_60'];
+
     /**
-     * Anzianità del da incassare (fatture emesse non pagate dell'anno, IVA inclusa) per giorni dalla scadenza:
-     * a_scadere (scadenza futura o assente), 0–30, 31–60, oltre 60. La somma è il «Da incassare» di fatture().
+     * Anzianità del da incassare (fatture emesse non pagate dell'anno, IVA inclusa) per giorni di ritardo:
+     * a_scadere (scadenza oggi, futura o assente), giorni_1_30, giorni_31_60, oltre_60. Scaduta = scadenza prima
+     * di oggi, come in fatture(); i giorni sono di calendario (DateTime), non secondi / 86400 che col cambio
+     * dell'ora davano un giorno in meno.
+     * Le note di credito aperte si compensano per cliente, come il tetto di fatture(): le fasce scadute di un
+     * cliente sommano il suo scaduto (mai più di quanto gli resta da incassare) e la riduzione parte dalle più
+     * vecchie; il resto della nota riduce le non scadute. Nessuna fascia è negativa.
+     * Somma delle fasce = «Da incassare» di fatture() + note_credito_residue (credito netto dei clienti che hanno
+     * più note di credito che fatture aperte: non è un incasso atteso, si mostra a parte).
      */
     public function anzianitaCrediti(int $anno, ?array $esclusi = null): array
     {
         $esclusi = $esclusi ?? $this->clientiEsclusi();
         [$where, $params] = $this->periodo('data_emissione', $anno);
         if ($esclusi) $where .= ' AND COALESCE(cliente_id, 0) NOT IN (' . implode(',', array_map('intval', $esclusi)) . ')';
-        $stmt = $this->pdo->prepare("SELECT data_scadenza, importo_totale FROM {$this->p}fatture WHERE stato <> 'pagata' AND $where");
+        $stmt = $this->pdo->prepare("SELECT COALESCE(cliente_id, 0) AS cli, data_scadenza, importo_totale FROM {$this->p}fatture WHERE stato <> 'pagata' AND $where");
         $stmt->execute($params);
-        $r = ['a_scadere' => 0.0, 'giorni_0_30' => 0.0, 'giorni_31_60' => 0.0, 'oltre_60' => 0.0];
-        $oggi = strtotime($this->oggi);
+        $utc = new DateTimeZone('UTC');
+        $oggi = new DateTimeImmutable($this->oggi, $utc);
+        $zero = array_fill_keys(self::FASCE_ANZIANITA, 0.0);
+        $cli = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $f) {
-            $g = $f['data_scadenza'] ? (int)floor(($oggi - strtotime((string)$f['data_scadenza'])) / 86400) : -1;
-            $k = $g <= 0 ? 'a_scadere' : ($g <= 30 ? 'giorni_0_30' : ($g <= 60 ? 'giorni_31_60' : 'oltre_60'));
-            $r[$k] += (float)$f['importo_totale'];
+            $c = &$cli[(int)$f['cli']];
+            $c ??= ['fasce' => $zero, 'aperto' => 0.0, 'scaduto' => 0.0];
+            $imp = (float)$f['importo_totale'];
+            $g = -1;
+            if ($f['data_scadenza']) {
+                $diff = (new DateTimeImmutable(substr((string)$f['data_scadenza'], 0, 10), $utc))->diff($oggi);
+                $g = $diff->invert ? -$diff->days : $diff->days;
+            }
+            $c['aperto'] += $imp;
+            if ($g > 0) $c['scaduto'] += $imp;
+            if ($imp > 0) $c['fasce'][$g <= 0 ? 'a_scadere' : ($g <= 30 ? 'giorni_1_30' : ($g <= 60 ? 'giorni_31_60' : 'oltre_60'))] += $imp;
+            unset($c);
+        }
+        $r = $zero + ['note_credito_residue' => 0.0];
+        foreach ($cli as $c) {
+            $aperto = max(0.0, $c['aperto']);
+            $scadutoLordo = $c['fasce']['giorni_1_30'] + $c['fasce']['giorni_31_60'] + $c['fasce']['oltre_60'];
+            // Scaduto del cliente come in fatture(): netto delle note scadute, mai oltre quanto resta da incassare
+            $scaduto = min($scadutoLordo, max(0.0, min($c['scaduto'], $aperto)));
+            $taglio = $scadutoLordo - $scaduto;
+            foreach (['oltre_60', 'giorni_31_60', 'giorni_1_30'] as $k) {
+                $t = min($taglio, $c['fasce'][$k]);
+                $c['fasce'][$k] -= $t;
+                $taglio -= $t;
+            }
+            $c['fasce']['a_scadere'] = min($c['fasce']['a_scadere'], max(0.0, $aperto - $scaduto));
+            foreach (self::FASCE_ANZIANITA as $k) $r[$k] += $c['fasce'][$k];
+            if ($c['aperto'] < 0) $r['note_credito_residue'] += -$c['aperto'];
         }
         return $this->numeri($r);
     }
 
     /**
-     * Ponte fra Vendite e Fatture per un anno, imponibile, tutti i clienti:
+     * Ponte fra Vendite e Fatture per un anno, imponibile, senza i clienti esclusi dai conteggi della vista Fatture
+     * (stesso filtro di fatture(), così il totale è il suo «Fatturato»):
      * fatturato dell'anno = su_commesse (fatture di ogni data sulle commesse dell'anno) − fuori_anno (quelle emesse in
      * altri anni) + commesse_altri_anni (fatture dell'anno su commesse degli anni prima o dopo) + senza_commessa.
+     * num_esclusi: quanti clienti sono fuori dal conteggio.
      */
-    public function ponteFatturato(int $anno): array
+    public function ponteFatturato(int $anno, ?array $esclusi = null): array
     {
+        $esclusi = $esclusi ?? $this->clientiEsclusi();
         $da = "$anno-01-01";
         $a = "$anno-12-31";
+        $filtro = $esclusi ? 'WHERE COALESCE(f.cliente_id, 0) NOT IN (' . implode(',', array_map('intval', $esclusi)) . ')' : '';
         $stmt = $this->pdo->prepare("SELECT
                 COALESCE(SUM(CASE WHEN f.data_emissione BETWEEN ? AND ? THEN f.imponibile ELSE 0 END), 0) AS fatturato,
                 COALESCE(SUM(CASE WHEN i.data_incarico BETWEEN ? AND ? THEN f.imponibile ELSE 0 END), 0) AS su_commesse,
                 COALESCE(SUM(CASE WHEN i.data_incarico BETWEEN ? AND ? AND f.data_emissione NOT BETWEEN ? AND ? THEN f.imponibile ELSE 0 END), 0) AS fuori_anno,
                 COALESCE(SUM(CASE WHEN i.id IS NOT NULL AND i.data_incarico NOT BETWEEN ? AND ? AND f.data_emissione BETWEEN ? AND ? THEN f.imponibile ELSE 0 END), 0) AS commesse_altri_anni,
                 COALESCE(SUM(CASE WHEN f.incarico_id IS NULL AND f.data_emissione BETWEEN ? AND ? THEN f.imponibile ELSE 0 END), 0) AS senza_commessa
-            FROM {$this->p}fatture f LEFT JOIN {$this->p}incarichi i ON i.id = f.incarico_id");
+            FROM {$this->p}fatture f LEFT JOIN {$this->p}incarichi i ON i.id = f.incarico_id $filtro");
         $stmt->execute([$da, $a, $da, $a, $da, $a, $da, $a, $da, $a, $da, $a, $da, $a]);
-        return $this->numeri($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
+        return $this->numeri(($stmt->fetch(PDO::FETCH_ASSOC) ?: []) + ['num_esclusi' => count($esclusi)]);
     }
 
     /** Rate di commessa senza fattura con data prevista entro $giorni (le rate senza data contano sempre). */
@@ -327,7 +368,9 @@ class Indicatori
      * Trasferte del periodo: km, rimborso chilometrico (costo ACI del mezzo, altrimenti il costo al km
      * generale), indennità (TrasferteRegole, con vitto e alloggio presi dalle spese: pagati dalla società o
      * no, riducono l'indennità), spese. da_rimborsare = km + indennità + solo le spese pagate di tasca propria:
-     * quelle con carta aziendale o bonifico le ha già pagate la società. Giornate senza cliente = da assegnare.
+     * quelle con carta aziendale o bonifico le ha già pagate la società, il carburante di tasca propria nei giorni
+     * con rimborso km è già nella tariffa ACI (carburante_doppio, escluso). Giornate senza cliente = da assegnare;
+     * giornate con un cliente senza città = da verificare (niente indennità finché non si sa se è fuori comune).
      */
     public function trasferte(string $dal, string $al, ?float $costoKm): array
     {
@@ -341,7 +384,7 @@ class Indicatori
             LEFT JOIN {$this->p}sottoclienti sc ON sc.id = t.sottocliente_id
             WHERE t.data_trasferta BETWEEN ? AND ?");
         $stmt->execute([$dal, $al]);
-        $spese = new Spese($this->pdo, $this->p);
+        $spese = new Spese($this->pdo, $this->p, $costoKm);
         $perGiorno = $spese->perGiorno($dal, $al);
         $righe = Spese::applicaAlleTrasferte($stmt->fetchAll(PDO::FETCH_ASSOC), $perGiorno);
         $km = 0.0;
@@ -363,6 +406,7 @@ class Indicatori
             'dal' => $dal, 'al' => $al,
             'num_giornate' => count($giornate),
             'num_senza_cliente' => count(array_filter($giornate, fn($g) => !$g['con_cliente'])),
+            'num_da_verificare' => count(array_filter($giornate, fn($g) => $g['da_verificare'])),
             'km' => round($km, 1),
             'costo_km' => $costoKm,
             'rimborso_km' => $rimborsoKm,
@@ -371,6 +415,7 @@ class Indicatori
             'spese' => round($totSpese, 2),
             'spese_aziendali' => $metodo['aziendali'],
             'spese_da_rimborsare' => $metodo['da_rimborsare'],
+            'carburante_doppio' => $metodo['carburante_doppio'],
             'da_rimborsare' => round(($rimborsoKm ?? 0) + $indennita + $metodo['da_rimborsare'], 2),
         ];
     }

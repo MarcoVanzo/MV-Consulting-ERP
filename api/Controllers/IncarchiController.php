@@ -251,9 +251,10 @@ class IncarchiController {
         $kpis['costi_previsti'] = round($costi, 2);
         $kpis['margine_previsto'] = round((float)$kpis['valore'] - $costi, 2);
         $kpisFatture = $ind->fatture((int)$year, $ind->clientiEsclusi());
-        // Fatturato dell'anno che la card «Fatturato su commesse» non vede: spiega la differenza con Incassi
-        $kpis['fatturato_senza_commessa'] = $ind->fatture((int)$year, null, null, true)['fatturato'];
-        $kpis['ponte'] = $ind->ponteFatturato((int)$year);
+        // Ponte con Fatture, con gli stessi clienti esclusi della vista Fatture; il fatturato senza commessa è
+        // il suo (un solo numero: avviso e ponte non possono dire due cose diverse)
+        $kpis['ponte'] = $ind->ponteFatturato((int)$year, $ind->clientiEsclusi());
+        $kpis['fatturato_senza_commessa'] = $kpis['ponte']['senza_commessa'];
 
         // Per tipo commessa
         $stmt2 = $this->pdo->prepare("SELECT 

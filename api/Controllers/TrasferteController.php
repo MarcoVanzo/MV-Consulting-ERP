@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Shared/TrasferteRegole.php';
 require_once __DIR__ . '/../Shared/Percorsi.php';
 
 require_once __DIR__ . '/../Shared/Spese.php';
+require_once __DIR__ . '/../Shared/Indicatori.php';
 
 class TrasferteController {
     private const CHIAVE_COSTO_KM = 'trasferte_costo_km';
@@ -50,9 +51,9 @@ class TrasferteController {
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([$da, $a]);
         // Vitto, alloggio e altre spese vengono dalla tabella spese (unica fonte), messi sulla riga del giorno
-        $speseGiorno = (new Spese($this->pdo, $this->prefix))->perGiorno($da, $a);
-        $trasferte = Spese::applicaAlleTrasferte($stmt->fetchAll(), $speseGiorno);
         $costoKm = $this->costoKm();
+        $speseGiorno = (new Spese($this->pdo, $this->prefix, $costoKm))->perGiorno($da, $a);
+        $trasferte = Spese::applicaAlleTrasferte($stmt->fetchAll(), $speseGiorno);
 
         $totKm = 0;
         $totRimborsoKm = 0;
@@ -75,6 +76,7 @@ class TrasferteController {
             'trasferte' => $trasferte,
             'giornate' => $giornate,
             'costo_km' => $costoKm,
+            'note_presentate' => $this->notePresentate($da, $a, $costoKm),
             'totali' => [
                 'num_trasferte' => count($trasferte),
                 'km_totali' => round($totKm, 1),
@@ -85,9 +87,43 @@ class TrasferteController {
                 'totale_spese' => round($totVitto + $totAlloggio + $totAltre, 2),
                 'spese_fuori_giornata' => $fuoriGiornata,
                 'spese_aziendali' => round(array_sum(array_column($speseGiorno, 'aziendali')), 2),
+                // Carburante di tasca propria nei giorni con rimborso km: rendicontato, non rimborsato
+                'spese_escluse' => round(array_sum(array_column($speseGiorno, 'escluse')), 2),
                 'indennita' => round(array_sum(array_column($giornate, 'indennita')), 2)
             ]
         ]);
+    }
+
+    /**
+     * Note spese già presentate nel periodo: i totali congelati in `rimborsi` sono quelli che valgono, anche se
+     * le regole sono cambiate dopo (es. indennità solo fuori dal comune della sede, carburante doppio escluso).
+     * Per ogni mese anche il ricalcolo di oggi (Indicatori::trasferte, lo stesso calcolo della presentazione),
+     * così la vista mostra i totali presentati e avvisa se il ricalcolo darebbe altro.
+     */
+    private function notePresentate(string $da, string $a, ?float $costoKm): array {
+        try {
+            $stmt = $this->pdo->prepare("SELECT mese, stato, km, importo_km, indennita, spese, totale, data_presentazione, data_rimborso
+                FROM {$this->prefix}rimborsi WHERE mese BETWEEN ? AND ? ORDER BY mese");
+            $stmt->execute([substr($da, 0, 7), substr($a, 0, 7)]);
+            $righe = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            return []; // tabella non ancora migrata
+        }
+        $ind = new Indicatori($this->pdo, $this->prefix);
+        $out = [];
+        foreach ($righe as $r) {
+            $mese = (string)$r['mese'];
+            $t = $ind->trasferte("$mese-01", date('Y-m-t', strtotime("$mese-01")), $costoKm);
+            $congelato = ['km' => round((float)$r['km'], 1), 'importo_km' => round((float)$r['importo_km'], 2),
+                'indennita' => round((float)$r['indennita'], 2), 'spese' => round((float)$r['spese'], 2), 'totale' => round((float)$r['totale'], 2)];
+            $ricalcolo = ['km' => $t['km'], 'importo_km' => round((float)($t['rimborso_km'] ?? 0), 2), 'indennita' => $t['indennita'],
+                'spese' => $t['spese_da_rimborsare'], 'totale' => $t['da_rimborsare']];
+            $differisce = false;
+            foreach ($congelato as $k => $v) if (abs($v - (float)$ricalcolo[$k]) >= 0.01) $differisce = true;
+            $out[$mese] = ['mese' => $mese, 'stato' => $r['stato'], 'data_presentazione' => $r['data_presentazione'],
+                'data_rimborso' => $r['data_rimborso'], 'congelato' => $congelato, 'ricalcolo' => $ricalcolo, 'differisce' => $differisce];
+        }
+        return $out;
     }
 
     public function save($data) {

@@ -57,16 +57,19 @@ const ModIncarichi = (() => {
     function renderDaCollegare() {
         const box = document.getElementById('incarichi-da-collegare');
         const pt = _kpis.ponte || {};
+        // Un solo valore, lo stesso del ponte (con i clienti esclusi della vista Fatture)
         const senza = parseFloat(pt.senza_commessa ?? _kpis.fatturato_senza_commessa) || 0;
         const fuori = parseFloat(pt.fuori_anno) || 0, altri = parseFloat(pt.commesse_altri_anni) || 0;
         const anno = UI.esc(UI.anno());
-        // Ponte con Fatture: stesse fatture, ma qui si parte dalle commesse dell'anno
-        const voce = (segno, v, testo) => Math.abs(v) < 0.01 ? '' : `<span class="ponte-voce"><b>${segno} ${UI.formatCurrency(Math.abs(v))}</b> ${testo}</span>`;
+        // Ponte con Fatture: stesse fatture, ma qui si parte dalle commesse dell'anno. Ogni voce è un termine con il
+        // suo segno (una nota di credito rende negativo anche un termine che di solito si somma)
+        const voce = (v, testo) => Math.abs(v) < 0.01 ? '' : `<span class="ponte-voce"><b>${v < 0 ? '−' : '+'} ${UI.formatCurrency(Math.abs(v))}</b> ${testo}</span>`;
+        const esclusi = parseInt(pt.num_esclusi) || 0;
         const ponte = pt.fatturato === undefined ? '' : `<div class="ponte"><span class="ponte-voce"><b>${UI.formatCurrency(pt.su_commesse)}</b> fatturati sulle commesse del ${anno}</span>
-            ${voce('−', fuori, 'emessi in altri anni')}
-            ${voce('+', altri, `su commesse degli anni prima`)}
-            ${voce(senza < 0 ? '−' : '+', senza, senza < 0 ? 'di note di credito senza commessa' : 'senza commessa')}
-            <span class="ponte-voce ponte-tot">= <b>${UI.formatCurrency(pt.fatturato)}</b> imponibile in Fatture ${anno}</span></div>`;
+            ${voce(-fuori, fuori < 0 ? 'di note di credito emesse in altri anni' : 'emessi in altri anni')}
+            ${voce(altri, 'su commesse di altri anni')}
+            ${voce(senza, senza < 0 ? 'di note di credito senza commessa' : 'senza commessa')}
+            <span class="ponte-voce ponte-tot">= <b>${UI.formatCurrency(pt.fatturato)}</b> imponibile in Fatture ${anno}${esclusi ? ` (senza ${UI.plurale(esclusi, 'cliente escluso', 'clienti esclusi')} dal conteggio)` : ''}</span></div>`;
         box.innerHTML = ponte + (Math.abs(senza) < 0.01 ? '' : `<div class="notice da-collegare"><span>${senza < 0 ? `<b>${UI.formatCurrency(-senza)}</b> di note di credito del ${anno} non sono collegati a una commessa.`
                 : `<b>${UI.formatCurrency(senza)}</b> fatturati nel ${anno} non sono collegati a una commessa.`}</span>
             <button class="btn btn-sm btn-primary" type="button" id="btn-da-collegare"><i class="ph ph-link"></i> Collega alle commesse</button></div>`);
