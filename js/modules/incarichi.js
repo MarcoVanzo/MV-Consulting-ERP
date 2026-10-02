@@ -33,8 +33,8 @@ const ModIncarichi = (() => {
             n: parseInt(t.conteggio) || 0 })).filter(t => t.valore > 0 || t.n > 0);
         const k = _kpis, valore = parseFloat(k.valore) || 0, daFatt = parseFloat(k.da_fatturare) || 0;
         box.innerHTML = [
-            Grafici.impilata('Quanto resta da fatturare', `Sul valore delle commesse del ${UI.anno()}`, [
-                { etichetta: 'Fatturato', valore: Math.max(0, valore - daFatt), colore: 'var(--accent-green)' },
+            Grafici.impilata('Quanto resta da fatturare', `Sui ${UI.formatCurrency(valore)} di valore delle commesse del ${UI.anno()}`, [
+                { etichetta: 'Coperto da fatture', valore: Math.max(0, valore - daFatt), colore: 'var(--accent-green)' },
                 { etichetta: 'Da fatturare', valore: daFatt, colore: 'var(--accent-purple)' },
             ]),
             Grafici.barre('Dove sta il valore', 'Valore delle commesse per tipo', tipi.map(t => ({ ...t, nota: `${t.n} ${t.n === 1 ? 'commessa' : 'commesse'}` }))),
@@ -67,7 +67,8 @@ const ModIncarichi = (() => {
             ${voce('+', altri, `su commesse degli anni prima`)}
             ${voce(senza < 0 ? '−' : '+', senza, senza < 0 ? 'di note di credito senza commessa' : 'senza commessa')}
             <span class="ponte-voce ponte-tot">= <b>${UI.formatCurrency(pt.fatturato)}</b> imponibile in Fatture ${anno}</span></div>`;
-        box.innerHTML = ponte + (Math.abs(senza) < 0.01 ? '' : `<div class="notice da-collegare"><span><b>${UI.formatCurrency(senza)}</b> fatturati nel ${anno} non sono collegati a una commessa.</span>
+        box.innerHTML = ponte + (Math.abs(senza) < 0.01 ? '' : `<div class="notice da-collegare"><span>${senza < 0 ? `<b>${UI.formatCurrency(-senza)}</b> di note di credito del ${anno} non sono collegati a una commessa.`
+                : `<b>${UI.formatCurrency(senza)}</b> fatturati nel ${anno} non sono collegati a una commessa.`}</span>
             <button class="btn btn-sm btn-primary" type="button" id="btn-da-collegare"><i class="ph ph-link"></i> Collega alle commesse</button></div>`);
         document.getElementById('btn-da-collegare')?.addEventListener('click', apriCollega);
     }
