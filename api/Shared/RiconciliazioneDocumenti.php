@@ -48,6 +48,28 @@ class RiconciliazioneDocumenti
         return array_values(array_filter($docs, fn($d) => abs($d['residuo']) > 0.005 && !RiconciliazioneMatch::escluso($d['numero'])));
     }
 
+    /**
+     * Documenti segnati pagati a mano senza (tutto) il bonifico: «scoperto» = quanto manca alle riconciliazioni.
+     * Un bonifico arrivato dopo, o pagato dall'altro conto e poi visto qui, vi si può ancora abbinare: il residuo
+     * della forma comune vale lo scoperto e gia_pagata = true. Emissione tra $dal e $al.
+     */
+    public function pagateScoperte(string $tipo, string $dal, string $al, ?int $anagraficaId = null): array
+    {
+        $t = $tipo === 'fattura' ? 'f' : 'fp';
+        $anag = $tipo === 'fattura' ? 'f.cliente_id' : 'fp.fornitore_id';
+        $sql = ($tipo === 'fattura' ? $this->selectFatture() : $this->selectPassive())
+            . " WHERE $t.stato = 'pagata' AND $t.importo_totale > 0 AND $t.data_emissione BETWEEN ? AND ?"
+            . ($anagraficaId ? " AND $anag = ?" : '') . " ORDER BY $t.data_emissione, $t.id";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($anagraficaId ? [$dal, $al, $anagraficaId] : [$dal, $al]);
+        $out = [];
+        foreach ($this->raggruppa($tipo, $stmt->fetchAll(PDO::FETCH_ASSOC)) as $d) {
+            if (!$d['pagata'] || $d['scoperto'] <= 0.005 || RiconciliazioneMatch::escluso($d['numero'])) continue;
+            $out[] = ['residuo' => $d['scoperto'], 'gia_pagata' => true] + $d;
+        }
+        return $out;
+    }
+
     /** Il documento a cui appartiene il record $id, con tutte le sue righe (anche già pagate). */
     public function documento(string $tipo, int $id): ?array
     {
@@ -90,7 +112,7 @@ class RiconciliazioneDocumenti
         if (($f['tipo'] ?? '') === 'entrata') $where[] = 'm.importo > 0';
         if (($f['tipo'] ?? '') === 'uscita') $where[] = 'm.importo < 0';
         if ($cat) {
-            if (!empty($f['abbinabili'])) $where[] = 'm.abbinabile = 1';
+            if (!empty($f['abbinabili'])) $where[] = Classificatore::sqlDaAbbinare($this->p, 'm');
             if (!empty($f['classificazione'])) { $where[] = 'm.classificazione = ?'; $params[] = $f['classificazione']; }
             if (($f['categoria_id'] ?? '') === 'nessuna') $where[] = 'm.categoria_id IS NULL';
             elseif (!empty($f['categoria_id'])) { $where[] = 'm.categoria_id = ?'; $params[] = (int)$f['categoria_id']; }
@@ -287,7 +309,8 @@ class RiconciliazioneDocumenti
         return ['tipo' => $d['tipo'], 'id' => $d['id'], 'numero' => $d['numero'], 'anagrafica_nome' => $d['anagrafica_nome'],
             'sottoclienti' => $d['sottoclienti'], 'righe' => count($d['righe']),
             'data_emissione' => $d['data_emissione'], 'data_scadenza' => $d['data_scadenza'],
-            'residuo' => $d['residuo'], 'importo' => round($importo, 2), 'nota_credito' => $d['residuo'] < 0];
+            'residuo' => $d['residuo'], 'importo' => round($importo, 2), 'nota_credito' => $d['residuo'] < 0,
+            'gia_pagata' => !empty($d['gia_pagata'])];
     }
 
     // ── Helper ──────────────────────────────────────────
@@ -324,6 +347,8 @@ class RiconciliazioneDocumenti
                 'id' => (int)$r['id'], 'totale' => $totale, 'ritenuta' => $ritenuta, 'riconciliato' => $ric,
                 // Nota di credito: residuo negativo (quanto resta da compensare)
                 'residuo' => $pagata ? 0.0 : ($totale < 0 ? min(0.0, round($totale - $ric, 2)) : max(0.0, round($totale - $ritenuta - $ric, 2))),
+                // Segnata pagata senza (tutto) il bonifico: quanto manca alle riconciliazioni
+                'scoperto' => $pagata && $totale > 0 ? max(0.0, round($totale - $ritenuta - $ric, 2)) : 0.0,
                 'pagata' => $pagata, 'stato' => (string)$r['stato'],
                 'incarico_id' => isset($r['incarico_id']) && $r['incarico_id'] !== null ? (int)$r['incarico_id'] : null,
                 'data_scadenza' => $r['data_scadenza'] ?? null, 'sottocliente_nome' => $r['sottocliente_nome'] ?? null,
@@ -337,7 +362,7 @@ class RiconciliazioneDocumenti
                     'data_emissione' => $r['data_emissione'], 'data_scadenza' => $r['data_scadenza'] ?? null,
                     'anagrafica_id' => $r['anagrafica_id'] !== null ? (int)$r['anagrafica_id'] : null,
                     'anagrafica_nome' => (string)$r['anagrafica_nome'], 'sottoclienti' => [],
-                    'totale' => 0.0, 'ritenuta' => 0.0, 'riconciliato' => 0.0, 'residuo' => 0.0, 'pagata' => true, 'righe' => [],
+                    'totale' => 0.0, 'ritenuta' => 0.0, 'riconciliato' => 0.0, 'residuo' => 0.0, 'scoperto' => 0.0, 'pagata' => true, 'righe' => [],
                 ];
             }
             $d = &$docs[$k];
@@ -346,6 +371,7 @@ class RiconciliazioneDocumenti
             $d['ritenuta'] = round($d['ritenuta'] + $ritenuta, 2);
             $d['riconciliato'] = round($d['riconciliato'] + $ric, 2);
             $d['residuo'] = round($d['residuo'] + $riga['residuo'], 2);
+            $d['scoperto'] = round($d['scoperto'] + $riga['scoperto'], 2);
             $d['pagata'] = $d['pagata'] && $pagata;
             if ($riga['data_scadenza'] && (!$d['data_scadenza'] || $riga['data_scadenza'] < $d['data_scadenza'])) $d['data_scadenza'] = $riga['data_scadenza'];
             if ($riga['sottocliente_nome']) $d['sottoclienti'][] = $riga['sottocliente_nome'];

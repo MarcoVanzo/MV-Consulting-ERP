@@ -17,6 +17,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/TerminiPagamento.php';
+require_once __DIR__ . '/Classificatore.php';
 
 class Indicatori
 {
@@ -308,10 +309,10 @@ class Indicatori
             'offerte_da_ricontattare' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(imponibile), 0) AS importo FROM {$p}offerte
                 WHERE deleted_at IS NULL AND stato IN ('lead', 'inviata') AND data_followup IS NOT NULL AND data_followup <= ?", [$this->oggi]),
             'movimenti_da_abbinare' => $uno("SELECT COUNT(*) AS num, COALESCE(SUM(importo), 0) AS importo FROM {$p}movimenti_banca
-                WHERE stato = 'da_riconciliare' AND abbinabile = 1 AND origine = 'estratto_conto'", []),
+                WHERE stato = 'da_riconciliare' AND " . Classificatore::sqlDaAbbinare($p) . " AND origine = 'estratto_conto'", []),
             // Movimenti del conto che chiedono un intervento (da abbinare o da classificare), contati una volta
             'movimenti_da_sistemare' => $uno("SELECT COUNT(*) AS num FROM {$p}movimenti_banca WHERE origine = 'estratto_conto'
-                AND ((stato = 'da_riconciliare' AND abbinabile = 1) OR classificazione = 'da_classificare')", []),
+                AND ((stato = 'da_riconciliare' AND " . Classificatore::sqlDaAbbinare($p) . ") OR classificazione = 'da_classificare')", []),
             // Note spese (mese corrente e precedente): spese senza giustificativo, uscite della carta non registrate
             'spese_senza_giustificativo' => $this->unoSicuro("SELECT COUNT(*) AS num, COALESCE(SUM(importo), 0) AS importo FROM {$p}spese
                 WHERE deleted_at IS NULL AND documento IS NULL AND data >= ?", [date('Y-m-01', strtotime(substr($this->oggi, 0, 7) . '-01 -1 month'))]),

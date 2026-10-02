@@ -659,6 +659,66 @@ check('riabbina non rifà gli abbinamenti annullati a mano', !in_array($idEuro, 
     && (int)$ric->movimento($idEuro)['abbinamento_annullato'] === 1 && $ric->movimento($idEuro)['stato'] === 'da_riconciliare');
 check('riabbina ripetuto: niente di nuovo', $rb2['abbinati'] === 0 && $rb2['nuovi_agganci'] === 0, $rb2);
 
+echo "Coda da abbinare, fatture già pagate, avvisi parziali\n";
+// Categoria senza fattura (abbonamento): fuori dalla coda; categoria con fattura (fornitore): resta
+$cat = fn(string $codice) => (int)$pdo->query("SELECT id FROM {$p}categorie_movimento WHERE codice = '$codice'")->fetchColumn();
+$importa([$mv('Q1', -7.26, '2026-09-25', 'ADDEBITO FASTWEB SD FASTWEB SPA FATT. 900/2026'), $mv('Q2', -302.0, '2026-09-26', 'Saldo fattura 901/2026')]);
+$pdo->exec("UPDATE {$p}movimenti_banca SET categoria_id = " . $cat('software_abbonamenti') . ", classificazione = 'classificato' WHERE riferimento_banca = 'Q1'");
+$pdo->exec("UPDATE {$p}movimenti_banca SET categoria_id = " . $cat('fornitori_partner') . ", classificazione = 'classificato' WHERE riferimento_banca = 'Q2'");
+$coda = array_column($ric->lista(['stato' => 'da_riconciliare', 'abbinabili' => true]), 'riferimento_banca');
+check('coda: abbonamento classificato fuori, fornitore dentro', !in_array('Q1', $coda, true) && in_array('Q2', $coda, true), $coda);
+
+// Fattura segnata pagata a mano, poi il bonifico: si abbina, resta pagata, l'annullamento non la riapre
+$fatt(700, '700/001', '2026-01-10', 21, 1000, 'pagata');
+$ric = new Riconciliatore($pdo, $p, $dopo); // fatture inserite a mano: niente cache della richiesta prima
+$importa([$mv('G1', 1000.0, '2026-03-02', 'Bonifico a vs favore DELTA COSTRUZIONI FATT. 700/001 DEL 10/01/2026')]);
+$g1 = $idPer('G1');
+check('già pagata, numero in causale e cliente riconosciuto: abbinata in automatico', $ric->movimento($g1)['stato'] === 'riconciliato'
+    && $stato(700) === 'pagata' && abs((float)$pdo->query("SELECT SUM(importo) FROM {$p}riconciliazioni WHERE movimento_id = $g1")->fetchColumn() - 1000) < 0.01);
+check('...e non è più tra le pagate scoperte', !array_filter($ric->documenti()->pagateScoperte('fattura', '2026-01-01', '2026-12-31'), fn($d) => $d['id'] === 700));
+$ric->annulla($g1);
+check('annullato: la fattura resta pagata', $stato(700) === 'pagata' && $ric->movimento($g1)['stato'] === 'da_riconciliare');
+$fatt(701, '701/001', '2026-01-10', 22, 800, 'pagata');
+$ric = new Riconciliatore($pdo, $p, $dopo); // fatture inserite a mano: niente cache della richiesta prima
+$importa([$mv('G2', 800.0, '2026-03-03', 'Bonifico a vs favore RIF FATT. 701/001 DEL 10/01/2026')]);
+$g2 = $idPer('G2');
+$pr = $ric->proposte($g2);
+check('già pagata senza cliente riconosciuto: solo proposta, segnata come tale', $ric->movimento($g2)['stato'] === 'da_riconciliare'
+    && ($pr[0]['documenti'][0]['id'] ?? 0) === 701 && !empty($pr[0]['documenti'][0]['gia_pagata']), $pr);
+$ric->registra($g2, [['tipo' => 'fattura', 'id' => 701, 'importo' => null]], 'manuale', 7);
+check('conferma manuale sulla già pagata', $ric->movimento($g2)['stato'] === 'riconciliato' && $stato(701) === 'pagata');
+$fatt(702, '702/001', '2024-01-10', 21, 450, 'pagata');
+$ric = new Riconciliatore($pdo, $p, $dopo); // fatture inserite a mano: niente cache della richiesta prima
+$importa([$mv('G3', 450.0, '2026-03-04', 'Bonifico a vs favore DELTA COSTRUZIONI FATT. 702/001 DEL 10/01/2024')]);
+$pr = $ric->proposte($idPer('G3'));
+check('già pagata emessa oltre 18 mesi prima: ignorata', $ric->movimento($idPer('G3'))['stato'] === 'da_riconciliare'
+    && !array_filter($pr, fn($x) => in_array(702, array_column($x['documenti'] ?? [], 'id'), true)), $pr);
+$fatt(703, '703/001', '2026-02-01', 21, 600);
+$fatt(704, '703/001', '2025-02-01', 21, 600, 'pagata');
+$ric = new Riconciliatore($pdo, $p, $dopo); // fatture inserite a mano: niente cache della richiesta prima
+$importa([$mv('G4', 600.0, '2026-03-05', 'Bonifico a vs favore DELTA COSTRUZIONI FATT. 703/001')]);
+check('numero di una fattura aperta: vince l\'aperta', $stato(703) === 'pagata'
+    && (int)$pdo->query("SELECT COUNT(*) FROM {$p}riconciliazioni WHERE tipo = 'fattura' AND documento_id = 704")->fetchColumn() === 0);
+
+// Avviso con solo una parte delle fatture (le altre già pagate): l'accredito che le cita tutte si aggancia
+$fatt(710, '710/001', '2026-03-01', 20, 510);
+$fatt(711, '711/001', '2026-03-01', 20, 715, 'pagata');
+$ric = new Riconciliatore($pdo, $p, $dopo); // fatture inserite a mano: niente cache della richiesta prima
+$ric->registraAvviso(['data' => '2026-08-10', 'importo' => 1225, 'descrizione' => 'Avviso 310, 311', 'file_nome' => 'avv9.pdf'],
+    [['tipo' => 'fattura', 'id' => 710, 'importo' => 510]], 7);
+$importa([$mv('V1', 1225.0, '2026-08-11', 'Bonifico a vs favore GAMMA IMPIANTI FATT. 710/001 DEL 01/03/2026-FATT. 711/001 DEL 01/03/2026')]);
+$av1 = (int)$ric->movimento($idPer('V1'))['avviso_id'];
+check('avviso parziale: accredito agganciato e avviso chiuso', $av1 > 0 && $ric->movimento($av1)['stato'] === 'riconciliato');
+$ric->annulla($idPer('V1'));
+check('accredito scollegato: l\'avviso parziale torna da riconciliare', $ric->movimento($av1)['stato'] === 'da_riconciliare' && $stato(710) === 'pagata');
+$fatt(712, '712/001', '2026-03-01', 20, 333);
+$fatt(713, '713/001', '2026-03-01', 24, 444);
+$ric = new Riconciliatore($pdo, $p, $dopo); // fatture inserite a mano: niente cache della richiesta prima
+$ric->registraAvviso(['data' => '2026-08-20', 'importo' => 777, 'descrizione' => 'Avviso 312', 'file_nome' => 'avv10.pdf'],
+    [['tipo' => 'fattura', 'id' => 712, 'importo' => 333]], 7);
+$importa([$mv('V2', 777.0, '2026-08-21', 'Bonifico a vs favore GAMMA IMPIANTI FATT. 712/001 DEL 01/03/2026-FATT. 713/001 DEL 01/03/2026')]);
+check('avviso parziale ma la causale cita una fattura aperta: niente aggancio', !(int)$ric->movimento($idPer('V2'))['avviso_id']);
+
 // ═══ 4. Estratto conto vero (facoltativo) ═══════════════════
 $file = getenv('CBI_FILE') ?: '';
 if ($file !== '' && is_readable($file)) {

@@ -19,6 +19,9 @@
  *   (d) nessun numero, cliente/fornitore riconosciuto con al massimo 20 fatture aperte e un solo
  *       sottoinsieme (fino a 4 fatture) che fa l'importo.
  * Le note di credito entrano come voci negative dello stesso intestatario (fattura − NC = importo).
+ * Fatture segnate pagate a mano senza bonifico (emesse nei MESI_PAGATE prima del movimento): candidate solo per
+ * numero in causale quando nessuna fattura aperta ha quel numero; in automatico solo se dell'intestatario riconosciuto,
+ * altrimenti proposte. L'abbinamento non ne cambia lo stato (restano pagate).
  * Altrimenti il movimento resta da riconciliare con al massimo 5 proposte.
  *
  * SQL portabile (MySQL in produzione, SQLite nel test CLI): niente YEAR(), DATEDIFF(), NOW().
@@ -37,6 +40,7 @@ class Riconciliatore
     public const GIORNI_AVVISO = 5;
     public const MAX_APERTE = 20;
     public const MAX_PROPOSTE = 5;
+    public const MESI_PAGATE = 18;
 
     private $pdo;
     private $p;
@@ -316,17 +320,26 @@ class Riconciliatore
         $cent = (int)round(abs((float)$mov['importo']) * 100) - (int)round($gia * 100);
         if ($cent <= 0) return $res;
         $aperti = $this->aperti($tipo);
+        $pagate = $this->pagate($tipo, (string)$data);
         $perId = [];
-        foreach ($aperti as $d) $perId[$d['id']] = $d;
-        $nc = fn($anag) => array_filter($aperti, fn($d) => $d['residuo'] < 0 && $d['anagrafica_id'] === $anag);
+        foreach (array_merge($aperti, $pagate) as $d) $perId[$d['id']] = $d;
 
-        // Candidati dai numeri in causale (dello stesso intestatario, se riconosciuto e se ce ne sono)
+        // Candidati dai numeri in causale (dello stesso intestatario, se riconosciuto e se ce ne sono);
+        // un numero che nessuna fattura aperta ha si cerca tra quelle segnate pagate senza bonifico
         $perRef = [];
         foreach ($ctx['refs'] as $i => $ref) {
             foreach ($aperti as $d) {
                 if (RiconciliazioneMatch::corrisponde($ref, $d['numero'], $d['data_emissione'])) $perRef[$i][] = $d['id'];
             }
+            if (empty($perRef[$i])) {
+                foreach ($pagate as $d) {
+                    if (RiconciliazioneMatch::corrisponde($ref, $d['numero'], $d['data_emissione'])) $perRef[$i][] = $d['id'];
+                }
+            }
         }
+        // In automatico una fattura già pagata solo se è dell'intestatario riconosciuto nella causale
+        $autoOk = fn(array $sol) => !array_filter(array_keys($sol), fn($id) => !empty($perId[$id]['gia_pagata'])
+            && (!$anagId || $perId[$id]['anagrafica_id'] !== $anagId));
         if ($anagId) {
             $filtrati = array_map(fn($ids) => array_values(array_filter($ids, fn($id) => $perId[$id]['anagrafica_id'] === $anagId)), $perRef);
             if (array_filter($filtrati)) $perRef = $filtrati;
@@ -342,7 +355,7 @@ class Riconciliatore
                 foreach ($perRef as $ids) if (!array_intersect($ids, array_keys($s))) return false;
                 return true;
             }));
-            if ($puoi && count($valide) === 1 && !$sol['troncato']) {
+            if ($puoi && count($valide) === 1 && !$sol['troncato'] && $autoOk($valide[0])) {
                 $res['sicuro'] = $this->daSoluzione($valide[0], $perId);
                 return $res;
             }
@@ -362,7 +375,7 @@ class Riconciliatore
                 $base = [];
                 foreach ($cand as $d) $base[$d['id']] = (int)round($d['residuo'] * 100);
                 $sol2 = RiconciliazioneMatch::subsetSum(RiconciliazioneDocumenti::voci(array_slice($pool, 0, self::MAX_APERTE)), $cent - $somma, 3);
-                if ($puoi && count($sol2['soluzioni']) === 1 && !$sol2['troncato']) {
+                if ($puoi && count($sol2['soluzioni']) === 1 && !$sol2['troncato'] && $autoOk($base)) {
                     $res['sicuro'] = $this->daSoluzione($base + $sol2['soluzioni'][0], $perId);
                     return $res;
                 }
@@ -384,12 +397,15 @@ class Riconciliatore
             }
         }
 
-        // Singole fatture con punteggio (le note di credito da sole non pagano niente)
-        foreach ($aperti as $d) {
+        // Singole fatture con punteggio (le note di credito da sole non pagano niente); le già pagate
+        // solo se citate in causale o dell'intestatario riconosciuto
+        $suePagate = array_filter($pagate, fn($d) => isset($cand[$d['id']]) || ($anagId && $d['anagrafica_id'] === $anagId));
+        foreach (array_merge($aperti, $suePagate) as $d) {
             if ($d['residuo'] <= 0) continue;
             $p = RiconciliazioneMatch::punteggio($d, $cent, isset($cand[$d['id']]), $anagId, $data);
             if ($p['punteggio'] < 25) continue;
             $imp = ($p['opzione'] ?? min($cent, (int)round($d['residuo'] * 100))) / 100;
+            if (!empty($d['gia_pagata'])) $p['motivi'][] = 'Già segnata pagata, senza bonifico';
             $proposte[] = ['tipo' => 'documenti', 'punteggio' => $p['punteggio'], 'totale' => $imp, 'motivi' => $p['motivi'],
                 'documenti' => [RiconciliazioneDocumenti::proposta($d, $imp)]];
         }
@@ -438,15 +454,18 @@ class Riconciliatore
             $chiave = $tipo . '|' . $doc['id'];
             if (isset($visti[$chiave])) throw new RuntimeException('Fattura ' . $doc['numero'] . ' indicata due volte');
             $visti[$chiave] = true;
-            if (abs($doc['residuo']) <= 0.005) throw new RuntimeException('Fattura ' . $doc['numero'] . ' già pagata');
-            $segno = $doc['residuo'] < 0 ? -1 : 1;
-            $imp = isset($d['importo']) && $d['importo'] !== '' && $d['importo'] !== null ? round((float)$d['importo'], 2) : $doc['residuo'];
+            // Segnata pagata a mano senza (tutto) il bonifico: si copre lo scoperto, lo stato non cambia
+            $giaPagata = abs($doc['residuo']) <= 0.005;
+            if ($giaPagata && $doc['scoperto'] <= 0.005) throw new RuntimeException('Fattura ' . $doc['numero'] . ' già pagata');
+            $residuo = $giaPagata ? $doc['scoperto'] : $doc['residuo'];
+            $segno = $residuo < 0 ? -1 : 1;
+            $imp = isset($d['importo']) && $d['importo'] !== '' && $d['importo'] !== null ? round((float)$d['importo'], 2) : $residuo;
             if ($imp * $segno <= 0) throw new RuntimeException($segno < 0 ? 'Nota di credito ' . $doc['numero'] . ': importo negativo' : 'Importo non valido');
-            if (abs($imp) > abs($doc['residuo']) + max(0.01, $tolleranza)) throw new RuntimeException('Importo oltre il residuo della fattura ' . $doc['numero']);
-            $imp = $segno * min(abs($imp), abs($doc['residuo']));
+            if (abs($imp) > abs($residuo) + max(0.01, $tolleranza)) throw new RuntimeException('Importo oltre il residuo della fattura ' . $doc['numero']);
+            $imp = $segno * min(abs($imp), abs($residuo));
             if ($segno > 0) $positivi++;
             $totale += $imp;
-            $piano[] = [$doc, $imp];
+            $piano[] = [$doc, $imp, $giaPagata ? 'scoperto' : 'residuo'];
         }
         if (!$piano) throw new RuntimeException('Nessun documento da abbinare');
         if (!$positivi || $totale <= 0) throw new RuntimeException('Una nota di credito va abbinata insieme a una fattura');
@@ -460,13 +479,13 @@ class Riconciliatore
                 ? "INSERT INTO {$this->p}riconciliazioni (movimento_id, tipo, documento_id, importo, metodo, created_by, stato_precedente) VALUES (?, ?, ?, ?, ?, ?, ?)"
                 : "INSERT INTO {$this->p}riconciliazioni (movimento_id, tipo, documento_id, importo, metodo, created_by) VALUES (?, ?, ?, ?, ?, ?)");
             $dataPag = $mov['data_valuta'] ?: $mov['data_operazione'];
-            foreach ($piano as [$doc, $imp]) {
+            foreach ($piano as [$doc, $imp, $campo]) {
                 $segno = $imp < 0 ? -1 : 1;
                 $resto = (int)round(abs($imp) * 100);
-                $aperte = array_values(array_filter($doc['righe'], fn($r) => abs($r['residuo']) > 0.005 && ($r['residuo'] < 0) === ($segno < 0)));
+                $aperte = array_values(array_filter($doc['righe'], fn($r) => abs($r[$campo]) > 0.005 && ($r[$campo] < 0) === ($segno < 0)));
                 foreach ($aperte as $i => $r) {
                     if ($resto <= 0) break;
-                    $resRiga = (int)round(abs($r['residuo']) * 100);
+                    $resRiga = (int)round(abs($r[$campo]) * 100);
                     $ultima = $i === count($aperte) - 1;
                     // L'ultima riga assorbe gli arrotondamenti
                     $quota = $ultima ? $resto : min($resto, $resRiga);
@@ -474,10 +493,10 @@ class Riconciliatore
                     if ($conStato) $valori[] = $r['stato'];
                     $ins->execute($valori);
                     $resto -= $quota;
-                    if ($quota >= $resRiga - ($ultima ? $tollCent : 1)) $this->segnaPagata($doc['tipo'], $r['id'], $dataPag);
+                    if ($campo === 'residuo' && $quota >= $resRiga - ($ultima ? $tollCent : 1)) $this->segnaPagata($doc['tipo'], $r['id'], $dataPag);
                 }
                 $dopo = $this->docs->documento($doc['tipo'], $doc['id']);
-                if ($dopo && $dopo['pagata']) {
+                if ($campo === 'residuo' && $dopo && $dopo['pagata']) {
                     $saldati[] = ['tipo' => $doc['tipo'], 'id' => $doc['id'], 'numero' => $doc['numero'], 'righe' => count($doc['righe'])];
                 }
             }
@@ -502,6 +521,8 @@ class Riconciliatore
         $stmt->execute([$avvisoId, $movimentoId]);
         if ((int)$stmt->fetchColumn() > 0) throw new RuntimeException('Avviso già collegato a un altro accredito');
         $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET avviso_id = ?, stato = 'riconciliato' WHERE id = ?")->execute([$avvisoId, $movimentoId]);
+        // Avviso con solo una parte delle fatture (le altre già pagate o non importate): il bonifico è arrivato, si chiude
+        $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET stato = 'riconciliato' WHERE id = ? AND stato = 'da_riconciliare'")->execute([$avvisoId]);
     }
 
     /**
@@ -537,6 +558,13 @@ class Riconciliatore
                 $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET avviso_id = NULL, stato = 'da_riconciliare' WHERE avviso_id = ?")->execute([$movimentoId]);
                 $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET stato = 'ignorato' WHERE id = ?")->execute([$movimentoId]);
             } else {
+                // L'avviso scollegato torna da riconciliare se le sue fatture non ne coprono l'importo
+                if ((int)($mov['avviso_id'] ?? 0)) {
+                    $avv = $this->movimento((int)$mov['avviso_id']);
+                    if ($avv['stato'] === 'riconciliato' && $this->riconciliatoSulMovimento((int)$avv['id']) < (float)$avv['importo'] - 0.01) {
+                        $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET stato = 'da_riconciliare' WHERE id = ?")->execute([(int)$avv['id']]);
+                    }
+                }
                 $this->pdo->prepare("UPDATE {$this->p}movimenti_banca SET avviso_id = NULL, stato = 'da_riconciliare' WHERE id = ?")->execute([$movimentoId]);
                 // riabbina() non rifà da solo un abbinamento tolto a mano
                 if (RiconciliazioneDocumenti::colonna($this->pdo, "{$this->p}movimenti_banca", 'abbinamento_annullato')) {
@@ -604,20 +632,28 @@ class Riconciliatore
     }
 
     /**
-     * L'accredito è coerente con l'avviso? Se la causale cita fatture, devono essere tutte dell'avviso;
-     * se non ne cita, il cliente riconosciuto nella causale deve essere quello delle fatture dell'avviso.
+     * L'accredito è coerente con l'avviso? Se la causale cita fatture, almeno una dev'essere dell'avviso e le altre
+     * non possono essere fatture aperte (sono già pagate o non importate: l'avviso non le ha registrate), né di un
+     * altro cliente se quello in causale è riconosciuto; se non ne cita, il cliente riconosciuto nella causale deve
+     * essere quello delle fatture dell'avviso.
      */
     private function avvisoCoerente(int $avvisoId, array $ctx): bool
     {
         $docs = $this->docs->delMovimento($avvisoId);
         if (!$docs) return false;
         if ($ctx['refs']) {
+            $nell = 0;
             foreach ($ctx['refs'] as $ref) {
                 $ok = false;
                 foreach ($docs as $d) if (RiconciliazioneMatch::corrisponde($ref, $d['numero'], $d['data_emissione'])) { $ok = true; break; }
-                if (!$ok) return false;
+                if ($ok) { $nell++; continue; }
+                foreach ($this->aperti('fattura') as $d) {
+                    if (RiconciliazioneMatch::corrisponde($ref, $d['numero'], $d['data_emissione'])) return false;
+                }
             }
-            return true;
+            if ($nell < count($ctx['refs']) && $ctx['anagrafica_id'] !== null
+                && !in_array($ctx['anagrafica_id'], array_column($docs, 'cliente_id'), true)) return false;
+            return $nell > 0;
         }
         return $ctx['anagrafica_id'] !== null && in_array($ctx['anagrafica_id'], array_column($docs, 'cliente_id'), true);
     }
@@ -634,6 +670,15 @@ class Riconciliatore
     private function aperti(string $tipo): array
     {
         return $this->cache['aperti'][$tipo] ??= $this->docs->aperti($tipo);
+    }
+
+    /** Documenti segnati pagati senza bonifico, emessi nei MESI_PAGATE prima di $data (caricati una volta come aperti()). */
+    private function pagate(string $tipo, string $data): array
+    {
+        $tutte = $this->cache['aperti']['pagate_' . $tipo] ??= $this->docs->pagateScoperte($tipo, '2000-01-01', '2999-12-31');
+        if ($data === '') return [];
+        $dal = date('Y-m-d', strtotime($data . ' -' . self::MESI_PAGATE . ' months'));
+        return array_values(array_filter($tutte, fn($d) => $d['data_emissione'] >= $dal && $d['data_emissione'] <= $data));
     }
 
     private function anagrafiche(string $tabella): array
@@ -680,7 +725,8 @@ class Riconciliatore
                 WHERE r.tipo = ? AND r.documento_id = t.id), 0) AS riconciliato FROM {$this->p}{$tab} t WHERE t.id = ?");
         $stmt->execute([$tipo, $id]);
         $r = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$r || $r['stato'] !== 'pagata') return false;
+        // Segnata pagata a mano prima del bonifico: resta pagata
+        if (!$r || $r['stato'] !== 'pagata' || $prima === 'pagata') return false;
         $netto = (float)$r['importo_totale'] - ($tipo === 'fattura' ? (float)($r['ritenuta'] ?? 0) : 0);
         if (abs((float)$r['riconciliato']) >= abs($netto) - 0.01) return false;
         if ($tipo === 'fattura') {
