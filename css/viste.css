@@ -259,3 +259,20 @@ button.nav-item { width: 100%; background: none; border: 0; font: inherit; color
 @media (max-width: 480px) {
   .kpi-card .kpi-value { font-size: clamp(1.05rem, 5.6vw, 1.5rem); white-space: nowrap; }
 }
+
+/* ── Abbina ai bonifici (Fatture › ricevute, ModPartner.abbinaPerFornitore) ── */
+.pf-nota { color: var(--text-secondary); font-size: 0.85rem; margin: 0 0 12px; }
+.pf-gruppo { border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); margin-bottom: 8px; background: var(--bg-card); }
+.pf-gruppo > summary { cursor: pointer; padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.pf-tot { color: var(--text-muted); font-size: 0.82rem; }
+.pf-col { padding: 4px 12px 8px; }
+.pf-tit { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin: 6px 0 4px; }
+.pf-riga { display: grid; grid-template-columns: auto 6.5em 1fr auto; gap: 8px; align-items: center; padding: 4px 0;
+    font-size: 0.85rem; width: 100%; background: none; border: 0; color: inherit; text-align: left; font: inherit; }
+button.pf-riga { grid-template-columns: 6.5em 1fr auto; cursor: pointer; border-radius: 6px; padding: 4px 6px; }
+button.pf-riga:hover { background: var(--bg-surface-hover); }
+.pf-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pf-liberi { max-height: 220px; overflow-y: auto; margin-top: 6px; }
+.pf-vuoto { color: var(--text-muted); font-size: 0.85rem; margin: 4px 0; }
+.pf-azioni { display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 0 12px 12px; flex-wrap: wrap; }
+.pf-chiudi { font-size: 0.85rem; display: flex; gap: 6px; align-items: center; }

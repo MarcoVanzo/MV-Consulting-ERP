@@ -9,6 +9,7 @@ require_once __DIR__ . '/../Shared/DocumentAi.php';
 require_once __DIR__ . '/../Shared/EstrattoContoParser.php';
 require_once __DIR__ . '/../Shared/EstrattoTabellare.php';
 require_once __DIR__ . '/../Shared/Riconciliatore.php';
+require_once __DIR__ . '/../Shared/PagamentiFornitore.php';
 require_once __DIR__ . '/../Shared/Classificatore.php';
 require_once __DIR__ . '/../Shared/CommessaService.php';
 require_once __DIR__ . '/IncarchiController.php';
@@ -177,6 +178,9 @@ class RiconciliazioneController {
         $this->pdo->beginTransaction();
         try {
             $esito = $ric->riabbina($this->userId());
+            // Poi per fornitore: bonifici riconosciuti per nome che fanno esattamente il totale delle sue fatture
+            $gruppi = (new PagamentiFornitore($this->pdo, $this->prefix, $ric))->abbinaSicuri($this->userId());
+            $esito['abbinati'] += $gruppi['fornitori'];
             if ($esito['ids']) self::classifica($this->pdo, $this->prefix, $esito['ids'], true);
             $this->pdo->commit();
         } catch (Throwable $e) {
@@ -190,6 +194,34 @@ class RiconciliazioneController {
         }
         unset($esito['ids']);
         Response::json(true, $esito['abbinati'] ? "{$esito['abbinati']} movimenti abbinati" : 'Nessun nuovo abbinamento sicuro', $esito);
+    }
+
+    /** Fatture da pagare e bonifici aperti messi insieme per fornitore (PagamentiFornitore::riepilogo). */
+    public function perFornitore() {
+        $ric = $this->riconciliatore();
+        Response::json(true, '', (new PagamentiFornitore($this->pdo, $this->prefix, $ric))->riepilogo());
+    }
+
+    /** Abbinamento per fornitore confermato: movimenti e fatture = JSON di id, chiudi_differenza = '1'. */
+    public function abbinaFornitore($data) {
+        $ric = $this->riconciliatore();
+        $fornitoreId = (int)($data['fornitore_id'] ?? 0);
+        $movimenti = json_decode((string)($data['movimenti'] ?? '[]'), true);
+        $fatture = json_decode((string)($data['fatture'] ?? '[]'), true);
+        if (!$fornitoreId || !is_array($movimenti) || !is_array($fatture) || !$fatture) Response::json(false, 'Scegli almeno una fattura');
+        $this->pdo->beginTransaction();
+        try {
+            $esito = (new PagamentiFornitore($this->pdo, $this->prefix, $ric))
+                ->abbina($fornitoreId, $movimenti, $fatture, ($data['chiudi_differenza'] ?? '') === '1', $this->userId());
+            self::classifica($this->pdo, $this->prefix, array_map('intval', $movimenti), true);
+            $this->pdo->commit();
+        } catch (RuntimeException $e) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            Response::json(false, $e->getMessage());
+        }
+        Audit::log('RICONCILIA', 'fatture_passive', null, null, null, ['fornitore_id' => $fornitoreId, 'movimenti' => $movimenti,
+            'fatture' => $fatture, 'esito' => $esito]);
+        Response::json(true, $esito['fatture_saldate'] . ' fatture saldate', $esito);
     }
 
     public function movimenti() {

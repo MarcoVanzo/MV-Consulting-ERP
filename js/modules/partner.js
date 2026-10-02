@@ -30,18 +30,34 @@ const ModPartner = (() => {
             box.innerHTML = `
                 <div class="comm-toolbar">
                     <button class="btn btn-ghost" data-importa type="button"><i class="ph ph-upload-simple"></i> Importa file</button>
+                    <button class="btn btn-ghost" id="pa-abbina" type="button" title="Abbina i bonifici alle fatture, fornitore per fornitore"><i class="ph ph-arrows-merge"></i> Abbina ai bonifici</button>
+                    <button class="btn btn-ghost" id="pa-pagate" type="button" disabled title="Per le fatture pagate fuori dagli estratti caricati"><i class="ph ph-checks"></i> Segna pagate</button>
                     <button class="btn btn-primary" id="pa-new-fatt" type="button"><i class="ph ph-plus"></i> Fattura fornitore</button>
                 </div>
                 <div class="table-container">
                     <div class="table-toolbar"><div class="filters-row" style="margin-bottom:0">${chips}</div>
                         <span style="color:var(--text-muted);font-size:0.85rem">Da pagare: ${UI.formatCurrency(daPagare)}</span></div>
                     <table class="data-table tabella-schede"><thead><tr>
-                        <th>Numero</th><th>Data</th><th>Fornitore</th><th>Commessa</th><th class="text-right">Imponibile</th>
+                        <th><input type="checkbox" id="pa-tutte" aria-label="Seleziona tutte le fatture da pagare"></th><th>Numero</th><th>Data</th><th>Fornitore</th><th>Commessa</th><th class="text-right">Imponibile</th>
                         <th class="text-right">Netto a pagare</th><th>Scadenza</th><th>Stato</th><th></th></tr></thead>
                     <tbody>${rowsPassive()}</tbody></table>
                 </div>`;
             box.querySelectorAll('.filter-chip').forEach(c => c.addEventListener('click', () => { _filtro = c.dataset.f; loadPassive(); }));
             document.getElementById('pa-new-fatt').addEventListener('click', () => openPassiva({}));
+            document.getElementById('pa-abbina').addEventListener('click', () => abbinaPerFornitore());
+            const scelte = () => [...box.querySelectorAll('.pa-sel:checked')].map(c => c.value);
+            const aggiorna = () => {
+                const n = scelte().length;
+                const b = document.getElementById('pa-pagate');
+                b.disabled = !n;
+                b.innerHTML = `<i class="ph ph-checks"></i> Segna pagate${n ? ` (${n})` : ''}`;
+            };
+            box.querySelectorAll('.pa-sel').forEach(c => c.addEventListener('change', aggiorna));
+            document.getElementById('pa-tutte').addEventListener('change', e => {
+                box.querySelectorAll('.pa-sel').forEach(c => { c.checked = e.target.checked; });
+                aggiorna();
+            });
+            document.getElementById('pa-pagate').addEventListener('click', () => segnaPagate(scelte()));
             bindAzioni(box);
         } catch (e) {
             box.innerHTML = `<div class="empty-state"><h3>Errore</h3><p>${UI.esc(e.message)}</p></div>`;
@@ -79,11 +95,12 @@ const ModPartner = (() => {
     }
 
     function rowsPassive() {
-        if (!_passive.length) return '<tr><td colspan="9"><div class="empty-state"><i class="ph ph-receipt"></i><h3>Nessuna fattura</h3><p>Importa gli XML scaricati da Sistemi o dal cassetto fiscale</p></div></td></tr>';
+        if (!_passive.length) return '<tr><td colspan="10"><div class="empty-state"><i class="ph ph-receipt"></i><h3>Nessuna fattura</h3><p>Importa gli XML scaricati da Sistemi o dal cassetto fiscale</p></div></td></tr>';
         const oggi = UI.todayLocal();
         return _passive.map(f => {
             const scaduta = f.stato === 'da_pagare' && f.data_scadenza && f.data_scadenza < oggi;
             return `<tr>
+                <td>${f.stato === 'da_pagare' ? `<input type="checkbox" class="pa-sel" value="${f.id}" aria-label="Seleziona la fattura ${UI.esc(f.numero)}">` : ''}</td>
                 <td class="td-mono">${UI.esc(f.numero)}</td>
                 <td>${UI.formatDate(f.data_emissione)}</td>
                 <td class="td-primary cella-titolo">${UI.esc(f.fornitore_nome || '—')}</td>
@@ -141,6 +158,115 @@ const ModPartner = (() => {
                 case 'commessa': ModCommessa.open(id, load); break;
             }
         } catch (e) { UI.toast(e.message || 'Errore', 'error'); }
+    }
+
+    // ── Pagamenti ───────────────────────────────────────
+
+    /** Fatture pagate fuori dagli estratti caricati (carta, altro conto): stato pagata con una data. */
+    async function segnaPagate(ids) {
+        if (!ids.length) return;
+        const d = await UI.chiedi({ titolo: `Segna pagate ${ids.length} fatture`, etichetta: 'Data del pagamento', valore: UI.todayLocal(), conferma: 'Segna pagate' });
+        if (!d) return;
+        try {
+            const r = await Store.api('set_pagate', 'passive', { ids: JSON.stringify(ids), data_pagamento: d }) || {};
+            UI.toast(`${r.pagate ?? ids.length} fatture segnate pagate`);
+            load();
+        } catch (e) { UI.toast(e.message || 'Errore', 'error'); }
+    }
+
+    /**
+     * Abbinamento per fornitore: per ogni fornitore le fatture da pagare e i bonifici che sembrano suoi
+     * (anche precedenti alla fattura). Si tolgono o aggiungono bonifici e si conferma: i bonifici pagano
+     * le fatture in ordine di data. Una differenza piccola (tassa di soggiorno, extra) si può chiudere.
+     */
+    async function abbinaPerFornitore() {
+        let dati;
+        try { dati = await Store.api('per_fornitore', 'riconciliazione') || {}; }
+        catch (e) { UI.toast(e.message || 'Errore', 'error'); return; }
+        const gruppi = dati.fornitori || [];
+        const liberi = dati.liberi || [];
+        const maxPerc = Math.round((dati.max_differenza || 0.05) * 100);
+        const conBonifici = gruppi.filter(g => g.movimenti.length);
+        const senza = gruppi.filter(g => !g.movimenti.length);
+        const riga = (m, sel) => `<label class="pf-riga"><input type="checkbox" class="pf-mov" value="${m.id}" data-imp="${m.importo}" ${sel ? 'checked' : ''}>
+            <span>${UI.formatDate(m.data)}</span><span class="pf-desc" title="${UI.esc(m.descrizione)}">${UI.esc(m.nome_banca || m.descrizione)}${m.come === 'parola' ? ' <span class="badge badge-yellow">da verificare</span>' : ''}</span>
+            <b>${UI.formatCurrency(m.importo)}</b></label>`;
+        const scheda = g => `<details class="pf-gruppo" data-f="${g.fornitore_id}">
+            <summary><b>${UI.esc(g.nome)}</b><span class="pf-tot" data-tot></span></summary>
+            <div class="pf-col"><div class="pf-tit">Fatture da pagare</div>
+                ${g.fatture.map(f => `<label class="pf-riga"><input type="checkbox" class="pf-fat" value="${f.id}" data-imp="${f.residuo}" checked>
+                    <span>${UI.formatDate(f.data_emissione)}</span><span class="pf-desc">n. ${UI.esc(f.numero)}</span><b>${UI.formatCurrency(f.residuo)}</b></label>`).join('')}</div>
+            <div class="pf-col"><div class="pf-tit">Bonifici</div><div data-movs>${g.movimenti.map(m => riga(m, m.come === 'nome')).join('') || '<p class="pf-vuoto">Nessun bonifico riconosciuto</p>'}</div>
+                <button type="button" class="btn btn-sm btn-ghost" data-aggiungi><i class="ph ph-plus"></i> Aggiungi un bonifico</button>
+                <div data-cerca hidden><input class="form-control" placeholder="Cerca per nome o importo" data-filtro><div class="pf-liberi" data-liberi></div></div></div>
+            <div class="pf-azioni"><label class="pf-chiudi" hidden><input type="checkbox" data-chiudi> Chiudi anche la differenza</label>
+                <button type="button" class="btn btn-sm btn-primary" data-conferma><i class="ph ph-arrows-merge"></i> Abbina</button></div>
+        </details>`;
+        UI.openModal('Abbina i bonifici alle fatture', `
+            <p class="pf-nota">Per ogni fornitore scegli i bonifici che pagano le sue fatture, anche se partiti prima della fattura (acconti, caparre).
+            I bonifici pagano le fatture in ordine di data; il nome in banca del fornitore si impara. Si annulla dalla Banca, come ogni abbinamento.
+            Una differenza fino al ${maxPerc}% si può chiudere; per le fatture pagate in altro modo usa «Segna pagate».</p>
+            ${conBonifici.length ? conBonifici.map(scheda).join('') : '<p class="pf-vuoto">Nessun fornitore con bonifici riconosciuti.</p>'}
+            ${senza.length ? `<div class="pf-tit" style="margin-top:12px">Senza bonifici riconosciuti</div>${senza.map(scheda).join('')}` : ''}`,
+            null, { wide: true, readOnly: true });
+
+        const body = document.getElementById('modal-body');
+        const somma = (el, sel) => [...el.querySelectorAll(sel + ':checked')].reduce((a, c) => a + num(c.dataset.imp), 0);
+        const ricalcola = el => {
+            const f = somma(el, '.pf-fat'), m = somma(el, '.pf-mov');
+            const diff = Math.round((f - m) * 100) / 100;
+            const chiudibile = m > 0 && diff > 0.01 && diff <= f * maxPerc / 100;
+            el.querySelector('[data-tot]').innerHTML = `fatture ${UI.formatCurrency(f)} · bonifici ${UI.formatCurrency(m)}`
+                + (Math.abs(diff) > 0.01 ? ` · <span class="${chiudibile ? '' : 'text-danger'}">${diff > 0 ? 'mancano' : 'avanzano'} ${UI.formatCurrency(Math.abs(diff))}</span>` : ' · <span class="badge badge-green">pari</span>');
+            const ch = el.querySelector('.pf-chiudi');
+            ch.hidden = !chiudibile;
+            if (!chiudibile) ch.querySelector('input').checked = false;
+        };
+        body.querySelectorAll('.pf-gruppo').forEach(el => {
+            ricalcola(el);
+            el.addEventListener('change', e => { if (e.target.matches('.pf-fat, .pf-mov')) ricalcola(el); });
+            const box = el.querySelector('[data-cerca]');
+            const filtra = () => {
+                const q = el.querySelector('[data-filtro]').value.trim().toLowerCase();
+                const gia = new Set([...el.querySelectorAll('[data-movs] .pf-mov')].map(c => c.value));
+                const trovati = liberi.filter(m => !gia.has(String(m.id)) && (!q || (m.descrizione + ' ' + m.importo).toLowerCase().includes(q.replace(',', '.')))).slice(0, 30);
+                el.querySelector('[data-liberi]').innerHTML = trovati.map(m => `<button type="button" class="pf-riga pf-libero" data-id="${m.id}">
+                    <span>${UI.formatDate(m.data)}</span><span class="pf-desc">${UI.esc(m.nome_banca || m.descrizione)}</span><b>${UI.formatCurrency(m.importo)}</b></button>`).join('') || '<p class="pf-vuoto">Nessun bonifico</p>';
+            };
+            el.querySelector('[data-aggiungi]').addEventListener('click', () => { box.hidden = !box.hidden; if (!box.hidden) filtra(); });
+            el.querySelector('[data-filtro]').addEventListener('input', filtra);
+            el.querySelector('[data-liberi]').addEventListener('click', e => {
+                const b = e.target.closest('.pf-libero');
+                if (!b) return;
+                const m = liberi.find(x => String(x.id) === b.dataset.id);
+                const movs = el.querySelector('[data-movs]');
+                movs.querySelector('.pf-vuoto')?.remove();
+                movs.insertAdjacentHTML('beforeend', riga(m, true));
+                ricalcola(el);
+                filtra();
+            });
+            const btn = el.querySelector('[data-conferma]');
+            btn.addEventListener('click', async () => {
+                const ids = sel => [...el.querySelectorAll(sel + ':checked')].map(c => c.value);
+                const fatture = ids('.pf-fat'), movimenti = ids('.pf-mov');
+                if (!fatture.length) { UI.toast('Scegli almeno una fattura', 'error'); return; }
+                if (!movimenti.length) { UI.toast('Scegli almeno un bonifico, o usa «Segna pagate»', 'error'); return; }
+                btn.disabled = true;
+                try {
+                    const r = await Store.api('abbina_fornitore', 'riconciliazione', { fornitore_id: el.dataset.f, fatture: JSON.stringify(fatture),
+                        movimenti: JSON.stringify(movimenti), chiudi_differenza: el.querySelector('[data-chiudi]').checked ? '1' : '' }) || {};
+                    const extra = [r.chiuse_con_differenza?.length ? `${r.chiuse_con_differenza.length} chiuse con la differenza` : '',
+                        r.scoperto > 0 ? `restano ${UI.formatCurrency(r.scoperto)} da pagare` : '',
+                        r.avanzo > 0 ? `${UI.formatCurrency(r.avanzo)} di bonifici restano da abbinare` : ''].filter(Boolean).join(', ');
+                    UI.toast(`${r.fatture_saldate} fatture saldate${extra ? ': ' + extra : ''}`);
+                    el.remove();
+                    load();
+                } catch (err) {
+                    UI.toast(err.message || 'Errore', 'error');
+                    btn.disabled = false;
+                }
+            });
+        });
     }
 
     // ── Anagrafica partner ──────────────────────────────
