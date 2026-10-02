@@ -395,6 +395,13 @@ class ContabilitaController {
             Response::json(false, 'Numero fattura non trovato nell\'XML');
             return;
         }
+        // Solo fatture in euro: importi in un'altra valuta falserebbero fatturato, commesse e incassi
+        $divise = array_map(fn($b) => $this->datiDocumento($b)[6], $bodies);
+        if (!array_filter($divise, fn($d) => $d === 'EUR')) {
+            Response::json(false, "Fattura n. $numeroFattura in " . implode(', ', array_unique($divise))
+                . ": l'ERP registra solo fatture in euro. Non importata: registrala a mano col controvalore in euro.");
+            return;
+        }
         $conTipoDoc = $this->colonnaTipoDocumento();
 
         // Pre-carico tutti i clienti e sottoclienti
@@ -415,14 +422,19 @@ class ContabilitaController {
 
         // Clienti esteri senza partita IVA: in fattura un codice fittizio («US000000», «00000000») che non identifica
         // nessuno: si riconoscono dalla ragione sociale, altrimenti ogni variante del codice creerebbe un doppione
-        $fittizio = fn(string $v) => (bool)preg_match('/^[A-Z]{0,2}0+$/', $v);
+        $fittizio = fn(string $v) => (bool)preg_match('/^(?:[A-Z]{0,2}0+|[A-Z]{0,2}9+)$/', $v);
         if ($fittizio($xmlPiva)) $xmlPiva = '';
         if ($fittizio($xmlCf)) $xmlCf = '';
-        $xmlNome = mb_strtolower(preg_replace('/\s+/', ' ', trim((string)($header->CessionarioCommittente->DatiAnagrafici->Anagrafica->Denominazione ?? ''))), 'UTF-8');
+        // Nome come in creazione (società: Denominazione; persona fisica: Nome e Cognome), senza punteggiatura:
+        // «Example Sports, LLC» e «Example Sports LLC» sono lo stesso cliente
+        $anagXml = $header->CessionarioCommittente->DatiAnagrafici->Anagrafica;
+        $normaNome = fn(string $v) => trim((string)preg_replace('/[^\p{L}\p{N}]+/u', ' ', mb_strtolower($v, 'UTF-8')));
+        $xmlNome = $normaNome(trim((string)($anagXml->Denominazione ?? ''))
+            ?: trim((string)($anagXml->Nome ?? '') . ' ' . (string)($anagXml->Cognome ?? '')));
 
         foreach ($allClienti as $c) {
             if (!$xmlPiva && !$xmlCf) {
-                if ($xmlNome !== '' && mb_strtolower(preg_replace('/\s+/', ' ', trim((string)($c['ragione_sociale'] ?? ''))), 'UTF-8') === $xmlNome) {
+                if ($xmlNome !== '' && $normaNome((string)($c['ragione_sociale'] ?? '')) === $xmlNome) {
                     $clienteId = $c['id'];
                     break;
                 }
@@ -434,7 +446,10 @@ class ContabilitaController {
             $dbCf = strtoupper(str_replace(' ', '', $c['codice_fiscale'] ?? ''));
             if (strpos($dbCf, 'IT') === 0) $dbCf = substr($dbCf, 2);
 
-            if (($xmlPiva && $xmlPiva === $dbPiva) || ($xmlCf && $xmlCf === $dbCf)) {
+            // Un codice fiscale di 11 cifre è quello di una società o di un ente: può stare nel campo P.IVA (e viceversa)
+            if (($xmlPiva && $xmlPiva === $dbPiva) || ($xmlCf && $xmlCf === $dbCf)
+                || ($xmlCf && preg_match('/^\d{11}$/', $xmlCf) && $xmlCf === $dbPiva)
+                || ($xmlPiva && $dbCf !== '' && preg_match('/^\d{11}$/', $dbCf) && $xmlPiva === $dbCf)) {
                 $clienteId = $c['id'];
                 break;
             }
@@ -473,9 +488,13 @@ class ContabilitaController {
             }
 
             foreach ($bodies as $body) {
-            [$numeroFattura, $dataEmissione, $tipoDocumento, $isNotaCredito, $segno, $dataScadenza] = $this->datiDocumento($body);
+            [$numeroFattura, $dataEmissione, $tipoDocumento, $isNotaCredito, $segno, $dataScadenza, $divisa] = $this->datiDocumento($body);
             if ($numeroFattura === '') {
                 $errors[] = 'Un documento del lotto non ha il numero: saltato.';
+                continue;
+            }
+            if ($divisa !== 'EUR') {
+                $errors[] = "Fattura n. $numeroFattura in $divisa: non importata, l'ERP registra solo fatture in euro (registrala a mano col controvalore).";
                 continue;
             }
             // 2. Analisi delle righe e raggruppamento per Sottocliente
@@ -608,6 +627,14 @@ class ContabilitaController {
                 $riepImposta += (float)$riep->Imposta;
                 $hasRiepilogo = true;
             }
+            // Il totale del documento può contenere il bollo o un arrotondamento che il riepilogo non ha: si segnala
+            $totDoc = trim((string)($body->DatiGenerali->DatiGeneraliDocumento->ImportoTotaleDocumento ?? ''));
+            if ($hasRiepilogo && $totDoc !== '' && abs((float)$totDoc - ($riepImponibile + $riepImposta)) > 0.01) {
+                $bollo = (float)($body->DatiGenerali->DatiGeneraliDocumento->DatiBollo->ImportoBollo ?? 0);
+                $errors[] = "Fattura n. $numeroFattura: totale documento " . number_format((float)$totDoc, 2, ',', '.') . ' €, imponibile + IVA '
+                    . number_format($riepImponibile + $riepImposta, 2, ',', '.') . ' € (scarto ' . number_format((float)$totDoc - $riepImponibile - $riepImposta, 2, ',', '.')
+                    . ' €' . ($bollo > 0 ? ', bollo ' . number_format($bollo, 2, ',', '.') . ' €' : ', arrotondamento o bollo') . '): registrato imponibile + IVA.';
+            }
 
             // Arrotonda i gruppi e scarica sull'ultimo lo scarto rispetto al riepilogo
             // (con un solo gruppo coincide esattamente con i DatiRiepilogo)
@@ -632,6 +659,7 @@ class ContabilitaController {
                 $raggruppamenti = [];
             }
             $daRiusare = $soloElenco ? $esistenti : [];
+            $daRicalcolare = [];
             if ($soloElenco) $errors[] = "Fattura n. $numeroFattura: era entrata dall'elenco, completata con le righe della fattura.";
 
             // 3a. Insert (o completamento della riga dall'elenco), con la commessa trovata riga per riga
@@ -678,12 +706,18 @@ class ContabilitaController {
 
                 $vecchia = array_shift($daRiusare);
                 if ($vecchia) {
-                    $this->pdo->prepare("UPDATE {$this->prefix}fatture SET cliente_id = ?, sottocliente_id = ?, incarico_id = ?, imponibile = ?,
+                    // Commessa e sottocliente già assegnati a mano alla riga dell'elenco restano se l'XML non ne trova
+                    $this->pdo->prepare("UPDATE {$this->prefix}fatture SET cliente_id = ?, sottocliente_id = COALESCE(?, sottocliente_id),
+                        incarico_id = COALESCE(?, incarico_id), imponibile = ?,
                         iva_percentuale = ?, importo_iva = ?, importo_totale = ?, descrizione = ?, data_scadenza = COALESCE(?, data_scadenza)"
                         . ($conTipoDoc ? ', tipo_documento = ?' : '') . " WHERE id = ?")
                         ->execute(array_merge([$clienteId, $sid, $incaricoId, $imponibile, $ivaPerc, $importoIva, $importoTotale, $testoDesc, $dataScadenza],
                             $conTipoDoc ? [$tipoDocumento] : [], [$vecchia['id']]));
                     $fatturaId = (int)$vecchia['id'];
+                    $prima = $vecchia['incarico_id'] ? (int)$vecchia['incarico_id'] : null;
+                    $incaricoId = $incaricoId ?: $prima;
+                    // La commessa precedente perde la fattura: rata libera (recalculateLinkedIncarico) e totali da rifare
+                    if ($prima && $prima !== (int)$incaricoId) $daRicalcolare[$prima] = true;
                 } else {
                     // Una fattura già pagata (dall'elenco) resta pagata anche nelle parti nuove
                     $base = $soloElenco ? $esistenti[0] : ['stato' => 'emessa', 'data_pagamento' => null];
@@ -704,11 +738,19 @@ class ContabilitaController {
                     $this->recalculateLinkedIncarico($fatturaId);
                 }
             }
-            // Righe dall'elenco avanzate (raro: più righe per lo stesso documento): le riconciliazioni passano alla prima
+            // Righe dall'elenco avanzate (raro: più righe per lo stesso documento): le riconciliazioni passano alla prima,
+            // le rate tornano libere e la commessa si ricalcola senza di loro
             foreach ($daRiusare as $r) {
                 $this->pdo->prepare("UPDATE {$this->prefix}riconciliazioni SET documento_id = ? WHERE tipo = 'fattura' AND documento_id = ?")
                     ->execute([(int)$esistenti[0]['id'], (int)$r['id']]);
+                $this->pdo->prepare("UPDATE {$this->prefix}incarichi_rate SET fattura_id = NULL WHERE fattura_id = ?")->execute([(int)$r['id']]);
                 $this->pdo->prepare("DELETE FROM {$this->prefix}fatture WHERE id = ?")->execute([(int)$r['id']]);
+                if ($r['incarico_id']) $daRicalcolare[(int)$r['incarico_id']] = true;
+            }
+            if ($daRicalcolare) {
+                require_once __DIR__ . '/IncarchiController.php';
+                $ic = new IncarchiController();
+                foreach (array_keys($daRicalcolare) as $inc) $ic->recalculate($inc);
             }
 
             // Nota di credito che storna per intero fatture aperte dello stesso cliente: si chiudono entrambe,
@@ -1011,7 +1053,7 @@ class ContabilitaController {
     }
 
     /**
-     * Dati di un documento del file: [numero, data, tipo, nota di credito?, segno, scadenza].
+     * Dati di un documento del file: [numero, data, tipo, nota di credito?, segno, scadenza, divisa].
      * TD04 e TD08 sono note di credito (importi salvati in negativo); la scadenza è la prima
      * DataScadenzaPagamento indicata (come nell'import delle fatture dei fornitori).
      */
@@ -1026,7 +1068,8 @@ class ContabilitaController {
                 if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) && (!$scadenza || $d < $scadenza)) $scadenza = $d;
             }
         }
-        return [trim((string)($gen->Numero ?? '')), (string)($gen->Data ?? date('Y-m-d')), $tipo, $nc, $nc ? -1 : 1, $scadenza];
+        $divisa = strtoupper(trim((string)($gen->Divisa ?? ''))) ?: 'EUR';
+        return [trim((string)($gen->Numero ?? '')), (string)($gen->Data ?? date('Y-m-d')), $tipo, $nc, $nc ? -1 : 1, $scadenza, $divisa];
     }
 
     /** Colonna fatture.tipo_documento presente? (migrazione v065) */
@@ -1040,7 +1083,7 @@ class ContabilitaController {
      * Il numero comprende il registro («69/001»), quindi non si confonde tra registri.
      */
     private function righeDocumento(string $numero, string $data, ?int $clienteId, int $segno, string $tipo, bool $conTipoDoc): array {
-        $sql = "SELECT id, descrizione, cliente_id, stato, data_pagamento FROM {$this->prefix}fatture
+        $sql = "SELECT id, descrizione, cliente_id, sottocliente_id, incarico_id, stato, data_pagamento FROM {$this->prefix}fatture
             WHERE numero_fattura = ? AND YEAR(data_emissione) = YEAR(?)";
         $par = [$numero, $data];
         if ($conTipoDoc) {

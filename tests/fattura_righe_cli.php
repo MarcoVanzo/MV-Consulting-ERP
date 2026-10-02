@@ -90,6 +90,18 @@ check('solo il codice SZ.DPS', $riga('Consulenze privacy presso ALFA MECCANICA S
 check('solo il secondo numero di protocollo', $riga('Servizi di DPO presso ALFA Prot. n. 9/2026 + 50/2027') === 101);
 check('una data non è un protocollo', $riga('storno parziale ft. 65 del 07/07/2026') === null);
 check('testo senza codici', $riga('Supporto generale area privacy') === null);
+// Commesse con protocolli che somigliano a mesi e numeri di fattura
+$finti = [['id' => 1, 'numero_protocollo' => '3/2026', 'sottocliente_id' => null], ['id' => 2, 'numero_protocollo' => '45/2026', 'sottocliente_id' => null],
+    ['id' => 3, 'numero_protocollo' => '1/2026', 'sottocliente_id' => null], ['id' => 4, 'numero_protocollo' => '10/2026', 'sottocliente_id' => null]];
+$rigaF = fn(string $d) => CommessaService::incaricoDellaRiga($d, $finti)['id'] ?? null;
+check('«competenza 03/2026» non è un protocollo', $rigaF('Canone assistenza competenza 03/2026') === null);
+check('«periodo 01/2026 - 06/2026» non è un protocollo', $rigaF('Servizio DPO periodo 01/2026 - 06/2026') === null);
+check('«mese 10/2026» non è un protocollo', $rigaF('Noleggio mese 10/2026') === null);
+check('«fattura n. 45/2026» non è un protocollo', $rigaF('Storno parziale fattura n. 45/2026') === null);
+check('N/AAAA senza «Prot.» non è un protocollo', $rigaF('Attività 45/2026') === null);
+check('«Prot. n. 45/2026» sì', $rigaF('Consulenza Prot. n. 45/2026') === 2);
+check('«Prot. 3/2026 + 45/2026»: anche il secondo', CommessaService::chiaviProtocollo('Servizi Prot. 3/2026 + 45/2026', true) === ['3/2026', '45/2026']);
+check('campo protocollo: «820/2026» resta una chiave', CommessaService::chiaviProtocollo('820/2026') === ['820/2026']);
 
 echo "Fattura con tre commesse, due dello stesso sottocliente\n";
 $x = xml('5/001', '2026-03-31', [
@@ -127,6 +139,35 @@ check('cliente corretto dalla P.IVA', (int)$righe[0]['cliente_id'] === 1, $righe
 check('la parte nuova resta pagata', $righe[1]['stato'] === 'pagata' && $righe[1]['data_pagamento'] === '2026-06-10', $righe);
 check('totale invariato', abs(array_sum(array_map('floatval', array_column($righe, 'imponibile'))) - 750) < 0.001);
 
+echo "Fattura dall'elenco già collegata a mano\n";
+$ins = $pdo->prepare("INSERT INTO {$p}fatture (id, numero_fattura, data_emissione, cliente_id, sottocliente_id, incarico_id, imponibile, iva_percentuale,
+    importo_iva, importo_totale, descrizione, tipo_documento) VALUES (?, ?, '2026-05-15', 1, ?, ?, ?, 22, ?, ?, ?, 'TD01')");
+$ins->execute([52, '11/001', 11, 102, 300, 66, 366, ContabilitaController::DA_ELENCO]);
+$pdo->exec("INSERT INTO {$p}incarichi_rate (incarico_id, ordine, descrizione, importo, fattura_id) VALUES (102, 1, 'Saldo', 300, 52)");
+$r = risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => xml('11/001', '2026-05-15', [['Consulenza generica', 300]])]));
+$x52 = $pdo->query("SELECT incarico_id, sottocliente_id FROM {$p}fatture WHERE id = 52")->fetch();
+check('XML senza commessa: resta quella scelta a mano', (int)$x52['incarico_id'] === 102 && (int)$x52['sottocliente_id'] === 11, [$x52, $r]);
+check('…e la rata resta sua', (int)$pdo->query("SELECT COUNT(*) FROM {$p}incarichi_rate WHERE fattura_id = 52")->fetchColumn() === 1);
+
+$ins->execute([53, '12/001', null, 102, 400, 88, 488, ContabilitaController::DA_ELENCO]);
+$pdo->exec("INSERT INTO {$p}incarichi_rate (incarico_id, ordine, descrizione, importo, fattura_id) VALUES (102, 2, 'Extra', 400, 53)");
+(new IncarchiController())->recalculate(102);
+$prima = (float)$pdo->query("SELECT importo_fatturato FROM {$p}incarichi WHERE id = 102")->fetchColumn();
+risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => xml('12/001', '2026-05-15', [['Consulenze presso ALFA (SZ.DPS.F010.26)', 400]])]));
+check('XML con un\'altra commessa: si sposta', (int)$pdo->query("SELECT incarico_id FROM {$p}fatture WHERE id = 53")->fetchColumn() === 100);
+check('la commessa di prima perde fattura e rata', (float)$pdo->query("SELECT importo_fatturato FROM {$p}incarichi WHERE id = 102")->fetchColumn() === $prima - 400
+    && (int)$pdo->query("SELECT COUNT(*) FROM {$p}incarichi_rate WHERE fattura_id = 53")->fetchColumn() === 0, $prima);
+
+echo "Valuta e totale del documento\n";
+$usd = str_replace('<Numero>13/001</Numero>', '<Divisa>USD</Divisa><Numero>13/001</Numero>', xml('13/001', '2026-05-20', [['Servizi', 1000]]));
+$r = risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => $usd]));
+check('fattura in dollari rifiutata con un avviso chiaro', ($r['success'] ?? true) === false && str_contains((string)$r['message'], 'USD')
+    && (int)$pdo->query("SELECT COUNT(*) FROM {$p}fatture WHERE numero_fattura = '13/001'")->fetchColumn() === 0, $r);
+$bollo = str_replace('<Numero>14/001</Numero>', '<Numero>14/001</Numero><DatiBollo><BolloVirtuale>SI</BolloVirtuale><ImportoBollo>2.00</ImportoBollo></DatiBollo><ImportoTotaleDocumento>124.00</ImportoTotaleDocumento>',
+    xml('14/001', '2026-05-21', [['Servizi', 100]]));
+$r = risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => $bollo]));
+check('scarto col totale documento segnalato (bollo)', (bool)array_filter($r['data']['errors'] ?? [], fn($e) => str_contains($e, 'totale documento') && str_contains($e, 'bollo')), $r);
+
 echo "Nota di credito con lo stesso numero di una fattura\n";
 $r = risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => xml('5/001', '2026-04-30', [
     ['Storno parziale SZ.DPS.F020.26', 100],
@@ -147,6 +188,22 @@ $r1 = risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => $e
 risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => $estero('<IdPaese>US</IdPaese><IdCodice>00000000</IdCodice>', '2AV')]));
 check('un solo cliente per due codici fittizi diversi', (int)$pdo->query("SELECT COUNT(*) FROM {$p}clienti WHERE ragione_sociale = 'Example Sports LLC'")->fetchColumn() === 1);
 check('le due fatture sullo stesso cliente', (int)$pdo->query("SELECT COUNT(DISTINCT cliente_id) FROM {$p}fatture WHERE numero_fattura IN ('1AV','2AV')")->fetchColumn() === 1);
+risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => str_replace('Example Sports LLC', 'Example Sports, LLC',
+    $estero('<IdPaese>US</IdPaese><IdCodice>99999999999</IdCodice>', '3AV'))]));
+check('codice «99999999999» e punteggiatura diversa: stesso cliente', (int)$pdo->query("SELECT COUNT(DISTINCT cliente_id) FROM {$p}fatture WHERE numero_fattura IN ('1AV','3AV')")->fetchColumn() === 1
+    && (int)$pdo->query("SELECT COUNT(*) FROM {$p}clienti WHERE ragione_sociale LIKE 'Example Sports%'")->fetchColumn() === 1);
+$pf = fn(string $num, string $id) => str_replace(['<IdPaese>IT</IdPaese><IdCodice>01234567897</IdCodice>', '<Anagrafica><Denominazione>Associazione Esempio Servizi</Denominazione></Anagrafica>'],
+    ["<IdPaese>XX</IdPaese><IdCodice>$id</IdCodice>", '<Anagrafica><Nome>John</Nome><Cognome>Smith</Cognome></Anagrafica>'], xml($num, '2026-07-01', [['Servizi', 100]]));
+risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => $pf('4AV', 'XX000000')]));
+risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => $pf('5AV', '0000000')]));
+check('persona fisica estera con codice fittizio: riconosciuta da nome e cognome', (int)$pdo->query("SELECT COUNT(*) FROM {$p}clienti WHERE ragione_sociale = 'John Smith'")->fetchColumn() === 1);
+
+echo "Codice fiscale numerico nel campo partita IVA\n";
+$pdo->exec("INSERT INTO {$p}clienti (id, ragione_sociale, partita_iva, codice_fiscale) VALUES (20, 'Ente Pubblico Esempio', '80012345678', NULL)");
+$cf = str_replace('<IdFiscaleIVA><IdPaese>IT</IdPaese><IdCodice>01234567897</IdCodice></IdFiscaleIVA>', '<CodiceFiscale>80012345678</CodiceFiscale>',
+    xml('15/001', '2026-07-02', [['Servizi', 100]]));
+risposta(fn() => (new ContabilitaController())->importXmlData(['xml' => $cf]));
+check('CF di 11 cifre trovato nella P.IVA in anagrafica', (int)$pdo->query("SELECT cliente_id FROM {$p}fatture WHERE numero_fattura = '15/001'")->fetchColumn() === 20);
 
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);

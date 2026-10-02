@@ -23,6 +23,9 @@ class CommessaService
     /** Proposta di collegamento da confermare a mano: non la applica creaCommesseMancanti. */
     private const MOTIVO_DEBOLE = 'unica commessa del cliente con residuo sufficiente';
 
+    /** Nota delle commesse create dalle fatture (non a canone): così commessaDaProseguire le riconosce. */
+    private const NOTA_DA_FATTURE = 'Commessa creata dalle fatture emesse';
+
     private $pdo;
     private $p;
 
@@ -36,22 +39,42 @@ class CommessaService
      * Chiavi di confronto di un protocollo. Le lettere Unindustria riportano due codici
      * («Prot. n. 820/2026 (SZ.DPS.F011.26)») e la lettura ne può restituire uno o entrambi:
      * due protocolli sono lo stesso se hanno almeno una chiave in comune.
+     *
+     * $testoLibero (descrizione di una fattura): un «N/AAAA» è un protocollo solo dopo «Prot.» o in coda a un
+     * altro protocollo («Prot. n. 3991/2026 + 452/2027»); senza codici non c'è nessuna chiave. Sempre esclusi:
+     * le date, i mesi di competenza o di periodo («competenza 03/2026», «periodo 01/2026 - 06/2026») e i numeri
+     * di fattura («fattura n. 45/2026»).
      * @return string[]
      */
-    public static function chiaviProtocollo(?string $protocollo): array
+    public static function chiaviProtocollo(?string $protocollo, bool $testoLibero = false): array
     {
         $s = mb_strtoupper(trim((string)$protocollo), 'UTF-8');
         if ($s === '') return [];
+        $s = preg_replace([
+            '/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/',
+            '/\b(?:COMPETENZA|MESE|MESI|PERIODO)\b\W{0,5}(?:(?:DI|DEL|DAL|AL|DA|A)\s+)?\d{1,2}\s*\/\s*\d{4}(?:\s*(?:-|AL|A)\s*\d{1,2}\s*\/\s*\d{4})?/u',
+            '/\b(?:FATT\w*|FT)\.?\s*(?:N(?:R|UM)?\w*\.?\s*|NUMERO\s*)?°?\s*\d{1,6}\s*\/\s*\d{2,4}\b/u',
+        ], ' ', $s);
         $chiavi = [];
-        if (preg_match_all('/\b(\d{1,6})\s*\/\s*(\d{4})\b/', $s, $m, PREG_SET_ORDER)) {
-            foreach ($m as $x) $chiavi[] = (int)$x[1] . '/' . $x[2];
+        $numeri = fn(string $t) => preg_match_all('/\b(\d{1,6})\s*\/\s*(\d{4})\b/', $t, $m, PREG_SET_ORDER)
+            ? array_map(fn($x) => (int)$x[1] . '/' . $x[2], $m) : [];
+        if (!$testoLibero) {
+            $chiavi = $numeri($s);
+        } else {
+            $n = '\d{1,6}\s*\/\s*\d{4}\b';
+            if (preg_match_all("/\\bPROT\\w*\\.?\\s*(?:N[°ºR]?\\w*\\.?\\s*)?°?\\s*($n(?:\\s*(?:\\+|,|\\bE\\b)\\s*$n)*)/u", $s, $m)) {
+                foreach ($m[1] as $x) $chiavi = array_merge($chiavi, $numeri($x));
+            }
+            if (preg_match_all("/\\+\\s*($n)/u", $s, $m)) {
+                foreach ($m[1] as $x) $chiavi = array_merge($chiavi, $numeri($x));
+            }
         }
         // Il codice alfanumerico si cerca senza la parte «Prot. n. 820/2026», che darebbe «PROT.N.820»
         $resto = preg_replace(['/\bPROT\w*\.?\s*(N\w*\.?)?/', '/\b\d{1,6}\s*\/\s*\d{4}\b/'], ' ', $s);
         if (preg_match_all('/\b[A-Z]{2,}(?:\s*\.\s*[A-Z0-9]+){2,}\b/', $resto, $m)) {
             foreach ($m[0] as $x) $chiavi[] = preg_replace('/\s+/', '', $x);
         }
-        if (!$chiavi) $chiavi[] = preg_replace('/[^A-Z0-9]/', '', $s);
+        if (!$chiavi && !$testoLibero) $chiavi[] = preg_replace('/[^A-Z0-9]/', '', $s);
         return array_values(array_unique(array_filter($chiavi)));
     }
 
@@ -62,11 +85,9 @@ class CommessaService
      */
     public static function incaricoDellaRiga(string $descrizione, array $incarichi, ?int $sottoclienteId = null): ?array
     {
-        // Solo i codici veri: senza numeri di protocollo né codice alfanumerico la riga non si abbina
-        // Le date («ft. 65 del 25/11/2025») non sono protocolli
-        $descrizione = preg_replace('/\b\d{1,2}\/\d{1,2}\/\d{4}\b/', ' ', $descrizione);
-        if (!preg_match('/\d\s*\/\s*\d{4}|\b[A-Z]{2,}(?:\s*\.\s*[A-Z0-9]+){2,}\b/i', $descrizione)) return null;
-        $chiavi = self::chiaviProtocollo($descrizione);
+        // Solo i codici veri: senza protocollo («Prot. n. …», «+ n/aaaa») né codice alfanumerico la riga non si abbina
+        $chiavi = self::chiaviProtocollo($descrizione, true);
+        if (!$chiavi) return null;
         $trovati = [];
         foreach ($incarichi as $inc) {
             if (array_intersect($chiavi, self::chiaviProtocollo($inc['numero_protocollo'] ?? ''))) $trovati[] = $inc;
@@ -287,8 +308,8 @@ class CommessaService
      * Fatture emesse dell'anno non collegate a una commessa, ciascuna con la commessa proposta e il motivo:
      * protocollo citato, riferimento all'offerta, rata libera di pari importo, unica commessa del cliente con
      * residuo sufficiente (non per i canoni ripetuti né per fatture precedenti la commessa). Le proposte si confermano a mano (Vendite › Commesse › «Collega alle commesse»).
-     * Le fatture che si ripetono con lo stesso importo (almeno 3) sono segnate «ricorrente»: candidate a una
-     * commessa a canone. Restituisce anche le commesse di ogni cliente per la scelta manuale.
+     * Le fatture segnate «ricorrente» sono un canone (serieMensili: stesso cliente, sottocliente e importo, almeno
+     * 3 in mesi diversi a 25–35 giorni l'una dall'altra): candidate a una commessa a canone. Restituisce anche le commesse di ogni cliente per la scelta manuale.
      */
     public function proposteCollegamento(int $anno): array
     {
@@ -305,24 +326,20 @@ class CommessaService
         $clienti = array_values(array_unique(array_filter(array_map(fn($f) => (int)$f['cliente_id'], $fatture))));
         $commesse = [];
         if ($clienti) {
-            $in = implode(',', $clienti);
-            $rows = $this->pdo->query("SELECT i.id, i.cliente_id, i.sottocliente_id, i.data_incarico, i.tipo_commessa, i.descrizione,
+            $stmt = $this->pdo->prepare("SELECT i.id, i.cliente_id, i.sottocliente_id, i.data_incarico, i.tipo_commessa, i.descrizione,
                     i.numero_protocollo, i.importo_totale, COALESCE(i.importo_fatturato, 0) AS importo_fatturato, sc.nome AS sottocliente_nome
                 FROM {$this->p}incarichi i LEFT JOIN {$this->p}sottoclienti sc ON sc.id = i.sottocliente_id
-                WHERE i.cliente_id IN ($in) ORDER BY i.data_incarico DESC, i.id DESC")->fetchAll(PDO::FETCH_ASSOC);
-            foreach ($rows as $r) {
+                WHERE i.cliente_id IN (" . self::segnaposto($clienti) . ") ORDER BY i.data_incarico DESC, i.id DESC");
+            $stmt->execute($clienti);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 $r['residuo'] = round(max(0, (float)$r['importo_totale'] - (float)$r['importo_fatturato']), 2);
                 $commesse[(int)$r['cliente_id']][] = $r;
             }
         }
 
-        $ripetute = [];
-        foreach ($fatture as $f) {
-            if ((float)$f['imponibile'] > 0) $ripetute[$f['cliente_id'] . '|' . round((float)$f['imponibile'], 2)][] = 1;
-        }
-
+        $canoni = self::serieMensili($fatture);
         foreach ($fatture as &$f) {
-            $f['ricorrente'] = count($ripetute[$f['cliente_id'] . '|' . round((float)$f['imponibile'], 2)] ?? []) >= 3;
+            $f['ricorrente'] = count($canoni[(int)$f['id']] ?? []) >= 3;
             $f['proposta'] = (float)$f['imponibile'] > 0
                 ? $this->proposta($f, $commesse[(int)$f['cliente_id']] ?? []) : null;
         }
@@ -386,9 +403,10 @@ class CommessaService
     {
         $fatturaIds = array_values(array_unique(array_map('intval', $fatturaIds)));
         if (!$fatturaIds) throw new InvalidArgumentException('Nessuna fattura scelta');
-        $in = implode(',', $fatturaIds);
-        $fatture = $this->pdo->query("SELECT id, cliente_id, sottocliente_id, data_emissione, imponibile, incarico_id
-            FROM {$this->p}fatture WHERE id IN ($in) ORDER BY data_emissione, id")->fetchAll(PDO::FETCH_ASSOC);
+        $stmt = $this->pdo->prepare("SELECT id, cliente_id, sottocliente_id, data_emissione, imponibile, incarico_id
+            FROM {$this->p}fatture WHERE id IN (" . self::segnaposto($fatturaIds) . ") ORDER BY data_emissione, id");
+        $stmt->execute($fatturaIds);
+        $fatture = $stmt->fetchAll(PDO::FETCH_ASSOC);
         if (count($fatture) !== count($fatturaIds)) throw new InvalidArgumentException('Fattura non trovata');
         $clienti = array_unique(array_map(fn($f) => (int)$f['cliente_id'], $fatture));
         if (count($clienti) !== 1 || !$clienti[0]) throw new InvalidArgumentException('Le fatture devono essere dello stesso cliente');
@@ -398,7 +416,7 @@ class CommessaService
         $positive = array_values(array_filter($fatture, fn($f) => (float)$f['imponibile'] > 0));
         if (!$positive) throw new InvalidArgumentException('Serve almeno una fattura (le note di credito da sole non bastano)');
         $ricorrente = !empty($o['ricorrente']);
-        $mesi = max(1, min(60, (int)($o['mesi'] ?? 12)));
+        $mesi = max(1, min(120, (int)($o['mesi'] ?? 12)));
         $canone = round((float)$positive[0]['imponibile'], 2);
         $totale = $ricorrente ? round($canone * $mesi, 2)
             : round(array_sum(array_map(fn($f) => (float)$f['imponibile'], $fatture)), 2);
@@ -417,7 +435,7 @@ class CommessaService
             'fine_mese' => $termini['fine_mese'] ?? 0,
             'giorno_pagamento' => $termini['giorno_pagamento'] ?? null,
             'condizioni_pagamento' => null,
-            'note' => $ricorrente ? "Canone di " . number_format($canone, 2, ',', '.') . " € al mese per $mesi mesi" : 'Commessa creata dalle fatture emesse',
+            'note' => $ricorrente ? self::notaCanone($canone, $mesi) : self::NOTA_DA_FATTURE,
         ];
         $cols = array_keys($i);
         $this->pdo->prepare("INSERT INTO {$this->p}incarichi (" . implode(', ', $cols) . ") VALUES (" . implode(', ', array_fill(0, count($cols), '?')) . ")")
@@ -427,10 +445,10 @@ class CommessaService
         $ins = $this->pdo->prepare("INSERT INTO {$this->p}incarichi_rate
             (incarico_id, ordine, descrizione, percentuale, importo, data_prevista, giorni_pagamento, fattura_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
         if ($ricorrente) {
-            $perc = round(100 / $mesi, 2);
+            $perc = self::percentuali(array_fill(0, $mesi, $canone));
             for ($k = 0; $k < $mesi; $k++) {
                 $data = TerminiPagamento::piuMesi($i['data_incarico'], $k);
-                $ins->execute([$id, $k + 1, 'Canone ' . self::meseAnno($data), $perc, $canone, $data, $i['giorni_pagamento'], null]);
+                $ins->execute([$id, $k + 1, 'Canone ' . self::meseAnno($data), $perc[$k], $canone, $data, $i['giorni_pagamento'], null]);
             }
             $upd = $this->pdo->prepare("UPDATE {$this->p}fatture SET incarico_id = ? WHERE id = ?");
             foreach ($fatture as $f) {
@@ -446,11 +464,15 @@ class CommessaService
                 $importi[$k] = round($importi[$k] - $tolto, 2);
                 $storno -= $tolto;
             }
-            foreach ($positive as $k => $f) {
-                $ins->execute([$id, $k + 1, count($positive) === 1 ? 'Saldo' : 'Fattura ' . ($k + 1), round($importi[$k] / $totale * 100, 2),
-                    $importi[$k], $f['data_emissione'], $i['giorni_pagamento'], $f['id']]);
+            // Una fattura stornata per intero non diventa una rata da 0 €; le percentuali sommano 100
+            $rate = array_values(array_filter(array_map(null, $positive, $importi), fn($x) => $x[1] > 0.005));
+            $perc = self::percentuali(array_column($rate, 1));
+            foreach ($rate as $k => [$f, $importo]) {
+                $ins->execute([$id, $k + 1, count($rate) === 1 ? 'Saldo' : 'Fattura ' . ($k + 1), $perc[$k],
+                    $importo, $f['data_emissione'], $i['giorni_pagamento'], $f['id']]);
             }
-            $this->pdo->exec("UPDATE {$this->p}fatture SET incarico_id = $id WHERE id IN ($in)");
+            $this->pdo->prepare("UPDATE {$this->p}fatture SET incarico_id = ? WHERE id IN (" . self::segnaposto($fatturaIds) . ")")
+                ->execute(array_merge([$id], $fatturaIds));
         }
         $this->offertaRapida($id, $i);
         return $id;
@@ -473,10 +495,13 @@ class CommessaService
      * Commesse per tutte le fatture emesse senza commessa (o solo per quelle indicate):
      *  1. collega quelle con una proposta sicura (protocollo, riferimento all'offerta, rata di pari importo);
      *  2. quelle per cui la proposta è solo «unica commessa con residuo» restano da confermare a mano;
-     *  3. le altre diventano commesse: un canone (stesso cliente, sottocliente e importo almeno 3 volte) fa una
-     *     commessa ricorrente che copre tutti i mesi fatturati (almeno 12); le fatture con la stessa intestazione
-     *     (il testo prima dei due punti: acconto e saldo dello stesso viaggio) fanno una commessa sola; ogni altra
-     *     fattura una commessa singola.
+     *  3. una fattura che prosegue una commessa già creata dalle fatture (commessaDaProseguire: stessa intestazione
+     *     entro 12 mesi, o stesso importo un mese dopo l'ultima rata) si aggancia lì e la commessa cresce: le fatture
+     *     importate una alla volta finiscono sulla stessa commessa come se fossero arrivate insieme;
+     *  4. le altre diventano commesse: un canone (serieMensili, almeno 3 mesi di fila) fa una commessa ricorrente con
+     *     una rata per ogni mese fatturato; due fatture mensili di pari importo una commessa con due rate; le fatture
+     *     con la stessa intestazione (il testo prima dei due punti: acconto e saldo dello stesso viaggio) emesse entro
+     *     12 mesi dalla prima una commessa sola; ogni altra fattura una commessa singola.
      * Una nota di credito va con la fattura che storna (numero citato o stesso importo): sulla sua commessa, o nel
      * gruppo che la crea; un gruppo stornato per intero non diventa commessa. Fatture senza cliente restano fuori.
      * Da chiamare dentro una transazione; il ricalcolo dei totali delle commesse toccate resta a chi chiama.
@@ -489,11 +514,7 @@ class CommessaService
         $tutte = $this->pdo->query("SELECT id, numero_fattura, cliente_id, sottocliente_id, data_emissione, imponibile, descrizione
             FROM {$this->p}fatture WHERE incarico_id IS NULL ORDER BY cliente_id, data_emissione, id")->fetchAll(PDO::FETCH_ASSOC);
         $scelte = $fatturaIds === null ? null : array_flip(array_map('intval', $fatturaIds));
-        $chiave = fn($f) => $f['cliente_id'] . '|' . (int)$f['sottocliente_id'] . '|' . round((float)$f['imponibile'], 2);
-        $gruppi = [];
-        foreach ($tutte as $f) {
-            if ($f['cliente_id'] && (float)$f['imponibile'] > 0) $gruppi[$chiave($f)][] = $f;
-        }
+        $serie = self::serieMensili($tutte);
 
         $daCreare = [];
         $gruppoDi = [];
@@ -502,7 +523,8 @@ class CommessaService
             if ($scelte !== null && !isset($scelte[(int)$f['id']])) continue;
             if (!$f['cliente_id'] || abs((float)$f['imponibile']) < 0.005) { $esito['saltate']++; continue; }
             if ((float)$f['imponibile'] < 0) { $note[] = $f; continue; }
-            $f['ricorrente'] = count($gruppi[$chiave($f)]) >= 3;
+            $mia = $serie[(int)$f['id']] ?? [$f];
+            $f['ricorrente'] = count($mia) >= 3;
             $prop = $this->proposta($f, $this->commesseDelCliente((int)$f['cliente_id']));
             if ($prop && $prop['motivo'] !== self::MOTIVO_DEBOLE) {
                 $this->collegaFatturaACommessa((int)$f['id'], $prop['incarico_id']);
@@ -510,10 +532,24 @@ class CommessaService
                 $esito['commesse'][$prop['incarico_id']] = true;
             } elseif ($prop) {
                 $esito['da_scegliere']++;
+            } elseif ($id = $this->commessaDaProseguire($f)) {
+                $this->aggiungiFattura($id, $f);
+                $esito['collegate']++;
+                $esito['commesse'][$id] = true;
             } else {
                 $intestazione = self::intestazione((string)$f['descrizione']);
-                $g = $f['ricorrente'] ? 'r' . $chiave($f)
-                    : (mb_strlen($intestazione) >= 30 ? 'v' . $f['cliente_id'] . '|' . (int)$f['sottocliente_id'] . '|' . mb_strtolower($intestazione) : 's' . $f['id']);
+                if (count($mia) >= 2) {
+                    $g = 'c' . (int)$mia[0]['id'];
+                } elseif (mb_strlen($intestazione) >= 30) {
+                    // Stessa intestazione, ma al massimo 12 mesi tra la prima e l'ultima fattura del gruppo
+                    $base = 'v' . $f['cliente_id'] . '|' . (int)$f['sottocliente_id'] . '|' . mb_strtolower($intestazione);
+                    $g = $base;
+                    for ($n = 1; isset($daCreare[$g]) && self::giorni((string)$daCreare[$g][0]['data_emissione'], (string)$f['data_emissione']) > 365; $n++) {
+                        $g = $base . '#' . $n;
+                    }
+                } else {
+                    $g = 's' . $f['id'];
+                }
                 $daCreare[$g][] = $f;
                 $gruppoDi[(int)$f['id']] = $g;
             }
@@ -547,11 +583,9 @@ class CommessaService
             if (array_sum(array_map(fn($f) => (float)$f['imponibile'], $fatture)) < 0.005) { $esito['saltate'] += count($fatture); continue; }
             $prima = self::intestazione((string)$positive[0]['descrizione']);
             $testo = implode("\n", array_column($fatture, 'descrizione'));
-            if ($k[0] === 'r') {
-                $date = array_column($positive, 'data_emissione');
-                $mesi = ((int)substr(max($date), 0, 4) - (int)substr(min($date), 0, 4)) * 12
-                    + (int)substr(max($date), 5, 2) - (int)substr(min($date), 5, 2) + 1;
-                $id = $this->creaDaFatture(array_column($fatture, 'id'), ['ricorrente' => true, 'mesi' => max(12, $mesi),
+            if ($k[0] === 'c' && count($positive) >= 3) {
+                // Canone: una rata per ogni mese fatturato (nella serie c'è una fattura per mese); le prossime la allungano
+                $id = $this->creaDaFatture(array_column($fatture, 'id'), ['ricorrente' => true, 'mesi' => count($positive),
                     'tipo_commessa' => self::tipoDalTesto($testo), 'descrizione' => mb_substr('Canone ' . $prima, 0, 120)]);
                 $esito['ricorrenti']++;
             } else {
@@ -564,6 +598,152 @@ class CommessaService
         return $esito;
     }
 
+    /**
+     * Commessa già creata dalle fatture (creaDaFatture: nota NOTA_DA_FATTURE o canone) che la fattura prosegue, dello
+     * stesso cliente e sottocliente:
+     *  - una sua fattura ha la stessa intestazione (almeno 30 caratteri) e la prima è al massimo di 12 mesi prima; oppure
+     *  - tutte le sue rate hanno l'importo della fattura e l'ultima è di un mese prima (meseDopo): il canone continua.
+     * Le commesse da lettera d'incarico o da offerta non si allungano mai da sole. Solo se la candidata è una sola.
+     */
+    private function commessaDaProseguire(array $f): ?int
+    {
+        $stmt = $this->pdo->prepare("SELECT i.id, i.sottocliente_id, r.importo, r.data_prevista, ff.descrizione, ff.data_emissione
+            FROM {$this->p}incarichi i
+            JOIN {$this->p}incarichi_rate r ON r.incarico_id = i.id
+            LEFT JOIN {$this->p}fatture ff ON ff.id = r.fattura_id
+            WHERE i.cliente_id = ? AND (i.note = ? OR i.note LIKE ?)
+            ORDER BY i.id, r.data_prevista, r.ordine, r.id");
+        $stmt->execute([(int)$f['cliente_id'], self::NOTA_DA_FATTURE, 'Canone di %']);
+        $perCommessa = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            if ((int)$r['sottocliente_id'] === (int)$f['sottocliente_id']) $perCommessa[(int)$r['id']][] = $r;
+        }
+
+        $importo = round((float)$f['imponibile'], 2);
+        $data = (string)$f['data_emissione'];
+        $intestazione = mb_strtolower(self::intestazione((string)$f['descrizione']));
+        $trovate = [];
+        foreach ($perCommessa as $id => $rate) {
+            $ultima = end($rate);
+            $canone = !array_filter($rate, fn($r) => abs((float)$r['importo'] - $importo) > 1.0)
+                && $ultima['data_prevista'] && self::meseDopo((string)$ultima['data_prevista'], $data);
+            $date = array_filter(array_column($rate, 'data_emissione'));
+            $stessa = mb_strlen($intestazione) >= 30 && $date && abs(self::giorni(min($date), $data)) <= 365
+                && array_filter($rate, fn($r) => $r['descrizione'] !== null && mb_strtolower(self::intestazione((string)$r['descrizione'])) === $intestazione);
+            if ($canone || $stessa) $trovate[] = $id;
+        }
+        return count($trovate) === 1 ? $trovate[0] : null;
+    }
+
+    /**
+     * Aggiunge a una commessa creata dalle fatture la fattura che la prosegue: una rata in più, già fatturata, e il
+     * valore che cresce del suo importo (anche quello dell'offerta registrata con la commessa). Rate tutte uguali e
+     * mensili da 3 in su: è un canone, e rate e nota lo dicono.
+     */
+    private function aggiungiFattura(int $incaricoId, array $f): void
+    {
+        $stmt = $this->pdo->prepare("SELECT importo_totale, giorni_pagamento FROM {$this->p}incarichi WHERE id = ?");
+        $stmt->execute([$incaricoId]);
+        $inc = $stmt->fetch(PDO::FETCH_ASSOC);
+        $importo = round((float)$f['imponibile'], 2);
+        $stmt = $this->pdo->prepare("SELECT COALESCE(MAX(ordine), 0) FROM {$this->p}incarichi_rate WHERE incarico_id = ?");
+        $stmt->execute([$incaricoId]);
+        $this->pdo->prepare("INSERT INTO {$this->p}incarichi_rate
+            (incarico_id, ordine, descrizione, percentuale, importo, data_prevista, giorni_pagamento, fattura_id) VALUES (?, ?, ?, 0, ?, ?, ?, ?)")
+            ->execute([$incaricoId, (int)$stmt->fetchColumn() + 1, 'Fattura', $importo, $f['data_emissione'], (int)($inc['giorni_pagamento'] ?? 30), $f['id']]);
+        $totale = round((float)$inc['importo_totale'] + $importo, 2);
+        $this->pdo->prepare("UPDATE {$this->p}incarichi SET importo_totale = ? WHERE id = ?")->execute([$totale, $incaricoId]);
+        $this->pdo->prepare("UPDATE {$this->p}offerte SET imponibile = ? WHERE incarico_id = ? AND origine = 'rapida'")->execute([$totale, $incaricoId]);
+        $this->pdo->prepare("UPDATE {$this->p}fatture SET incarico_id = ? WHERE id = ?")->execute([$incaricoId, $f['id']]);
+
+        $stmt = $this->pdo->prepare("SELECT id, importo, data_prevista FROM {$this->p}incarichi_rate WHERE incarico_id = ? ORDER BY ordine, id");
+        $stmt->execute([$incaricoId]);
+        $rate = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $canone = count($rate) >= 3 && !array_filter($rate, fn($r) => abs((float)$r['importo'] - $importo) > 1.0);
+        for ($k = 1; $canone && $k < count($rate); $k++) {
+            $canone = self::meseDopo((string)$rate[$k - 1]['data_prevista'], (string)$rate[$k]['data_prevista']);
+        }
+        $perc = self::percentuali(array_map(fn($r) => (float)$r['importo'], $rate));
+        $upd = $this->pdo->prepare("UPDATE {$this->p}incarichi_rate SET descrizione = ?, percentuale = ? WHERE id = ?");
+        foreach ($rate as $k => $r) {
+            $upd->execute([$canone ? 'Canone ' . self::meseAnno((string)$r['data_prevista']) : (count($rate) === 1 ? 'Saldo' : 'Fattura ' . ($k + 1)),
+                $perc[$k], $r['id']]);
+        }
+        if ($canone) {
+            $this->pdo->prepare("UPDATE {$this->p}incarichi SET note = ? WHERE id = ?")->execute([self::notaCanone($importo, count($rate)), $incaricoId]);
+        }
+    }
+
+    /**
+     * Serie mensili di fatture: stesso cliente, sottocliente e importo, ognuna in un mese diverso e 25–35 giorni dopo
+     * la precedente (meseDopo). Un salto (un mese senza fattura, due fatture nello stesso mese) chiude la serie e ne
+     * apre un'altra. Restituisce id fattura → fatture della sua serie in ordine di data: da 3 in su è un canone.
+     * @return array<int, array[]>
+     */
+    public static function serieMensili(array $fatture): array
+    {
+        $gruppi = [];
+        foreach ($fatture as $f) {
+            if ($f['cliente_id'] && (float)$f['imponibile'] > 0) {
+                $gruppi[$f['cliente_id'] . '|' . (int)($f['sottocliente_id'] ?? 0) . '|' . round((float)$f['imponibile'], 2)][] = $f;
+            }
+        }
+        $out = [];
+        foreach ($gruppi as $g) {
+            usort($g, fn($a, $b) => [(string)$a['data_emissione'], (int)$a['id']] <=> [(string)$b['data_emissione'], (int)$b['id']]);
+            $serie = [];
+            foreach ($g as $f) {
+                if ($serie && !self::meseDopo((string)end($serie)['data_emissione'], (string)$f['data_emissione'])) {
+                    foreach ($serie as $x) $out[(int)$x['id']] = $serie;
+                    $serie = [];
+                }
+                $serie[] = $f;
+            }
+            foreach ($serie as $x) $out[(int)$x['id']] = $serie;
+        }
+        return $out;
+    }
+
+    /** Due fatture consecutive di un canone: in mesi diversi, la seconda 25–35 giorni dopo la prima. */
+    private static function meseDopo(string $prima, string $dopo): bool
+    {
+        $g = self::giorni($prima, $dopo);
+        return $g >= 25 && $g <= 35 && substr($prima, 0, 7) !== substr($dopo, 0, 7);
+    }
+
+    /** Giorni da $a a $b (date Y-m-d), negativi se $b viene prima. */
+    private static function giorni(string $a, string $b): int
+    {
+        return (int)round((strtotime($b) - strtotime($a)) / 86400);
+    }
+
+    /** Percentuali degli importi al centesimo: l'ultima è 100 meno le altre, così la somma fa sempre 100. */
+    private static function percentuali(array $importi): array
+    {
+        $importi = array_values($importi);
+        $tot = array_sum($importi);
+        $n = count($importi);
+        $out = [];
+        $somma = 0.0;
+        foreach ($importi as $k => $v) {
+            $p = $k === $n - 1 ? round(100 - $somma, 2) : ($tot > 0 ? round($v / $tot * 100, 2) : 0.0);
+            $somma += $p;
+            $out[] = $p;
+        }
+        return $out;
+    }
+
+    private static function notaCanone(float $canone, int $mesi): string
+    {
+        return 'Canone di ' . number_format($canone, 2, ',', '.') . " € al mese per $mesi mesi";
+    }
+
+    /** Segnaposto «?, ?, …» per una lista di valori in IN (…). */
+    private static function segnaposto(array $valori): string
+    {
+        return implode(', ', array_fill(0, count($valori), '?'));
+    }
+
     /** Intestazione di una fattura: la prima riga fino ai due punti, senza «[Nota di credito]» e l'articolo «the». */
     private static function intestazione(string $descrizione): string
     {
@@ -573,8 +753,10 @@ class CommessaService
     }
 
     /**
-     * Fattura emessa che una nota di credito storna: quella col numero citato nel testo («storno fattura n.12AV»),
-     * altrimenti l'unica dello stesso cliente con lo stesso importo, emessa non dopo la nota. Null se non è certa.
+     * Fattura emessa che una nota di credito storna: quella col numero citato nel testo («storno fattura n.12AV»);
+     * se il numero non combacia per intero («n. 12» per «12/2026» o «12/001») quella con la stessa parte numerica,
+     * se nell'anno è una sola; altrimenti l'unica dello stesso cliente con lo stesso importo, emessa non dopo la nota.
+     * Null se non è certa (anche quando cita una fattura che qui non c'è).
      */
     private function fatturaStornata(array $nota): ?array
     {
@@ -583,14 +765,21 @@ class CommessaService
         $stmt->execute([(int)$nota['cliente_id'], (string)$nota['data_emissione']]);
         $fatture = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $norm = fn($x) => preg_replace('/[^A-Z0-9]/', '', mb_strtoupper((string)$x));
+        $numeroDi = fn($x) => preg_match('/^\D*0*(\d+)/', (string)$x, $mm) ? (int)$mm[1] : null;
+        $ambigua = false;
         if (preg_match_all('/\bf(?:at)?t(?:ura)?\.?\s*(?:n(?:r|um)?\.?\s*|numero\s*)?([A-Z0-9][A-Z0-9\/-]*)/i', (string)$nota['descrizione'], $m)) {
             $citati = array_filter($m[1], fn($x) => preg_match('/\d/', $x));
             foreach ($citati as $numero) {
                 $stessa = array_values(array_filter($fatture, fn($f) => $norm($f['numero_fattura']) === $norm($numero)));
                 if ($stessa) return $stessa[0];
+                $anno = preg_match('/^\d+\s*\/\s*(\d{4})$/', $numero, $ma) ? $ma[1] : substr((string)$nota['data_emissione'], 0, 4);
+                $simili = array_values(array_filter($fatture, fn($f) => $numeroDi($f['numero_fattura']) === $numeroDi($numero)
+                    && substr((string)$f['data_emissione'], 0, 4) === $anno));
+                if (count($simili) === 1) return $simili[0];
+                if ($simili) $ambigua = true;
             }
             // Cita una fattura che qui non c'è (es. di un anno non importato): l'importo da solo non basta
-            if ($citati) return null;
+            if ($citati && !$ambigua) return null;
         }
         $importo = -(float)$nota['imponibile'];
         $sotto = (int)($nota['sottocliente_id'] ?? 0);
