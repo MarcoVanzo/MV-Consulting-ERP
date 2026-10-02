@@ -20,6 +20,9 @@ class CommessaService
         'ict' => 'Consulenza ICT', 'digital' => 'Consulenza Digital', 'sviluppo_software' => 'Sviluppo Software', 'viaggio' => 'Viaggio', 'noleggio' => 'Noleggio', 'altro' => 'Altro',
     ];
 
+    /** Proposta di collegamento da confermare a mano: non la applica creaCommesseMancanti. */
+    private const MOTIVO_DEBOLE = 'unica commessa del cliente con residuo sufficiente';
+
     private $pdo;
     private $p;
 
@@ -343,7 +346,7 @@ class CommessaService
         if ($f['ricorrente']) return null;
         $aperte = array_values(array_filter($commesse, fn($c) => (float)$c['residuo'] >= (float)$f['imponibile'] - 1
             && (string)$c['data_incarico'] <= (string)$f['data_emissione']));
-        if (count($aperte) === 1) return ['incarico_id' => (int)$aperte[0]['id'], 'motivo' => "unica commessa del cliente con residuo sufficiente"];
+        if (count($aperte) === 1) return ['incarico_id' => (int)$aperte[0]['id'], 'motivo' => self::MOTIVO_DEBOLE];
         return null;
     }
 
@@ -440,6 +443,92 @@ class CommessaService
         }
         $this->offertaRapida($id, $i);
         return $id;
+    }
+
+    /** Tipo di commessa indovinato dal testo della fattura (prima parola chiave trovata), altrimenti «altro». */
+    public static function tipoDalTesto(string $testo): string
+    {
+        foreach ([
+            '/\bnis\s?2\b/i' => 'nis2', '/\bdpo\b|privacy|gdpr/i' => 'dpo', '/formazion|\bcorso\b/i' => 'formazione',
+            '/noleggi|\bcanone\b/i' => 'noleggio', '/viaggi|trasport|\bvolo\b|hotel|soggiorn/i' => 'viaggio',
+            '/sviluppo|software|\bapp\b|sito web/i' => 'sviluppo_software', '/assistenz|supporto/i' => 'assistenza',
+        ] as $re => $tipo) {
+            if (preg_match($re, $testo)) return $tipo;
+        }
+        return 'altro';
+    }
+
+    /**
+     * Commesse per tutte le fatture emesse senza commessa (o solo per quelle indicate):
+     *  1. collega quelle con una proposta sicura (protocollo, riferimento all'offerta, rata di pari importo);
+     *  2. quelle per cui la proposta è solo «unica commessa con residuo» restano da confermare a mano;
+     *  3. le altre diventano commesse: un canone (stesso cliente, sottocliente e importo almeno 3 volte) fa una
+     *     commessa ricorrente che copre tutti i mesi fatturati (almeno 12), ogni altra fattura una commessa singola.
+     * Note di credito e fatture senza cliente restano fuori. Da chiamare dentro una transazione;
+     * il ricalcolo dei totali delle commesse toccate resta a chi chiama.
+     * @return array{collegate:int, create:int, ricorrenti:int, da_scegliere:int, saltate:int, commesse:int[]}
+     */
+    public function creaCommesseMancanti(?array $fatturaIds = null): array
+    {
+        $esito = ['collegate' => 0, 'create' => 0, 'ricorrenti' => 0, 'da_scegliere' => 0, 'saltate' => 0, 'commesse' => []];
+        // La ricorrenza si giudica su tutte le fatture senza commessa del cliente, anche fuori dall'elenco indicato
+        $tutte = $this->pdo->query("SELECT id, cliente_id, sottocliente_id, data_emissione, imponibile, descrizione
+            FROM {$this->p}fatture WHERE incarico_id IS NULL ORDER BY cliente_id, data_emissione, id")->fetchAll(PDO::FETCH_ASSOC);
+        $scelte = $fatturaIds === null ? null : array_flip(array_map('intval', $fatturaIds));
+        $chiave = fn($f) => $f['cliente_id'] . '|' . (int)$f['sottocliente_id'] . '|' . round((float)$f['imponibile'], 2);
+        $gruppi = [];
+        foreach ($tutte as $f) {
+            if ($f['cliente_id'] && (float)$f['imponibile'] > 0) $gruppi[$chiave($f)][] = $f;
+        }
+
+        $daCreare = [];
+        foreach ($tutte as $f) {
+            if ($scelte !== null && !isset($scelte[(int)$f['id']])) continue;
+            if (!$f['cliente_id'] || (float)$f['imponibile'] <= 0) { $esito['saltate']++; continue; }
+            $f['ricorrente'] = count($gruppi[$chiave($f)]) >= 3;
+            $prop = $this->proposta($f, $this->commesseDelCliente((int)$f['cliente_id']));
+            if ($prop && $prop['motivo'] !== self::MOTIVO_DEBOLE) {
+                $this->collegaFatturaACommessa((int)$f['id'], $prop['incarico_id']);
+                $esito['collegate']++;
+                $esito['commesse'][$prop['incarico_id']] = true;
+            } elseif ($prop) {
+                $esito['da_scegliere']++;
+            } else {
+                $daCreare[$f['ricorrente'] ? 'r' . $chiave($f) : 's' . $f['id']][] = $f;
+            }
+        }
+
+        foreach ($daCreare as $k => $fatture) {
+            $prima = trim((string)preg_replace('/^\[Nota di credito\]\s*/', '', strtok((string)$fatture[0]['descrizione'], "\n") ?: ''));
+            $testo = implode("\n", array_column($fatture, 'descrizione'));
+            if ($k[0] === 'r') {
+                $date = array_column($fatture, 'data_emissione');
+                $mesi = ((int)substr(max($date), 0, 4) - (int)substr(min($date), 0, 4)) * 12
+                    + (int)substr(max($date), 5, 2) - (int)substr(min($date), 5, 2) + 1;
+                $id = $this->creaDaFatture(array_column($fatture, 'id'), ['ricorrente' => true, 'mesi' => max(12, $mesi),
+                    'tipo_commessa' => self::tipoDalTesto($testo), 'descrizione' => mb_substr('Canone ' . $prima, 0, 120)]);
+                $esito['ricorrenti']++;
+            } else {
+                $id = $this->creaDaFatture([$fatture[0]['id']], ['tipo_commessa' => self::tipoDalTesto($testo), 'descrizione' => mb_substr($prima, 0, 120)]);
+            }
+            $esito['create']++;
+            $esito['commesse'][$id] = true;
+        }
+        $esito['commesse'] = array_keys($esito['commesse']);
+        return $esito;
+    }
+
+    /** Commesse del cliente con il residuo da fatturare, nel formato di proposta(). */
+    private function commesseDelCliente(int $clienteId): array
+    {
+        $stmt = $this->pdo->prepare("SELECT id, cliente_id, sottocliente_id, data_incarico, numero_protocollo, importo_totale,
+                COALESCE(importo_fatturato, 0) AS importo_fatturato
+            FROM {$this->p}incarichi WHERE cliente_id = ? ORDER BY data_incarico DESC, id DESC");
+        $stmt->execute([$clienteId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$r) $r['residuo'] = round(max(0, (float)$r['importo_totale'] - (float)$r['importo_fatturato']), 2);
+        unset($r);
+        return $rows;
     }
 
     private static function meseAnno(string $data): string

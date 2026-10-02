@@ -519,6 +519,7 @@ class ApiRouter {
             case 'da_collegare':    $ctrl->daCollegare(); break;
             case 'collega_commessa': $ctrl->collegaACommessa($data); break;
             case 'crea_da_fatture': $ctrl->creaDaFatture($data); break;
+            case 'crea_mancanti':   $ctrl->creaMancanti($data); break;
             case 'segna_incassata': $ctrl->segnaIncassata($data); break;
             case 'scadenzario':     $ctrl->scadenzario(); break;
             default:                Response::json(false, "Azione commesse non supportata: $action");

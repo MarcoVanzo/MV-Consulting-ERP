@@ -167,6 +167,9 @@
 /* Vendite › Commesse: fatture senza commessa */
 .notice.da-collegare { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; white-space: normal; margin-top: 4px; }
 .dc-intro { color: var(--text-muted); font-size: 0.85rem; margin: 0 0 12px; }
+.dc-tutte { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 14px; }
+.dc-tutte span { color: var(--text-muted); font-size: 0.8rem; flex: 1 1 260px; }
+.imp-opzione { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; font-size: 0.85rem; }
 .dc-cliente { display: flex; justify-content: space-between; gap: 8px; margin: 18px 0 6px; font-size: 0.9rem; }
 .dc-cliente span { color: var(--text-muted); font-weight: 500; }
 .dc-tabella td { vertical-align: top; font-size: 0.8rem; }

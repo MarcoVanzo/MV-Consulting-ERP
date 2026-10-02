@@ -187,6 +187,33 @@ class CommesseController {
         Response::json(true, 'Commessa creata dalle fatture', ['id' => $id]);
     }
 
+    /**
+     * Commesse per le fatture emesse che non ne hanno (tutte, o solo quelle in fatture = JSON di id):
+     * vedi CommessaService::creaCommesseMancanti. Lanciato anche dopo l'import, se l'utente lo ha scelto.
+     */
+    public function creaMancanti($data) {
+        $ids = isset($data['fatture']) ? json_decode((string)$data['fatture'], true) : null;
+        $this->pdo->beginTransaction();
+        try {
+            $esito = $this->svc->creaCommesseMancanti(is_array($ids) ? $ids : null);
+            $this->pdo->commit();
+        } catch (InvalidArgumentException $e) {
+            $this->pdo->rollBack();
+            Response::json(false, $e->getMessage());
+        }
+        require_once __DIR__ . '/IncarchiController.php';
+        $ic = new IncarchiController();
+        foreach ($esito['commesse'] as $iid) $ic->recalculate($iid);
+        $parti = [];
+        if ($esito['create']) $parti[] = $esito['create'] . ($esito['create'] === 1 ? ' commessa creata' : ' commesse create')
+            . ($esito['ricorrenti'] ? " ({$esito['ricorrenti']} a canone)" : '');
+        if ($esito['collegate']) $parti[] = $esito['collegate'] . ($esito['collegate'] === 1 ? ' fattura collegata' : ' fatture collegate') . ' a commesse esistenti';
+        if ($esito['da_scegliere']) $parti[] = $esito['da_scegliere'] . ' da confermare a mano';
+        if ($esito['create'] || $esito['collegate']) Audit::log('INSERT', 'incarichi', 'crea_mancanti', null, null, $esito);
+        $messaggio = $parti ? ucfirst(implode(', ', $parti)) : 'Nessuna fattura da trasformare in commessa';
+        Response::json(true, $messaggio, $esito + ['messaggio' => $messaggio]);
+    }
+
     /** Incasso di una fattura emessa, dallo scadenzario (data vuota = oggi). */
     public function segnaIncassata($data) {
         $id = (int)($data['fattura_id'] ?? 0);
