@@ -111,6 +111,9 @@ class Documenti
                 $usati[$ref] = true;
             }
         }
+        // I file delle commesse nel cestino restano finché la voce non viene ripristinata o svuotata
+        require_once __DIR__ . '/Cestino.php';
+        foreach (Cestino::fileTrattenuti($pdo, $prefix) as $ref) $usati[$ref] = true;
         $n = 0;
         foreach (glob($dir . '*') ?: [] as $path) {
             $ref = 'documenti/' . basename($path);

@@ -824,6 +824,20 @@ return [
         SET f.data_scadenza = IF(DAY(f.data_scadenza) > COALESCE(i.giorno_pagamento, c.giorno_pagamento), (f.data_scadenza - INTERVAL (DAY(f.data_scadenza) - 1) DAY) + INTERVAL 1 MONTH, (f.data_scadenza - INTERVAL (DAY(f.data_scadenza) - 1) DAY)) + INTERVAL LEAST(COALESCE(i.giorno_pagamento, c.giorno_pagamento), DAY(LAST_DAY(IF(DAY(f.data_scadenza) > COALESCE(i.giorno_pagamento, c.giorno_pagamento), (f.data_scadenza - INTERVAL (DAY(f.data_scadenza) - 1) DAY) + INTERVAL 1 MONTH, (f.data_scadenza - INTERVAL (DAY(f.data_scadenza) - 1) DAY))))) - 1 DAY
         WHERE f.stato <> 'pagata' AND f.data_scadenza IS NOT NULL AND COALESCE(i.giorno_pagamento, c.giorno_pagamento) BETWEEN 1 AND 31
           AND DAY(f.data_scadenza) <> LEAST(COALESCE(i.giorno_pagamento, c.giorno_pagamento), DAY(LAST_DAY(f.data_scadenza)))",
-    "UPDATE {$prefix}fatture SET stato = 'emessa' WHERE stato = 'scaduta' AND data_scadenza >= CURDATE()"
+    "UPDATE {$prefix}fatture SET stato = 'emessa' WHERE stato = 'scaduta' AND data_scadenza >= CURDATE()",
+
+    // v109: cestino delle commesse (Cestino.php): fotografia JSON di ciò che l'eliminazione toglie, per ripristinarla
+    "CREATE TABLE IF NOT EXISTS {$prefix}cestino (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        tabella VARCHAR(40) NOT NULL,
+        record_id INT NOT NULL,
+        descrizione VARCHAR(255) DEFAULT NULL,
+        dati LONGTEXT NOT NULL,
+        file_refs TEXT DEFAULT NULL COMMENT 'File in storage/documenti da non trattare come orfani',
+        user_id INT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        ripristinato_at DATETIME DEFAULT NULL,
+        KEY idx_cestino_record (tabella, record_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];

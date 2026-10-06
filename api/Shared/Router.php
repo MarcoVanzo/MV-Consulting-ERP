@@ -41,7 +41,7 @@ class ApiRouter {
         'sottoclienti' => ['list'],
         'trasferte'    => ['list', 'rendiconto', 'impostazioni'],
         'mezzi'        => ['getAllVehicles', 'getVehicleById', 'allegato'],
-        'incarichi'    => ['list', 'overview', 'get_by_cliente', 'documento'],
+        'incarichi'    => ['list', 'overview', 'get_by_cliente', 'documento', 'cestino'],
         'contabilita'  => ['list', 'overview'],
         'offerte'      => ['list', 'get', 'prossimo_numero', 'documento'],
         'fornitori'    => ['list', 'costi_fornitore', 'documento_costo'],
@@ -411,6 +411,8 @@ class ApiRouter {
             case 'get_by_cliente':  $ctrl->getByCliente(); break;
             case 'recalculate_all': Auth::richiediAdmin(); $ctrl->recalculateAll(); break;
             case 'documento':       $ctrl->documento($data['id'] ?? $_GET['id'] ?? 0); break;
+            case 'cestino':         $ctrl->cestino(); break;
+            case 'ripristina':      Auth::richiediAdmin(); $ctrl->ripristina($data['id'] ?? 0); break;
             default:                Response::json(false, "Azione incarichi non supportata: $action");
         }
     }
