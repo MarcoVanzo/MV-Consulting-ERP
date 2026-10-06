@@ -24,6 +24,10 @@ class Promemoria
     /** @return array{inviata: bool, destinatari: int, voci: int, fatture_scadute_marcate: int} */
     public function esegui(bool $invia = true): array
     {
+        // Scadenze importate a fine mese → giorno fisso del cliente (Unindustria: al 10), prima di decidere cosa è scaduto
+        require_once __DIR__ . '/CommessaService.php';
+        (new CommessaService($this->pdo, $this->p))->allineaScadenzeGiornoFisso();
+        $this->pdo->exec("UPDATE {$this->p}fatture SET stato = 'emessa' WHERE stato = 'scaduta' AND data_scadenza >= CURDATE()");
         // Le fatture oltre la scadenza passano a "scaduta" (stato già usato dalla contabilità)
         $stmt = $this->pdo->prepare("UPDATE {$this->p}fatture SET stato = 'scaduta'
             WHERE stato IN ('emessa','inviata') AND data_scadenza IS NOT NULL AND data_scadenza < CURDATE()");

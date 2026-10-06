@@ -132,7 +132,9 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   v101–v103 lo applicano alle commesse già registrate senza nulla di fatturato):
   una commessa nuova li prende dal cliente (`CommessaService::terminiCliente`). Avviso «Pagamento Fornitore»:
   `AvvisoPagamentoParser` (un movimento atteso per ogni «TOTALE PAGAMENTO»), con controllo di importo, data e valuta
-  rispetto a `CommessaService::scadenzaAttesa`. Prova: `php tests/termini_pagamento_cli.php`.
+  rispetto a `CommessaService::scadenzaAttesa`. Le scadenze importate da Sistemi
+  sono a fine mese: le fatture aperte con giorno fisso passano al giorno fisso successivo (31/03 → 10/04) con
+  `CommessaService::allineaScadenzeGiornoFisso`, lanciato dal promemoria giornaliero prima di marcare le scadute (v107–v108 sullo storico). Prova: `php tests/termini_pagamento_cli.php`.
 - **Rate**: una fattura che non combacia con nessuna rata non si aggancia più alla prima libera: `Avvisi` lo segnala
   e l'utente la collega a mano.
 - **Cliente o prospect** è calcolato in `ClientiController::list` (ha commesse o fatture → cliente), non salvato.

@@ -835,6 +835,35 @@ class CommessaService
     }
 
     /**
+     * Fatture non pagate di commesse o clienti con giorno fisso di pagamento («… al 10»): la scadenza importata da
+     * Sistemi è il fine mese (31/03), il pagamento arriva il giorno fisso successivo (10/04). Senza questo il
+     * promemoria e lo «Scaduto» le danno in ritardo prima del tempo. Ripetibile: tocca solo le date non già allineate.
+     * Restituisce quante fatture ha spostato.
+     */
+    public function allineaScadenzeGiornoFisso(): int
+    {
+        $rows = $this->pdo->query("SELECT f.id, f.data_scadenza, COALESCE(i.giorno_pagamento, c.giorno_pagamento) AS giorno
+            FROM {$this->p}fatture f
+            LEFT JOIN {$this->p}incarichi i ON i.id = f.incarico_id
+            LEFT JOIN {$this->p}clienti c ON c.id = f.cliente_id
+            WHERE f.stato <> 'pagata' AND f.data_scadenza IS NOT NULL
+              AND COALESCE(i.giorno_pagamento, c.giorno_pagamento) IS NOT NULL")->fetchAll(PDO::FETCH_ASSOC);
+        $upd = $this->pdo->prepare("UPDATE {$this->p}fatture SET data_scadenza = ? WHERE id = ?");
+        $n = 0;
+        foreach ($rows as $r) {
+            $giorno = (int)$r['giorno'];
+            if ($giorno < 1 || $giorno > 31) continue;
+            $d = new DateTimeImmutable(substr((string)$r['data_scadenza'], 0, 10));
+            if ((int)$d->format('j') === min($giorno, (int)$d->format('t'))) continue;
+            // Come TerminiPagamento::scadenza: il primo giorno fisso utile da lì in avanti
+            $mese = (int)$d->format('j') > $giorno ? $d->modify('first day of next month') : $d->modify('first day of this month');
+            $upd->execute([$mese->setDate((int)$mese->format('Y'), (int)$mese->format('n'), min($giorno, (int)$mese->format('t')))->format('Y-m-d'), $r['id']]);
+            $n++;
+        }
+        return $n;
+    }
+
+    /**
      * Quando la fattura andava pagata secondo i termini: quelli della rata e della commessa, poi quelli standard
      * del cliente, infine la scadenza registrata. Restituisce [scadenza, descrizione dei termini] o null.
      */

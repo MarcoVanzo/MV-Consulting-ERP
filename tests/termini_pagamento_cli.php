@@ -101,5 +101,20 @@ check('senza termini né scadenza: nulla', $svc->scadenzaAttesa(3) === null);
 $pdo->exec("UPDATE {$p}fatture SET incarico_id = NULL, cliente_id = 1 WHERE id = 2");
 check('fattura senza commessa: termini del cliente', ($svc->scadenzaAttesa(2)[0] ?? '') === '2026-09-10', $svc->scadenzaAttesa(2));
 
+echo "Giorno fisso\n";
+$pdo->exec("ALTER TABLE {$p}fatture ADD COLUMN stato TEXT DEFAULT 'emessa'");
+$pdo->exec("DELETE FROM {$p}fatture");
+$pdo->exec("INSERT INTO {$p}fatture (id, numero_fattura, data_emissione, data_scadenza, cliente_id, incarico_id, stato) VALUES
+    (1, '3', '2026-01-31', '2026-03-31', 1, NULL, 'scaduta'), (2, '4', '2026-01-31', '2026-04-05', 1, NULL, 'emessa'),
+    (3, '5', '2026-01-31', '2026-04-10', 1, NULL, 'emessa'), (4, '6', '2026-01-31', '2026-03-31', 1, NULL, 'pagata'),
+    (5, '7', '2026-01-31', '2026-03-31', 2, NULL, 'emessa'), (6, '8', '2026-06-28', '2026-08-31', 2, 1, 'emessa')");
+check('allineate al giorno fisso', $svc->allineaScadenzeGiornoFisso() === 3);
+$sc = $pdo->query("SELECT id, data_scadenza FROM {$p}fatture ORDER BY id")->fetchAll(PDO::FETCH_KEY_PAIR);
+check('fine mese → il 10 del mese dopo', $sc[1] === '2026-04-10', $sc);
+check('prima del 10 → il 10 dello stesso mese', $sc[2] === '2026-04-10', $sc);
+check('già al 10, pagate e clienti senza giorno fisso: invariate', $sc[3] === '2026-04-10' && $sc[4] === '2026-03-31' && $sc[5] === '2026-03-31', $sc);
+check('vince il giorno fisso della commessa', $sc[6] === '2026-09-10', $sc);
+check('ripetibile', $svc->allineaScadenzeGiornoFisso() === 0);
+
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);
