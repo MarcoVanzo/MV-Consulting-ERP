@@ -137,6 +137,10 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   `CommessaService::allineaScadenzeGiornoFisso`, lanciato dal promemoria giornaliero prima di marcare le scadute (v107–v108 sullo storico). Prova: `php tests/termini_pagamento_cli.php`.
 - **Rate**: una fattura che non combacia con nessuna rata non si aggancia più alla prima libera: `Avvisi` lo segnala
   e l'utente la collega a mano.
+- **Cestino delle commesse** (dal 06/10/2026): eliminare una commessa passa da `Cestino::eliminaCommessa`, che salva in
+  `cestino` (v109) la fotografia JSON di commessa, rate, costi, offerte e fatture collegate; `incarichi/ripristina` (id della voce)
+  la rimette con lo stesso id, `incarichi/cestino` le elenca. I file della commessa restano finché è nel cestino
+  (`Cestino::fileTrattenuti` in `Documenti::pulisciOrfani`). Prova: `php tests/cestino_cli.php`.
 - **Cliente o prospect** è calcolato in `ClientiController::list` (ha commesse o fatture → cliente), non salvato.
 - **Ricerca P.IVA** nel frontend solo con `UI.cercaPiva()`: segnala anche chi è già in anagrafica.
 - **Allegati**: mai in `uploads/` (sull'hosting il server statico può ignorare `.htaccess`). Si salvano con

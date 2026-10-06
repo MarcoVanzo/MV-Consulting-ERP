@@ -317,8 +317,8 @@ const ModIncarichi = (() => {
         catch(e) { UI.toast(e.message||'Errore durante il salvataggio','error'); }
     }
     async function remove(id) {
-        if (!confirm('Eliminare questo incarico?')) return;
-        try { await Store.api('delete','incarichi',{id}); UI.toast('Incarico eliminato'); load(); }
+        if (!confirm('Spostare la commessa nel cestino? Si può ripristinare.')) return;
+        try { await Store.api('delete','incarichi',{id}); UI.toast('Commessa spostata nel cestino'); load(); }
         catch(e) { UI.toast(e.message,'error'); }
     }
 

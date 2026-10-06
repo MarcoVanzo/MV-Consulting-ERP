@@ -10,6 +10,7 @@ require_once __DIR__ . '/../Shared/CommessaService.php';
 require_once __DIR__ . '/../Shared/DocumentAi.php';
 require_once __DIR__ . '/../Shared/AnagraficaMatcher.php';
 require_once __DIR__ . '/../Shared/IncaricoPdfParser.php';
+require_once __DIR__ . '/../Shared/Cestino.php';
 
 class IncarchiController {
     private $pdo;
@@ -202,22 +203,35 @@ class IncarchiController {
     }
 
     /**
-     * Elimina un incarico (slega le fatture collegate; l'offerta d'origine torna "inviata")
+     * Elimina un incarico (slega le fatture collegate; l'offerta d'origine torna "inviata").
+     * Passa dal cestino (Cestino::eliminaCommessa): si annulla con ripristina.
      */
     public function delete($id) {
-        $p = $this->prefix;
-        $this->pdo->beginTransaction();
-        $this->pdo->prepare("UPDATE {$p}fatture SET incarico_id = NULL WHERE incarico_id = ?")->execute([$id]);
-        // L'offerta registrata insieme alla commessa (rapida) sparisce con lei; un'offerta vera torna aperta
-        $this->pdo->prepare("UPDATE {$p}offerte SET deleted_at = NOW(), incarico_id = NULL WHERE incarico_id = ? AND origine = 'rapida'")->execute([$id]);
-        $this->pdo->prepare("UPDATE {$p}offerte SET stato = CASE WHEN data_invio IS NULL THEN 'bozza' ELSE 'inviata' END,
-            incarico_id = NULL, data_esito = NULL WHERE incarico_id = ?")->execute([$id]);
-        // I costi nati sull'offerta tornano all'offerta, gli altri spariscono con l'incarico (FK)
-        $this->pdo->prepare("UPDATE {$p}commessa_costi SET incarico_id = NULL WHERE incarico_id = ? AND offerta_id IS NOT NULL")->execute([$id]);
-        $this->pdo->prepare("DELETE FROM {$p}incarichi WHERE id = ?")->execute([$id]);
-        $this->pdo->commit();
-        Audit::log('DELETE', 'incarichi', $id, null, null, null);
-        Response::json(true, 'Incarico eliminato');
+        $userId = isset($GLOBALS['userContext']['id']) ? (int)$GLOBALS['userContext']['id'] : null;
+        try {
+            $cestinoId = Cestino::eliminaCommessa($this->pdo, $this->prefix, (int)$id, $userId);
+        } catch (RuntimeException $e) {
+            Response::json(false, $e->getMessage());
+        }
+        Audit::log('DELETE', 'incarichi', $id, null, null, ['cestino_id' => $cestinoId]);
+        Response::json(true, 'Commessa spostata nel cestino', ['cestino_id' => $cestinoId]);
+    }
+
+    /** Commesse nel cestino. */
+    public function cestino() {
+        Response::json(true, '', Cestino::lista($this->pdo, $this->prefix));
+    }
+
+    /** Rimette una commessa dal cestino (id = voce del cestino). */
+    public function ripristina($cestinoId) {
+        try {
+            $id = Cestino::ripristinaCommessa($this->pdo, $this->prefix, (int)$cestinoId);
+        } catch (RuntimeException $e) {
+            Response::json(false, $e->getMessage());
+        }
+        $this->recalculate($id);
+        Audit::log('RIPRISTINA', 'incarichi', $id, null, null, ['cestino_id' => (int)$cestinoId]);
+        Response::json(true, 'Commessa ripristinata', ['id' => $id]);
     }
 
     /**
