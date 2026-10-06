@@ -813,6 +813,17 @@ return [
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_fornitori_alias (alias),
         KEY idx_fornitori_alias_fornitore (fornitore_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+    // v107–v108: scadenze delle fatture aperte al giorno fisso del cliente/commessa (Unindustria: 60 gg d.f.f.m. al 10).
+    // Sistemi esporta il fine mese (31/03): il pagamento è il 10/04. Stessa regola di
+    // CommessaService::allineaScadenzeGiornoFisso (che il promemoria ripete ogni giorno per i nuovi import)
+    "UPDATE {$prefix}fatture f
+        LEFT JOIN {$prefix}incarichi i ON i.id = f.incarico_id
+        LEFT JOIN {$prefix}clienti c ON c.id = f.cliente_id
+        SET f.data_scadenza = IF(DAY(f.data_scadenza) > COALESCE(i.giorno_pagamento, c.giorno_pagamento), (f.data_scadenza - INTERVAL (DAY(f.data_scadenza) - 1) DAY) + INTERVAL 1 MONTH, (f.data_scadenza - INTERVAL (DAY(f.data_scadenza) - 1) DAY)) + INTERVAL LEAST(COALESCE(i.giorno_pagamento, c.giorno_pagamento), DAY(LAST_DAY(IF(DAY(f.data_scadenza) > COALESCE(i.giorno_pagamento, c.giorno_pagamento), (f.data_scadenza - INTERVAL (DAY(f.data_scadenza) - 1) DAY) + INTERVAL 1 MONTH, (f.data_scadenza - INTERVAL (DAY(f.data_scadenza) - 1) DAY))))) - 1 DAY
+        WHERE f.stato <> 'pagata' AND f.data_scadenza IS NOT NULL AND COALESCE(i.giorno_pagamento, c.giorno_pagamento) BETWEEN 1 AND 31
+          AND DAY(f.data_scadenza) <> LEAST(COALESCE(i.giorno_pagamento, c.giorno_pagamento), DAY(LAST_DAY(f.data_scadenza)))",
+    "UPDATE {$prefix}fatture SET stato = 'emessa' WHERE stato = 'scaduta' AND data_scadenza >= CURDATE()"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];
