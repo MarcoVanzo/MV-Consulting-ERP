@@ -13,6 +13,7 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 
 require_once __DIR__ . '/../api/Shared/Database.php';
+require_once __DIR__ . '/sqlite_test.php';
 require_once __DIR__ . '/../api/Shared/Response.php';
 require_once __DIR__ . '/../api/Shared/Audit.php';
 require_once __DIR__ . '/../api/Controllers/ContabilitaController.php';
@@ -29,10 +30,10 @@ function check(string $nome, bool $cond, $dettaglio = null): void
 
 $p = 'mv_';
 putenv('DB_PREFIX=' . $p);
-$pdo = new MvPdo('sqlite::memory:');
+$pdo = mvPdoSqliteTest();
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-$pdo->sqliteCreateFunction('YEAR', fn($d) => $d === null ? null : (int)substr((string)$d, 0, 4), 1);
+mvSqliteFunzione($pdo, 'YEAR', fn($d) => $d === null ? null : (int)substr((string)$d, 0, 4), 1);
 (new ReflectionProperty(Database::class, 'pdo'))->setValue(null, $pdo);
 foreach ([
     "CREATE TABLE {$p}clienti (id INTEGER PRIMARY KEY, ragione_sociale TEXT, partita_iva TEXT, codice_fiscale TEXT, indirizzo TEXT, citta TEXT, cap TEXT, provincia TEXT)",
