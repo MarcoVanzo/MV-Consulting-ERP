@@ -4,7 +4,8 @@
 > valgono sempre; questo file specializza.
 
 ## Cos'è
-Gestionale MV Consulting (ibrido CRM/ERP): **PHP 8.2** + frontend statico (`index.html` + `js/` + `css/`),
+Gestionale MV Consulting (ibrido CRM/ERP): **PHP 8.5** (requisito; la produzione Aruba è ancora su 8.2 finché
+non si cambia la versione dal pannello: il codice deve restare compatibile con 8.2) + frontend statico (`index.html` + `js/` + `css/`),
 API in `api/`. Repo GitHub `MV-Consulting-ERP`, **pubblico**: niente dati reali di clienti nei file
 di test o di esempio, niente output delle API nei log dei workflow.
 
@@ -23,9 +24,9 @@ indietro con un revert su `main`.
 gh run list --workflow deploy-ftp.yml --limit 1 && gh run watch <id>
 ```
 
-Test in locale (PHP non è installato sul Mac):
+Test in locale con PHP 8.5 (come la CI): `for t in tests/*_cli.php; do php $t || break; done`, oppure in Docker:
 ```bash
-docker run --rm -v "$PWD":/app -w /app php:8.2-cli sh -c 'for t in tests/*_cli.php; do php $t || exit 1; done'
+docker run --rm -v "$PWD":/app -w /app php:8.5-cli sh -c 'for t in tests/*_cli.php; do php $t || exit 1; done'
 ```
 (`lista_fatture_cli.php` richiede l'estensione zip, assente nell'immagine base: in CI c'è.)
 

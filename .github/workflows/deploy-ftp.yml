@@ -20,7 +20,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Ogni deploy cambia il ?v= di CSS e JS in index.html: il browser e il proxy di Aruba
       # non servono più la versione vecchia (prima andava aggiornato a mano).

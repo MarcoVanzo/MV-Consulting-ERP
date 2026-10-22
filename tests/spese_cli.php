@@ -11,6 +11,7 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 
 require_once __DIR__ . '/../api/Shared/Database.php';
+require_once __DIR__ . '/sqlite_test.php';
 require_once __DIR__ . '/../api/Shared/Response.php';
 require_once __DIR__ . '/../api/Controllers/SpeseController.php';
 require_once __DIR__ . '/../api/Controllers/TrasferteController.php';
@@ -33,10 +34,10 @@ function risposta(callable $f): array
 }
 
 $p = 'mv_';
-$pdo = new MvPdo('sqlite::memory:');
+$pdo = mvPdoSqliteTest();
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-$pdo->sqliteCreateFunction('NOW', fn() => date('Y-m-d H:i:s'), 0);
+mvSqliteFunzione($pdo, 'NOW', fn() => date('Y-m-d H:i:s'), 0);
 foreach ([
     "CREATE TABLE {$p}clienti (id INTEGER PRIMARY KEY, ragione_sociale TEXT, citta TEXT)",
     "CREATE TABLE {$p}sottoclienti (id INTEGER PRIMARY KEY, citta TEXT)",

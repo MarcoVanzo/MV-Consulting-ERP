@@ -5,7 +5,7 @@
  * Serve all'anteprima degli import (Anteprima.php), che esegue l'import vero dentro una
  * transazione esterna e poi la annulla, anche quando l'import apre una sua transazione.
  */
-class MvPdo extends PDO {
+trait TransazioniAnnidate {
     private int $livello = 0;
 
     public function beginTransaction(): bool {
@@ -38,6 +38,10 @@ class MvPdo extends PDO {
         $this->livello--;
         return true;
     }
+}
+
+class MvPdo extends PDO {
+    use TransazioniAnnidate;
 }
 
 class Database {
