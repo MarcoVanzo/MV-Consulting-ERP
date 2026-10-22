@@ -109,7 +109,6 @@ class GoogleAuthController {
             'redirect_uri' => $this->redirectUri
         ]));
         $response = curl_exec($ch);
-        curl_close($ch);
 
         $tokenData = json_decode($response, true);
         
@@ -212,7 +211,6 @@ class GoogleAuthController {
                 $response = curl_exec($ch);
                 $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
                 $curlErr = curl_error($ch);
-                curl_close($ch);
 
                 $data = json_decode((string)$response, true);
                 if ($curlErr || $httpCode !== 200 || !is_array($data) || isset($data['error'])) {
@@ -259,7 +257,6 @@ class GoogleAuthController {
             'grant_type' => 'refresh_token'
         ]));
         $response = curl_exec($ch);
-        curl_close($ch);
 
         $tokenData = json_decode($response, true);
         
