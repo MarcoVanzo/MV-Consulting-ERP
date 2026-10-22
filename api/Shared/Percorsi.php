@@ -137,7 +137,6 @@ class Percorsi
         $corpo = curl_exec($ch);
         $codice = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err = curl_error($ch);
-        curl_close($ch);
         return [$codice, $corpo, $err];
     }
 }

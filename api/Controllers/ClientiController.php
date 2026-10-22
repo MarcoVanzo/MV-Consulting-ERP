@@ -150,7 +150,6 @@ class ClientiController {
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlError = curl_error($ch);
-        curl_close($ch);
 
         if ($curlError) {
             Response::json(false, "Errore di connessione al servizio di ricerca. Riprovare.");
