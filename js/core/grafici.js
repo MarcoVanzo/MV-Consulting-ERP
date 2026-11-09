@@ -44,7 +44,7 @@ const Grafici = (() => {
         if (tot <= 0) return scheda(titolo, sotto, '<div class="graf-vuoto">Nessun dato</div>');
         return scheda(titolo, sotto, `<div class="graf-impilata" role="img" aria-label="${esc(parti.map(p => `${p.etichetta} ${euro(p.valore)}`).join(', '))}">
             ${parti.map((p, i) => p.valore > 0 ? `<div style="flex:${p.valore};background:${colore(p.colore, i)}" title="${esc(p.etichetta)}: ${esc(euro(p.valore))}"></div>` : '').join('')}</div>
-            <ul class="graf-legenda">${parti.map((p, i) => `<li${clic(p.chiave)}><i style="background:${colore(p.colore, i)}"></i>${esc(p.etichetta)} <b>${euro(p.valore)}</b> <span>${quota(p.valore, tot)}%</span></li>`).join('')}</ul>`);
+            <ul class="graf-legenda">${parti.map((p, i) => `<li${clic(p.chiave)}><i style="background:${colore(p.colore, i)}"></i><em title="${esc(p.etichetta)}">${esc(p.etichetta)}</em> <b>${euro(p.valore)}</b> <span>${quota(p.valore, tot)}%</span></li>`).join('')}</ul>`);
     }
 
     /**
@@ -78,7 +78,7 @@ const Grafici = (() => {
                 <text x="50" y="51" text-anchor="middle" class="graf-c1">${esc(centro.testo)}</text>
                 <text x="50" y="64" text-anchor="middle" class="graf-c2">${esc(centro.sotto)}</text>
             </svg>
-            <ul class="graf-legenda">${parti.map((p, i) => `<li${clic(p.chiave)}><i style="background:${colore(p.colore, i)}"></i>${esc(p.etichetta)} <b>${euro(p.valore)}</b> <span>${quota(p.valore, tot)}%</span></li>`).join('')}</ul></div>`);
+            <ul class="graf-legenda">${parti.map((p, i) => `<li${clic(p.chiave)}><i style="background:${colore(p.colore, i)}"></i><em title="${esc(p.etichetta)}">${esc(p.etichetta)}</em> <b>${euro(p.valore)}</b> <span>${quota(p.valore, tot)}%</span></li>`).join('')}</ul></div>`);
     }
 
     /** Barre divergenti: per ogni riga la quota sul numero (sinistra) e sul valore (destra). */
