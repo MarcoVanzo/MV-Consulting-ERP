@@ -226,6 +226,8 @@ button.nav-item { width: 100%; background: none; border: 0; font: inherit; color
 @media (max-width: 700px) {
   .tabella-schede thead { display: none; }
   .tabella-schede, .tabella-schede tbody { display: block; }
+  /* Le righe nascoste da un filtro (attributo hidden) restano nascoste anche come schede */
+  .tabella-schede tbody tr[hidden] { display: none; }
   .tabella-schede tbody tr {
     display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; padding: 12px 14px; margin: 0 0 10px;
     border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-surface);

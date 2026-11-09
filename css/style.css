@@ -922,6 +922,8 @@ button.filter-chip { font-family: inherit; }
   .main-content { margin-left: var(--sidebar-collapsed); }
   .form-grid { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  /* Sotto i 16px iOS ingrandisce la pagina quando il campo prende il fuoco */
+  .table-search input { font-size: 16px; }
 }
 
 /* ═══════════════════════════════════════════════════

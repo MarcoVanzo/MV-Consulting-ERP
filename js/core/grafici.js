@@ -124,11 +124,16 @@ const Grafici = (() => {
         const somme = colonne.some(c => c.somma);
         const tot = c => righe.reduce((a, r) => a + (parseFloat(c.somma(r)) || 0), 0);
         const html = `<div style="max-height:60vh;overflow:auto"><table class="data-table"><thead><tr>${colonne.map(c => `<th${c.destra ? ' class="text-right"' : ''}>${esc(c.titolo)}</th>`).join('')}</tr></thead>
-            <tbody>${righe.map((r, i) => `<tr${o.apri ? ` data-riga="${i}" style="cursor:pointer"` : ''}>${colonne.map(c => `<td${c.destra ? ' class="text-right" style="white-space:nowrap"' : ''}>${cella(c, r)}</td>`).join('')}</tr>`).join('')}</tbody>
+            <tbody>${righe.map((r, i) => `<tr${o.apri ? ` data-riga="${i}" tabindex="0" title="Apri"` : ''}>${colonne.map(c => `<td${c.destra ? ' class="text-right" style="white-space:nowrap"' : ''}>${cella(c, r)}</td>`).join('')}</tr>`).join('')}</tbody>
             ${somme ? `<tfoot><tr>${colonne.map((c, i) => `<td${c.destra ? ' class="text-right" style="white-space:nowrap"' : ''}><b>${c.somma ? esc(euro(tot(c))) : i === 0 ? esc(righe.length + (righe.length === 1 ? ' elemento' : ' elementi')) : ''}</b></td>`).join('')}</tr></tfoot>` : ''}</table></div>
             ${o.nota ? `<div style="font-size:0.8rem;color:var(--text-muted);margin-top:10px">${esc(o.nota)}</div>` : ''}`;
         UI.openModal(titolo, html, null, { readOnly: true, wide: true });
-        if (o.apri) document.querySelectorAll('#modal-body tr[data-riga]').forEach(tr => tr.addEventListener('click', () => o.apri(righe[+tr.dataset.riga])));
+        // Riga apribile: clic, oppure Invio da tastiera
+        if (o.apri) document.querySelectorAll('#modal-body tr[data-riga]').forEach(tr => {
+            const apri = () => o.apri(righe[+tr.dataset.riga]);
+            tr.addEventListener('click', apri);
+            tr.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); apri(); } });
+        });
     }
 
     return { barre, impilata, ciambella, divergenti, alClic, elenco, PALETTE };
