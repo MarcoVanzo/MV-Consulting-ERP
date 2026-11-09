@@ -33,7 +33,7 @@ class RiconciliazioneDocumenti
      * Forma comune: {tipo, id (primo record), numero, data_emissione, data_scadenza, anagrafica_id, anagrafica_nome,
      * sottoclienti, totale, ritenuta, riconciliato, residuo, pagata, righe[]}
      */
-    public function aperti(string $tipo, ?int $anagraficaId = null): array
+    public function aperti(string $tipo, ?int $anagraficaId = null, bool $ancheEsclusi = false): array
     {
         if ($tipo === 'fattura') {
             $sql = $this->selectFatture() . " WHERE f.stato <> 'pagata' AND f.importo_totale <> 0"
@@ -45,7 +45,8 @@ class RiconciliazioneDocumenti
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($anagraficaId ? [$anagraficaId] : []);
         $docs = $this->raggruppa($tipo, $stmt->fetchAll(PDO::FETCH_ASSOC));
-        return array_values(array_filter($docs, fn($d) => abs($d['residuo']) > 0.005 && !RiconciliazioneMatch::escluso($d['numero'])));
+        return array_values(array_filter($docs, fn($d) => abs($d['residuo']) > 0.005
+            && ($ancheEsclusi || !RiconciliazioneMatch::escluso($d['numero']))));
     }
 
     /**
@@ -54,7 +55,7 @@ class RiconciliazioneDocumenti
      * della forma comune vale lo scoperto e gia_pagata = true. Emissione tra $dal e $al. Fuori le fatture emesse
      * con qualche riga ancora aperta: sono tra gli aperti(), e il pagamento andrebbe su quelle righe.
      */
-    public function pagateScoperte(string $tipo, string $dal, string $al, ?int $anagraficaId = null): array
+    public function pagateScoperte(string $tipo, string $dal, string $al, ?int $anagraficaId = null, bool $ancheEsclusi = false): array
     {
         $t = $tipo === 'fattura' ? 'f' : 'fp';
         $anag = $tipo === 'fattura' ? 'f.cliente_id' : 'fp.fornitore_id';
@@ -74,7 +75,7 @@ class RiconciliazioneDocumenti
         }
         $out = [];
         foreach ($this->raggruppa($tipo, $stmt->fetchAll(PDO::FETCH_ASSOC)) as $d) {
-            if (!$d['pagata'] || $d['scoperto'] <= 0.005 || RiconciliazioneMatch::escluso($d['numero'])) continue;
+            if (!$d['pagata'] || $d['scoperto'] <= 0.005 || (!$ancheEsclusi && RiconciliazioneMatch::escluso($d['numero']))) continue;
             if (isset($conAperte[strtoupper(trim($d['numero'])) . '|' . substr((string)$d['data_emissione'], 0, 4) . '|' . ($d['anagrafica_id'] ?? '')])) continue;
             $out[] = ['residuo' => $d['scoperto'], 'gia_pagata' => true] + $d;
         }

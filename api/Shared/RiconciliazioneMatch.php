@@ -127,7 +127,7 @@ class RiconciliazioneMatch
         return true;
     }
 
-    /** Fatture del registro agenzia viaggi (AV / 002): fuori dalla riconciliazione. */
+    /** Fatture del registro agenzia viaggi (AV / 002): fuori dall'abbinamento automatico (a mano si possono scegliere). */
     public static function escluso(string $numeroDoc): bool
     {
         $r = self::scomponiNumero($numeroDoc)[1];

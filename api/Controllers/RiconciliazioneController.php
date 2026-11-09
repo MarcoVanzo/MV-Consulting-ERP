@@ -253,14 +253,15 @@ class RiconciliazioneController {
     public function documentiAperti() {
         $tipo = ($_GET['tipo'] ?? $_POST['tipo'] ?? '') === 'fattura_passiva' ? 'fattura_passiva' : 'fattura';
         $ric = $this->riconciliatore();
-        $docs = $ric->documenti()->aperti($tipo);
+        // Scelta manuale: anche il registro agenzia viaggi (AV), escluso solo dall'abbinamento automatico
+        $docs = $ric->documenti()->aperti($tipo, null, true);
         $movId = (int)($_GET['movimento_id'] ?? $_POST['movimento_id'] ?? 0);
         if ($movId) {
             try {
                 $mov = $ric->movimento($movId);
                 $data = (string)($mov['data_valuta'] ?: $mov['data_operazione']);
                 $dal = date('Y-m-d', strtotime($data . ' -' . Riconciliatore::MESI_PAGATE . ' months'));
-                $docs = array_merge($docs, $ric->documenti()->pagateScoperte($tipo, $dal, $data));
+                $docs = array_merge($docs, $ric->documenti()->pagateScoperte($tipo, $dal, $data, null, true));
             } catch (RuntimeException $e) {
                 Response::json(false, $e->getMessage());
             }

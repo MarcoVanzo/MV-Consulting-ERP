@@ -242,6 +242,7 @@ check('documenti aperti: 48/001 è un documento con 2 righe, 15AV escluso', (fun
     return count($n48) === 1 && count($n48[0]['righe']) === 2 && abs($n48[0]['residuo'] - 1220) < 0.01
         && !array_filter($docs, fn($d) => $d['numero'] === '15AV');
 })());
+check('scelta manuale: 15AV si può scegliere', (bool)array_filter($ric->documenti()->aperti('fattura', null, true), fn($d) => $d['numero'] === '15AV'));
 
 $pdo->beginTransaction();
 $esito = $ric->importaMovimenti($letto['movimenti'], ['banca' => 'Banca di prova', 'iban' => $letto['iban'], 'file_nome' => 'prova.xml'], 7);
