@@ -50,11 +50,11 @@ const ModImporta = (() => {
             <label class="imp-drop" id="imp-drop" for="imp-input" tabindex="0" role="button">
                 <i class="ph ph-upload-simple"></i>
                 <strong>Trascina qui i file o tocca per sceglierli</strong>
-                <span>Fatture XML/p7m, estratti conto (XML, CSV, Excel, PDF), estratti carta, avvisi di pagamento,
+                <span>Fatture XML/p7m (anche in uno ZIP), estratti conto (XML, CSV, Excel, PDF), estratti carta, avvisi di pagamento,
                 elenchi Excel di fatture emesse o ricevute, lettere d'incarico, offerte, foto degli scontrini</span>
             </label>
             <input type="file" id="imp-input" multiple class="visually-hidden"
-                accept=".xml,.p7m,.csv,.xlsx,.pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp">
+                accept=".xml,.p7m,.zip,.csv,.xlsx,.pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp">
             ${window.ModFattureWeb ? ModFattureWeb.link() : ''}
             ${window.ModSportello ? ModSportello.link() : ''}
             <div id="imp-lista" class="imp-lista" aria-live="polite"></div>`, azione, { wide: true });
@@ -76,13 +76,25 @@ const ModImporta = (() => {
 
     async function aggiungi(files) {
         if (_fase === 'fatto') { _voci = []; _fase = 'scelta'; }
-        for (const file of files) {
+        // Uno ZIP (es. «Scarica» di Sportello) entra come i file che contiene
+        const tutti = [];
+        for (const f of files) {
+            if (!/\.zip$/i.test(f.name)) { tutti.push(f); continue; }
+            try {
+                const dentro = await apriZip(f);
+                if (!dentro.length) throw new Error('ZIP vuoto');
+                dentro.forEach(x => { if (f.versoImport) x.versoImport = f.versoImport; });
+                tutti.push(...dentro);
+            } catch (e) { f.erroreZip = `${e.message}: estrai i file e trascinali qui`; tutti.push(f); }
+        }
+        for (const file of tutti) {
             const ext = (file.name.split('.').pop() || '').toLowerCase();
             // verso già noto da chi passa il file (es. la lista «Fatture di acquisto» di Sportello)
             const v = { id: ++_seq, file, ext, tipo: null, stato: 'lettura', esito: null, mappa: null, verso: file.versoImport || '' };
             _voci.push(v);
             aggiorna();
             try {
+                if (file.erroreZip) throw new Error(file.erroreZip);
                 if (!PER_ESTENSIONE[ext]) throw new Error('Formato non gestito');
                 v.tipo = await riconosci(v);
                 v.stato = v.tipo ? 'pronto' : 'scegli';
@@ -90,6 +102,35 @@ const ModImporta = (() => {
             _fase = 'scelta';
             aggiorna();
         }
+    }
+
+    /**
+     * File contenuti in uno ZIP, letti dalla directory centrale e decompressi con DecompressionStream
+     * (deflate o non compressi; cartelle, file nascosti, __MACOSX e voci cifrate si saltano).
+     */
+    async function apriZip(zip) {
+        const b = new Uint8Array(await zip.arrayBuffer());
+        const dv = new DataView(b.buffer);
+        let e = b.length - 22;
+        while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+        if (e < 0) throw new Error('ZIP non leggibile');
+        const out = [];
+        let p = dv.getUint32(e + 16, true);
+        for (let k = dv.getUint16(e + 10, true); k > 0; k--) {
+            if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('ZIP non leggibile');
+            const flag = dv.getUint16(p + 8, true), metodo = dv.getUint16(p + 10, true), cs = dv.getUint32(p + 20, true);
+            const nl = dv.getUint16(p + 28, true), off = dv.getUint32(p + 42, true);
+            const nome = new TextDecoder().decode(b.subarray(p + 46, p + 46 + nl));
+            p += 46 + nl + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+            const base = nome.split('/').pop();
+            if (!base || base.startsWith('.') || nome.startsWith('__MACOSX/') || (flag & 1)) continue;
+            const d0 = off + 30 + dv.getUint16(off + 26, true) + dv.getUint16(off + 28, true);
+            let d = b.subarray(d0, d0 + cs);
+            if (metodo === 8) d = new Uint8Array(await new Response(new Blob([d]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+            else if (metodo !== 0) continue;
+            out.push(new File([d], base));
+        }
+        return out;
     }
 
     /** Tipo dal nome e dal contenuto; null = lo sceglie l'utente. */
@@ -629,7 +670,7 @@ const ModImporta = (() => {
         });
     }
 
-    return { apri, initTrascina };
+    return { apri, apriZip, initTrascina };
 })();
 
 window.ModImporta = ModImporta;
