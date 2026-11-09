@@ -87,7 +87,13 @@ const ModImporta = (() => {
                 tutti.push(...dentro);
             } catch (e) { f.erroreZip = `${e.message}: estrai i file e trascinali qui`; tutti.push(f); }
         }
-        for (const file of tutti) {
+        // Le ricevute e notifiche SDI (…_RC_001.xml consegna, _MC_ mancata consegna, _NS_ scarto, _DT_, _AT_, _EC_…),
+        // che gli export dei portali mettono accanto alle fatture, non sono documenti da importare: si saltano
+        let ricevute = 0;
+        const daImportare = [];
+        for (const f of tutti) { if (await ricevutaSdi(f)) ricevute++; else daImportare.push(f); }
+        if (ricevute) UI.toast(`${ricevute} ricevut${ricevute === 1 ? 'a' : 'e'} SDI saltat${ricevute === 1 ? 'a' : 'e'}: non sono fatture`);
+        for (const file of daImportare) {
             const ext = (file.name.split('.').pop() || '').toLowerCase();
             // verso già noto da chi passa il file (es. la lista «Fatture di acquisto» di Sportello)
             const v = { id: ++_seq, file, ext, tipo: null, stato: 'lettura', esito: null, mappa: null, verso: file.versoImport || '' };
@@ -102,6 +108,15 @@ const ModImporta = (() => {
             _fase = 'scelta';
             aggiorna();
         }
+    }
+
+    const NOTIFICA_SDI = /<(\w+:)?(RicevutaConsegna|NotificaMancataConsegna|NotificaScarto|NotificaEsito|NotificaEsitoCommittente|NotificaDecorrenzaTermini|AttestazioneTrasmissioneFattura|ScartoEsitoCommittente|MetadatiInvioFile|FileMetadati)[\s>]/;
+
+    /** Ricevuta o notifica dello SDI: dal nome (…_RC_001.xml) e, per gli altri XML, dall'elemento radice. */
+    async function ricevutaSdi(file) {
+        if (!/\.xml$/i.test(file.name)) return false;
+        if (/_(RC|MC|NS|NE|DT|AT|EC|SE|MT)_\d{3}\.xml$/i.test(file.name)) return true;
+        try { return NOTIFICA_SDI.test(await file.slice(0, 2000).text()); } catch { return false; }
     }
 
     /**
