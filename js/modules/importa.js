@@ -17,7 +17,7 @@ const ModImporta = (() => {
         avviso: { nome: 'Avviso di pagamento', icona: 'ph-money' },
         lista_passive: { nome: 'Elenco fatture ricevute (passive)', icona: 'ph-file-xls', verso: 'passiva' },
         lista_attive: { nome: 'Elenco fatture emesse (attive)', icona: 'ph-file-xls', verso: 'attiva' },
-        fattura_pdf: { nome: 'Fattura PDF (lettura approssimativa)', icona: 'ph-file-pdf' },
+        fattura_pdf: { nome: 'Fattura PDF (emessa o ricevuta)', icona: 'ph-file-pdf' },
         incarico: { nome: "Lettera d'incarico", icona: 'ph-file-text' },
         offerta: { nome: 'Offerta o preventivo', icona: 'ph-file-doc' },
         scontrino: { nome: 'Scontrino o ricevuta di una spesa', icona: 'ph-receipt' },
@@ -115,7 +115,7 @@ const ModImporta = (() => {
         if (/pagamento fornitore|avviso di pagamento|distinta di pagamento/.test(t)) return 'avviso';
         if (/lettera d.incarico|conferimento (dell.|d.)?incarico|incarico professionale/.test(t)) return 'incarico';
         if (/estratto conto|saldo iniziale|saldo finale|elenco movimenti|lista movimenti/.test(t)) return 'estratto';
-        if (/fattura (n\.?|nr\.?|numero)|numero fattura|fattura elettronica|tipo documento/.test(t)) return 'fattura_pdf';
+        if (/fattura\s*(n\.?|nr\.?|n°|numero|#)|numero fattura|data fattura|fattura elettronica|tipo documento/.test(t)) return 'fattura_pdf';
         if (/documento commerciale|scontrino|ricevuta fiscale|ricevuta di pagamento|pedaggio|biglietto/.test(t)) return 'scontrino';
         if (/preventivo|proposta economica|offerta economica|offerta n/.test(t)) return 'offerta';
         return null;
@@ -174,8 +174,10 @@ const ModImporta = (() => {
                 fd = Store.formDataFromArray('pages', piatte());
                 break;
             case 'fattura_pdf':
-                module = 'contabilita'; action = 'import_pdf';
-                fd = Store.formDataFromArray('pages', piatte());
+                // Emessa o ricevuta: il server la legge e la tratta come un XML (stessi abbinamenti)
+                module = 'importa'; action = 'fattura_pdf';
+                fd = Store.formDataFromArray('pages', v.pagine || await pagine(v.file));
+                if (v.verso) fd.append('verso', v.verso);
                 break;
             case 'lista_passive':
             case 'lista_attive':
@@ -480,8 +482,8 @@ const ModImporta = (() => {
                 break;
             }
             case 'fattura_pdf':
-                righe.push(`${n(d.num_imported, 'fattura nuova', 'fatture nuove')} (IVA al 22% se non indicata: controllale)`);
-                avvisi.push(...(d.errors || []));
+                righe.push(`${n(d.num_imported, 'fattura nuova', 'fatture nuove')} (letta dal PDF: controlla i dati qui sotto)`);
+                avvisi.push(...(d.errors || []), ...(d.messages || []));
                 break;
             case 'offerta':
                 righe.push('Offerta in bozza, da controllare');
@@ -566,7 +568,7 @@ const ModImporta = (() => {
     function rimetti(v, ridisegna = true) {
         v.stato = v.tipo ? 'pronto' : 'scegli';
         v.riassunto = null; v.errore = null;
-        if (v.tipo !== 'fattura') v.chiediVerso = false;
+        if (!['fattura', 'fattura_pdf'].includes(v.tipo)) v.chiediVerso = false;
         if (_fase === 'anteprima') _fase = 'scelta';
         if (ridisegna) aggiorna(); else {
             const btn = document.getElementById('modal-save');

@@ -1,6 +1,7 @@
 <?php
 /**
- * ImportaController — porta d'ingresso unica delle fatture elettroniche (XML o .p7m).
+ * ImportaController — porta d'ingresso unica delle fatture elettroniche (XML o .p7m) e delle fatture in PDF
+ * (lette da FatturaPdf e trasformate in una FatturaPA minima, poi trattate come un XML).
  *
  * Decide da solo se la fattura è emessa (attiva) o ricevuta (passiva) e la passa all'import
  * giusto: emessa se il cedente è MV Consulting (AZIENDA_PARTITA_IVA), altrimenti ricevuta.
@@ -13,6 +14,8 @@ require_once __DIR__ . '/../Shared/Database.php';
 require_once __DIR__ . '/../Shared/Response.php';
 require_once __DIR__ . '/../Shared/P7m.php';
 require_once __DIR__ . '/../Shared/AnagraficaMatcher.php';
+require_once __DIR__ . '/../Shared/FatturaPdf.php';
+require_once __DIR__ . '/../Shared/Avvisi.php';
 
 class ImportaController
 {
@@ -42,7 +45,49 @@ class ImportaController
                 ['serve_verso' => true]);
         }
 
-        $inoltro = ['xml' => $xml, 'file_nome' => $data['file_nome'] ?? ''];
+        $this->inoltra($xml, $verso, (string)($data['file_nome'] ?? ''));
+    }
+
+    /**
+     * Fattura in PDF, emessa o ricevuta (campo pages: testo delle pagine con gli a capo). Letta a regole:
+     * quello che si è capito finisce negli avvisi dell'anteprima, da controllare prima di importare.
+     */
+    public function fatturaPdf(array $data): void
+    {
+        $pagine = $data['pages'] ?? [];
+        if (!is_array($pagine) || !array_filter($pagine, fn($p) => trim((string)$p) !== '')) {
+            Response::json(false, 'Nessun testo nel PDF (è una scansione? serve l\'XML della fattura)');
+        }
+        $f = FatturaPdf::leggi(implode("\n", array_map('strval', $pagine)), (string)getenv('AZIENDA_PARTITA_IVA'));
+        if (!$f['numero'] || !$f['data'] || !$f['imponibile']) {
+            Response::json(false, 'Dal PDF non riesco a leggere numero, data e importi: importa l\'XML della fattura');
+        }
+        $c = $f['controparte'];
+        $verso = in_array($data['verso'] ?? '', ['attiva', 'passiva'], true) ? $data['verso'] : $f['verso'];
+        if ($verso === null && $c['piva'] !== '') {
+            // Chi conosciamo già in anagrafica?
+            $tipi = array_unique(array_map(fn($a) => $a['tipo'] === 'cliente' ? 'attiva' : 'passiva',
+                AnagraficaMatcher::conPartitaIva($this->pdo, $this->prefix, $c['piva'])));
+            if (count($tipi) === 1) $verso = reset($tipi);
+        }
+        if ($verso === null) {
+            Response::json(false, 'Non riesco a capire se la fattura è emessa o ricevuta: scegli tu', ['serve_verso' => true]);
+        }
+
+        $euro = fn(float $v) => number_format($v, 2, ',', '.');
+        Avvisi::aggiungi(sprintf('Letto dal PDF: fattura %s %s n. %s del %s, imponibile %s €, IVA %s €%s%s.',
+            $verso === 'passiva' ? 'ricevuta da' : 'emessa a', $c['nome'] ?: ($c['piva'] ?: '?'), $f['numero'],
+            date('d/m/Y', strtotime($f['data'])), $euro($f['imponibile']), $euro($f['iva']),
+            $f['ritenuta'] > 0 ? ', ritenuta ' . $euro($f['ritenuta']) . ' €' : '',
+            $f['scadenza'] ? ', scadenza ' . date('d/m/Y', strtotime($f['scadenza'])) : ', scadenza non indicata'));
+        foreach ($f['avvisi'] as $a) Avvisi::aggiungi("PDF: $a");
+
+        $this->inoltra(FatturaPdf::xml($f, $verso), $verso, (string)($data['file_nome'] ?? ''));
+    }
+
+    private function inoltra(string $xml, string $verso, string $nomeFile): void
+    {
+        $inoltro = ['xml' => $xml, 'file_nome' => $nomeFile];
         if ($verso === 'attiva') {
             require_once __DIR__ . '/ContabilitaController.php';
             (new ContabilitaController())->importXmlData($inoltro);
