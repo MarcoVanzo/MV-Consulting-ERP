@@ -7,7 +7,7 @@
  * Lettura a regole, senza AI: etichette italiane comuni («Fattura n.», «Fattura #», «Data fattura», «Imponibile»,
  * «Importo Iva», «IVA 22% su …», «R.A.»/«Ritenuta», «Totale documento», «Scadenze», «entro il …»).
  * Chi è il destinatario lo dice la prima partita IVA dopo «Spett.»/«Destinatario»/«Cessionario»/«Cliente»:
- * se è la nostra la fattura è ricevuta, altrimenti emessa.
+ * se è la nostra la fattura è ricevuta, altrimenti emessa (anche se è un codice estero, «P.Iva: US000000»).
  */
 declare(strict_types=1);
 
@@ -29,9 +29,11 @@ class FatturaPdf
         $nostra = AnagraficaMatcher::normalizzaCodice($nostraPiva);
         $avvisi = [];
 
-        // Partite IVA e codici fiscali con la loro posizione nel testo
+        // Partite IVA e codici fiscali con la loro posizione nel testo. Un cliente estero ha un codice col prefisso
+        // del paese («US000000», «DE123456789»): conta come controparte, così la nostra P.IVA a piè di pagina
+        // non diventa la prima dopo «Spett.»
         $piva = [];
-        if (preg_match_all('/(?:p\.?\s?iva|partita\s+iva|vat(?:\s+number)?)\s*[:.]?\s*(?:IT\s*)?(\d{11})\b/iu', $t, $m, PREG_OFFSET_CAPTURE)) {
+        if (preg_match_all('/(?:p\.?\s?iva|partita\s+iva|vat(?:\s+number)?)\s*[:.]?\s*(?:IT\s*)?(\d{11}\b|(?-i:(?!IT)[A-Z]{2})(?=[A-Z0-9]{0,12}\d)[A-Z0-9]{2,13}\b)/iu', $t, $m, PREG_OFFSET_CAPTURE)) {
             foreach ($m[1] as [$v, $pos]) $piva[] = [$v, $pos];
         }
         $cf = [];
@@ -57,9 +59,12 @@ class FatturaPdf
         // Solo la nostra P.IVA come intestataria (il fornitore può avere solo il codice fiscale)
         if ($verso === null && $nostra !== '' && !$altra && $cfAltro !== '' && in_array($nostra, array_column($piva, 0), true)) $verso = 'passiva';
 
-        $numero = self::primo('/\b(?:fattura|documento|doc\.)\s*(?:n\.?|nr\.?|n°|numero|#|no\.)\s*[:.]?\s*([A-Z0-9][A-Z0-9\/\-_.]*[A-Z0-9]|[A-Z0-9])/iu', $t)
+        // «nota di credito n.» prima di «fattura n.»: nel testo di uno storno c'è anche il numero della fattura stornata
+        $numero = self::primo('/\bnota\s+di\s+credito\s*(?:n\.?|nr\.?|n°|numero|#|no\.)\s*[:.]?\s*([A-Z0-9][A-Z0-9\/\-_.]*[A-Z0-9]|[A-Z0-9])/iu', $t)
+            ?? self::primo('/\b(?:fattura|documento|doc\.)\s*(?:n\.?|nr\.?|n°|numero|#|no\.)\s*[:.]?\s*([A-Z0-9][A-Z0-9\/\-_.]*[A-Z0-9]|[A-Z0-9])/iu', $t)
             ?? self::primo('/\bnumero\s+(?:fattura|documento)\s*[:.]?\s*([A-Z0-9][A-Z0-9\/\-_.]*[A-Z0-9]|[A-Z0-9])/iu', $t);
         $data = self::data(self::primo('/\bdata\s+(?:fattura|documento|emissione)\s*[:.]?\s*' . self::DATA . '/iu', $t)
+            ?? self::primo('/\bnota\s+di\s+credito\s*(?:n\.?|nr\.?|n°|numero|#)[^\n]{0,40}?\bdel\s+' . self::DATA . '/iu', $t)
             ?? self::primo('/\bfattura\s*(?:n\.?|nr\.?|n°|numero|#)[^\n]{0,40}?\bdel\s+' . self::DATA . '/iu', $t)
             ?? self::primo('/' . self::DATA . '/u', $t));
 
@@ -116,7 +121,9 @@ class FatturaPdf
         $n = fn(float $v) => number_format($v, 2, '.', '');
         $soggetto = function (string $piva, string $cf, string $nome) use ($e): string {
             $s = '<DatiAnagrafici>';
-            if ($piva !== '') $s .= '<IdFiscaleIVA><IdPaese>IT</IdPaese><IdCodice>' . $e($piva) . '</IdCodice></IdFiscaleIVA>';
+            // Codice estero: il prefisso è il paese («US000000» → US / 000000)
+            [$paese, $codice] = preg_match('/^[A-Z]{2}(?=.)/', $piva) ? [substr($piva, 0, 2), substr($piva, 2)] : ['IT', $piva];
+            if ($piva !== '') $s .= '<IdFiscaleIVA><IdPaese>' . $e($paese) . '</IdPaese><IdCodice>' . $e($codice) . '</IdCodice></IdFiscaleIVA>';
             if ($cf !== '') $s .= '<CodiceFiscale>' . $e($cf) . '</CodiceFiscale>';
             return $s . '<Anagrafica><Denominazione>' . $e($nome) . '</Denominazione></Anagrafica></DatiAnagrafici>';
         };
