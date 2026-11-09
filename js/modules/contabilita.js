@@ -106,28 +106,31 @@ const ModContabilita = (() => {
         return _tutte.filter(f => !_esclusi.includes(Number(f.cliente_id || 0)));
     }
 
+    // Ogni riga delle finestre apre la sua fattura
+    const apriRiga = (o = {}) => ({ ...o, apri: f => edit(f.id, (f.data_emissione || '').slice(0, 4)) });
+
     async function apriKpi(chiave) {
         const oggi = UI.todayLocal();
         const fa = await tutte();
         const aperte = fa.filter(f => f.stato !== 'pagata');
-        if (chiave === 'fatturato') Grafici.elenco(`Fatture ${UI.anno()}`, [...COL_FATTURA, colImponibile, colTotale], fa);
-        else if (chiave === 'incassato') Grafici.elenco('Fatture incassate', [...COL_FATTURA, { titolo: 'Pagata il', valore: f => f.data_pagamento ? UI.formatDate(f.data_pagamento) : '—' }, colTotale], fa.filter(f => f.stato === 'pagata'));
+        if (chiave === 'fatturato') Grafici.elenco(`Fatture ${UI.anno()}`, [...COL_FATTURA, colImponibile, colTotale], fa, apriRiga());
+        else if (chiave === 'incassato') Grafici.elenco('Fatture incassate', [...COL_FATTURA, { titolo: 'Pagata il', valore: f => f.data_pagamento ? UI.formatDate(f.data_pagamento) : '—' }, colTotale], fa.filter(f => f.stato === 'pagata'), apriRiga());
         else if (chiave === 'da_incassare') Grafici.elenco('Fatture da incassare', [...COL_FATTURA, colScadenza, colTotale], aperte,
-            { nota: 'IVA inclusa. Le note di credito aperte sono righe negative.' });
-        else if (chiave === 'scaduto') Grafici.elenco('Fatture scadute', [...COL_FATTURA, colScadenza, colTotale], aperte.filter(f => f.data_scadenza && f.data_scadenza.slice(0, 10) < oggi));
+            apriRiga({ nota: 'IVA inclusa. Le note di credito aperte sono righe negative.' }));
+        else if (chiave === 'scaduto') Grafici.elenco('Fatture scadute', [...COL_FATTURA, colScadenza, colTotale], aperte.filter(f => f.data_scadenza && f.data_scadenza.slice(0, 10) < oggi), apriRiga());
     }
 
     async function apriCliente(id, nome) {
         const fa = await tutte();
         const righe = id === 'altri' ? fa.filter(f => !_top.includes(Number(f.cliente_id || 0))) : fa.filter(f => Number(f.cliente_id || 0) === Number(id));
-        Grafici.elenco(id === 'altri' ? 'Tutti gli altri clienti' : nome, [...COL_FATTURA, { titolo: 'Stato', html: f => UI.statoBadge(f.stato) }, colImponibile], righe);
+        Grafici.elenco(id === 'altri' ? 'Tutti gli altri clienti' : nome, [...COL_FATTURA, { titolo: 'Stato', html: f => UI.statoBadge(f.stato) }, colImponibile], righe, apriRiga());
     }
 
     async function apriMese(m) {
         const mm = String(m).padStart(2, '0');
         const righe = (await tutte()).filter(f => (f.data_emissione || '').slice(5, 7) === mm);
         Grafici.elenco(`Fatture di ${['', 'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'][m]} ${UI.anno()}`,
-            [...COL_FATTURA, { titolo: 'Stato', html: f => UI.statoBadge(f.stato) }, colImponibile, colTotale], righe);
+            [...COL_FATTURA, { titolo: 'Stato', html: f => UI.statoBadge(f.stato) }, colImponibile, colTotale], righe, apriRiga());
     }
 
     // Le fatture dietro una fascia di «Da quanto aspetti i soldi»
@@ -135,7 +138,7 @@ const ModContabilita = (() => {
         const ritardo = g => g > 0 ? `${g} ${g === 1 ? 'giorno' : 'giorni'}` : g === 0 ? 'scade oggi' : '—';
         Grafici.elenco(titolo, [...COL_FATTURA, colScadenza, { titolo: 'Ritardo', valore: f => ritardo(f.giorni) }, colTotale],
             _aperte.filter(f => f.fascia === chiave),
-            { nota: 'IVA inclusa. Nel grafico le note di credito aperte si compensano per cliente: il totale può differire di poco.' });
+            apriRiga({ nota: 'IVA inclusa. Nel grafico le note di credito aperte si compensano per cliente: il totale può differire di poco.' }));
     }
 
     function renderChart() {
@@ -202,7 +205,10 @@ const ModContabilita = (() => {
     }
 
     function openNew() { UI.openModal('Nuova Fattura',getFormHtml(),saveFromForm); setTimeout(initClienteWatch,100); }
-    function edit(id) { const f=_fatture.find(x=>x.id==id); if(!f)return; UI.openModal('Modifica Fattura',getFormHtml(f),saveFromForm); setTimeout(()=>{ initClienteWatch(); if(f.cliente_id){loadSottoclienti(f.cliente_id,f.sottocliente_id); loadIncarichi(f.cliente_id,f.incarico_id);} },100); }
+    async function edit(id, anno) {
+        let f = _fatture.find(x => x.id == id) || (_tutte || []).find(x => x.id == id);
+        if (!f && anno) f = (await Store.api('list', 'contabilita', { year: anno }) || []).find(x => x.id == id);
+        if (!f) { UI.toast('Fattura non trovata', 'error'); return; } UI.openModal('Modifica Fattura',getFormHtml(f),saveFromForm); setTimeout(()=>{ initClienteWatch(); if(f.cliente_id){loadSottoclienti(f.cliente_id,f.sottocliente_id); loadIncarichi(f.cliente_id,f.incarico_id);} },100); }
 
     function initClienteWatch() {
         const sel = document.getElementById('f-f-cliente');
