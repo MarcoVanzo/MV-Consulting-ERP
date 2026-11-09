@@ -107,6 +107,44 @@ check('nessuna ritenuta', $e['ritenuta'] === 0.0);
 check('scadenza da «Scadenze:» a capo', $e['scadenza'] === '2026-11-30', $e['scadenza']);
 check('cliente: nome dopo «Spett.»', $e['controparte']['nome'] === 'CLIENTE BETA SPA' && $e['controparte']['piva'] === '02222222222', $e['controparte']);
 
+$estera = <<<TXT
+ESEMPIO S.R.L.
+ Spett.
+ GAMMA SPORTS L.L.C.
+ 100 MAIN STREET, SUITE 1
+60600 CHICAGO IL STATI UNITI
+D'AMERICA
+P.Iva:  US000000
+C.fisc:
+%s
+ DESCRIZIONE  UM  QT  PREZZO UN.  SCONTO  IMPORTO
+ %s
+1,00  60.600,00  60.600,00
+Subtotale  € 60.600,00
+ Totale imponibile  € 60.600,00
+ Importo Iva  € 0,00
+ Totale  € 60.600,00
+Scadenze:
+08/11/2026  € 60.600,00
+ ESEMPIO S.R.L. - VIA VERDI 5 - p.iva: 01111111111 - c.f.:
+01111111111
+TXT;
+
+echo "Fattura emessa a cliente estero (codice «US000000», la nostra P.IVA solo a piè di pagina)\n";
+$x = FatturaPdf::leggi(sprintf($estera, 'fattura n. 22AV del 03/11/2026', 'Viaggio squadra'), NOSTRA);
+check('estera: verso attiva, non passiva', $x['verso'] === 'attiva', $x['verso']);
+check('estera: cliente col codice estero e nome dopo «Spett.»', $x['controparte']['piva'] === 'US000000' && $x['controparte']['nome'] === 'GAMMA SPORTS L.L.C.', $x['controparte']);
+check('estera: numero, data, importi senza IVA', $x['numero'] === '22AV' && $x['data'] === '2026-11-03' && $x['imponibile'] === 60600.0 && $x['iva'] === 0.0, $x);
+$xx = FatturaPdf::xml($x, 'attiva');
+check('estera: XML con IdPaese US', str_contains($xx, '<IdPaese>US</IdPaese><IdCodice>000000</IdCodice>'));
+$pdoX = new PDO('sqlite::memory:');
+check('estera: cedente siamo noi', ImportaController::verso($xx, $pdoX, 'mv_', NOSTRA) === 'attiva');
+$ncx = FatturaPdf::leggi(sprintf($estera, 'nota di credito n. 21AV del 10/09/2026',
+    "Si emette nota di credito per storno totale fattura n.19AV del 30-07-26\n Costi extra"), NOSTRA);
+check('nota di credito: numero suo, non quello della fattura stornata', $ncx['numero'] === '21AV' && $ncx['data'] === '2026-09-10', [$ncx['numero'], $ncx['data']]);
+check('nota di credito estera: attiva e TD04', $ncx['verso'] === 'attiva' && $ncx['nota_credito']);
+check('«P.IVA: da definire» non è un codice estero', FatturaPdf::leggi("Spett.\nCliente\nP.IVA: da definire\nfattura n. 1 del 01/01/2026\nImponibile € 10,00", NOSTRA)['controparte']['piva'] === '');
+
 echo "FatturaPA ricostruita\n";
 $xml = FatturaPdf::xml($r, 'passiva');
 $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
