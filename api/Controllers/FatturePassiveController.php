@@ -5,6 +5,7 @@
  * collegano al costo della commessa: così lo scadenzario sa quando pagarle e il margine è reale.
  */
 
+require_once __DIR__ . '/../Shared/ArchivioImport.php';
 require_once __DIR__ . '/../Shared/AnagraficaMatcher.php';
 require_once __DIR__ . '/../Shared/CommessaService.php';
 
@@ -22,8 +23,9 @@ class FatturePassiveController {
         $year = (int)($_POST['year'] ?? $_GET['year'] ?? date('Y'));
         $stato = $_POST['stato'] ?? $_GET['stato'] ?? '';
         $sql = "SELECT fp.*, fo.ragione_sociale AS fornitore_nome, cl.ragione_sociale AS cliente_nome,
-                c.descrizione AS costo_descrizione, c.condizione_pagamento
+                c.descrizione AS costo_descrizione, c.condizione_pagamento, x.estensione AS documento_ext
             FROM {$p}fatture_passive fp
+            LEFT JOIN {$p}import_file x ON x.id = fp.import_file_id
             LEFT JOIN {$p}fornitori fo ON fo.id = fp.fornitore_id
             LEFT JOIN {$p}commessa_costi c ON c.id = fp.costo_id
             LEFT JOIN {$p}incarichi i ON i.id = fp.incarico_id
@@ -217,11 +219,13 @@ class FatturePassiveController {
                 $this->pdo->prepare("UPDATE {$p}fatture_passive SET descrizione = ?, imponibile = ?, importo_iva = ?, ritenuta = ?, importo_totale = ?,
                         data_scadenza = ?, costo_id = COALESCE(costo_id, ?), incarico_id = COALESCE(incarico_id, ?) WHERE id = ?")
                     ->execute([$descrizione, $imp, $iv, $rit, round($imp + $iv - $rit, 2), $scadenza, $costoId, $incaricoId, $gia['id']]);
+                ArchivioImport::collega($this->pdo, $p, 'fatture_passive', (int)$gia['id']);
                 $importate++;
                 $messaggi[] = "Fattura $numero di $nome completata con i dati dell'XML.";
                 continue;
             }
             if ($gia) {
+                ArchivioImport::collega($this->pdo, $p, 'fatture_passive', (int)$gia['id']);
                 $messaggi[] = "Fattura $numero di $nome già presente.";
                 continue;
             }
@@ -236,6 +240,7 @@ class FatturePassiveController {
                 $messaggi[] = "Fattura $numero di $nome già presente.";
                 continue;
             }
+            ArchivioImport::collega($this->pdo, $p, 'fatture_passive', (int)$this->pdo->lastInsertId());
             $importate++;
             $messaggi[] = "Fattura $numero di $nome importata" . ($costoId ? ' e collegata alla commessa.' : ': da collegare a una commessa.');
         }

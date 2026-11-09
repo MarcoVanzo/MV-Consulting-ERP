@@ -111,6 +111,7 @@ const ModPartner = (() => {
                 <td>${f.stato === 'pagata' ? `<span class="badge badge-green">Pagata ${UI.formatDate(f.data_pagamento)}</span>` : '<span class="badge badge-yellow">Da pagare</span>'}</td>
                 <td><div class="flex" style="gap:4px">
                     ${f.stato === 'da_pagare' ? `<button class="btn btn-sm btn-primary" data-act="paga" data-id="${f.id}" title="Segna pagata" aria-label="Segna pagata"><i class="ph ph-check"></i></button>` : ''}
+                    ${f.documento_ext ? `<a class="btn btn-sm btn-ghost" href="api/router.php?module=passive&action=documento&id=${f.id}" target="_blank" rel="noopener" title="${f.documento_ext === 'pdf' ? 'Apri il PDF' : 'Scarica il file ' + UI.esc(f.documento_ext.toUpperCase())}" aria-label="${f.documento_ext === 'pdf' ? 'Apri il PDF' : 'Scarica il file'}"><i class="ph ${f.documento_ext === 'pdf' ? 'ph-file-pdf' : 'ph-file-code'}"></i></a>` : ''}
                     <button class="btn btn-sm btn-ghost" data-act="edit-passiva" data-id="${f.id}" aria-label="Modifica"><i class="ph ph-pencil-simple"></i></button>
                     <button class="btn btn-sm btn-danger" data-act="del-passiva" data-id="${f.id}" aria-label="Elimina"><i class="ph ph-trash"></i></button>
                 </div></td></tr>`;

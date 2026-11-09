@@ -42,10 +42,10 @@ class ApiRouter {
         'trasferte'    => ['list', 'rendiconto', 'impostazioni'],
         'mezzi'        => ['getAllVehicles', 'getVehicleById', 'allegato'],
         'incarichi'    => ['list', 'overview', 'get_by_cliente', 'documento', 'cestino'],
-        'contabilita'  => ['list', 'overview'],
+        'contabilita'  => ['list', 'overview', 'documento'],
         'offerte'      => ['list', 'get', 'prossimo_numero', 'documento'],
         'fornitori'    => ['list', 'costi_fornitore', 'documento_costo'],
-        'passive'      => ['list'],
+        'passive'      => ['list', 'documento'],
         'commesse'     => ['get', 'scadenzario', 'fatture_libere', 'da_collegare'],
         'indicatori'   => ['riepilogo', 'oggi'],
         'spese'        => ['list', 'documento'],
@@ -430,6 +430,7 @@ class ApiRouter {
             case 'import_payment_pdf': $ctrl->importPaymentPdf($data); break;
             case 'import_lista':       $ctrl->importListaFatture(); break;
             case 'filtro_clienti':     $ctrl->salvaFiltroClienti($data); break;
+            case 'documento':          ArchivioImport::invia(Database::getConnection(), getenv('DB_PREFIX') ?: 'mv_', 'fatture', (int)($data['id'] ?? $_GET['id'] ?? 0)); break;
             default:                   Response::json(false, "Azione contabilità non supportata: $action");
         }
     }
@@ -474,6 +475,7 @@ class ApiRouter {
             case 'set_pagata':  $ctrl->setPagata($data); break;
             case 'set_pagate':  $ctrl->setPagate($data); break;
             case 'import_xml':  $ctrl->importXml($data); break;
+            case 'documento':   ArchivioImport::invia(Database::getConnection(), getenv('DB_PREFIX') ?: 'mv_', 'fatture_passive', (int)($data['id'] ?? $_GET['id'] ?? 0)); break;
             default:            Response::json(false, "Azione fatture fornitori non supportata: $action");
         }
     }

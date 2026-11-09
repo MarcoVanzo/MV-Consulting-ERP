@@ -7,6 +7,9 @@ const ModCommessa = (() => {
     let _id = null, _d = null, _rate = [], _libere = [], _onClose = null;
 
     const num = v => parseFloat(String(v).replace(',', '.')) || 0;
+    /** Pulsante per aprire il file (PDF o XML) da cui è nata la fattura. */
+    const doc = (modulo, f) => f.documento_ext ? `<a class="btn btn-sm btn-ghost" href="api/router.php?module=${modulo}&action=documento&id=${f.id}" target="_blank" rel="noopener"
+        title="${f.documento_ext === 'pdf' ? 'Apri il PDF' : 'Scarica il file'}" aria-label="${f.documento_ext === 'pdf' ? 'Apri il PDF' : 'Scarica il file'}"><i class="ph ${f.documento_ext === 'pdf' ? 'ph-file-pdf' : 'ph-file-code'}"></i></a>` : '';
     const STATO_RATA = {
         da_fatturare: ['badge-yellow', 'Da fatturare'],
         fatturata:    ['badge-blue', 'Fatturata'],
@@ -71,13 +74,13 @@ const ModCommessa = (() => {
             <table class="rows-editor"><tbody>${_d.fatture_passive.map(f => `<tr>
                 <td>${UI.esc(f.fornitore_nome || '—')}</td><td class="td-mono">${UI.esc(f.numero)}</td><td>${UI.formatDate(f.data_emissione)}</td>
                 <td class="text-right">${UI.formatCurrency(f.imponibile)}</td>
-                <td>${f.stato === 'pagata' ? '<span class="badge badge-green">Pagata</span>' : `<span class="badge badge-yellow">Scade ${UI.formatDate(f.data_scadenza)}</span>`}</td></tr>`).join('')}</tbody></table>` : ''}
+                <td>${f.stato === 'pagata' ? '<span class="badge badge-green">Pagata</span>' : `<span class="badge badge-yellow">Scade ${UI.formatDate(f.data_scadenza)}</span>`}</td><td>${doc('passive', f)}</td></tr>`).join('')}</tbody></table>` : ''}
 
             ${_d.fatture.length ? `<div class="section-title"><i class="ph ph-invoice"></i> Fatture emesse</div>
             <table class="rows-editor"><tbody>${_d.fatture.map(f => `<tr>
                 <td class="td-mono">${UI.esc(f.numero_fattura)}</td><td>${UI.formatDate(f.data_emissione)}</td>
                 <td class="text-right">${UI.formatCurrency(f.imponibile)}</td><td>${UI.statoBadge(f.stato)}</td>
-                <td>${f.data_scadenza ? 'scade ' + UI.formatDate(f.data_scadenza) : ''}</td></tr>`).join('')}</tbody></table>` : ''}`;
+                <td>${f.data_scadenza ? 'scade ' + UI.formatDate(f.data_scadenza) : ''}</td><td>${doc('contabilita', f)}</td></tr>`).join('')}</tbody></table>` : ''}`;
 
         const pdf = document.getElementById('cm-pdf');
         if (pdf) pdf.addEventListener('click', e => { e.preventDefault(); window.open(`api/router.php?module=incarichi&action=documento&id=${encodeURIComponent(_id)}`, '_blank', 'noopener'); });

@@ -838,6 +838,10 @@ return [
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         ripristinato_at DATETIME DEFAULT NULL,
         KEY idx_cestino_record (tabella, record_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+    // v110–v111: file importato (PDF o XML in import_file) da cui è nata la fattura, per riaprirlo dall'elenco
+    "ALTER TABLE {$prefix}fatture ADD COLUMN import_file_id INT DEFAULT NULL COMMENT 'File originale in import_file (ArchivioImport::collega)'",
+    "ALTER TABLE {$prefix}fatture_passive ADD COLUMN import_file_id INT DEFAULT NULL COMMENT 'File originale in import_file (ArchivioImport::collega)'"
     // NB: le versioni sono per posizione — aggiungere nuove migrazioni SOLO in coda.
 ];

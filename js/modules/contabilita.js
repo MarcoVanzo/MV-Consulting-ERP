@@ -112,6 +112,7 @@ const ModContabilita = (() => {
             <td>${UI.statoBadge(f.stato)}</td>
             <td>${f.data_scadenza?UI.formatDate(f.data_scadenza):'—'}</td>
             <td><div class="flex gap-2">
+                ${f.documento_ext ? `<a class="btn btn-sm btn-ghost" href="api/router.php?module=contabilita&action=documento&id=${f.id}" target="_blank" rel="noopener" title="${f.documento_ext === 'pdf' ? 'Apri il PDF' : 'Scarica il file ' + UI.esc(f.documento_ext.toUpperCase())}" aria-label="${f.documento_ext === 'pdf' ? 'Apri il PDF' : 'Scarica il file'}"><i class="ph ${f.documento_ext === 'pdf' ? 'ph-file-pdf' : 'ph-file-code'}"></i></a>` : ''}
                 <button class="btn btn-sm btn-ghost" onclick="ModContabilita.edit(${f.id})"><i class="ph ph-pencil-simple"></i></button>
                 <button class="btn btn-sm btn-danger" onclick="ModContabilita.remove(${f.id})"><i class="ph ph-trash"></i></button>
             </div></td></tr>`).join('');
