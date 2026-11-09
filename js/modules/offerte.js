@@ -5,7 +5,7 @@
  * costi dei partner, invio con data di ricontatto, accettazione (nasce la commessa), revisioni.
  */
 const ModOfferte = (() => {
-    let _offerte = [], _kpis = {}, _filtro = '';
+    let _offerte = [], _kpis = {}, _filtro = '', _cerca = '';
     // Stato del form aperto
     let _righe = [], _piano = [], _cur = null;
 
@@ -60,7 +60,8 @@ const ModOfferte = (() => {
                 <div class="kpi-card kpi-purple"><div class="kpi-label">Pipeline pesata</div><div class="kpi-value">${UI.formatCurrency(k.pipeline_pesata)}</div><div class="kpi-sub">${UI.plurale(k.num_lead, 'lead', 'lead')} · valore × probabilità</div></div>
             </div>
             <div class="table-container">
-                <div class="table-toolbar"><div class="filters-row" style="margin-bottom:0">${chips}</div></div>
+                <div class="table-toolbar"><div class="filters-row" style="margin-bottom:0">${chips}</div>
+                    <div class="table-search"><i class="ph ph-magnifying-glass"></i><input type="search" id="off-cerca" placeholder="Cerca cliente" aria-label="Cerca cliente" value="${UI.esc(_cerca)}"></div></div>
                 <table class="data-table tabella-schede"><thead><tr>
                     <th>Numero</th><th>Cliente</th><th>Oggetto</th><th>Data</th>
                     <th class="text-right">Imponibile</th><th class="text-right">Margine prev.</th><th>Stato</th><th></th>
@@ -68,9 +69,17 @@ const ModOfferte = (() => {
             </div>`;
 
         box.querySelectorAll('.filter-chip').forEach(c => c.addEventListener('click', () => { _filtro = c.dataset.f; load(); }));
+        box.querySelector('#off-cerca').addEventListener('input', e => { _cerca = e.target.value; filtraCliente(box); });
+        filtraCliente(box);
         document.getElementById('off-new').addEventListener('click', openNew);
         document.getElementById('off-lead').addEventListener('click', () => openLead({}));
         box.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => azione(b.dataset.act, parseInt(b.dataset.id, 10))));
+    }
+
+    /** Nasconde le righe il cui cliente (o sottocliente) non contiene il testo cercato. */
+    function filtraCliente(box) {
+        const q = _cerca.trim().toLowerCase();
+        box.querySelectorAll('tbody tr[data-cli]').forEach(tr => { tr.hidden = !!q && !tr.dataset.cli.includes(q); });
     }
 
     function rows() {
@@ -91,7 +100,7 @@ const ModOfferte = (() => {
                 o.file_path ? b('doc', 'ph-file-pdf', 'Documento') : '',
                 o.stato !== 'accettata' ? b('elimina', 'ph-trash', 'Elimina', 'btn-danger') : '',
             ].join('');
-            return `<tr>
+            return `<tr data-cli="${UI.esc(((o.cliente_nome_vis || '') + ' ' + (o.sottocliente_nome || '')).toLowerCase())}">
                 <td class="td-mono">${UI.esc(o.numero)}${o.versione > 1 ? ' v' + UI.esc(o.versione) : ''}${o.origine === 'cowork' ? ' <i class="ph ph-magic-wand" title="Importata da Cowork"></i>' : ''}</td>
                 <td class="td-primary cella-titolo">${UI.esc(o.cliente_nome_vis || '—')}${o.sottocliente_nome ? ` <span style="color:var(--text-muted)">/ ${UI.esc(o.sottocliente_nome)}</span>` : ''}</td>
                 <td>${UI.esc(o.oggetto)}${o.da_ricontattare == 1 ? ' <span class="badge badge-red">Ricontattare</span>' : ''}
