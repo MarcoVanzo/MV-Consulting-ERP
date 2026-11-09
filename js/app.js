@@ -4,6 +4,9 @@
  * App — Main orchestrator per MV Consulting ERP
  */
 document.addEventListener('DOMContentLoaded', async () => {
+    // Fatture arrivate dal pulsante «Da Sportello» nel frammento #sportello=…: via dall'indirizzo prima del router
+    ModSportello.catturaHash();
+
     // Link di reset password ricevuto via email. Va gestito anche quando il link
     // viene aperto in una scheda dove l'ERP è già caricato (cambia solo l'hash).
     // Il token resta nella chiusura del form di reset: in caso di errore si può riprovare.
@@ -208,4 +211,6 @@ function initApplication(userData) {
 
     // Aperto dal pulsante «Da FattureWeb»: riceve le fatture e apre Importa file
     ModFattureWeb.init();
+    // Fatture dal pulsante «Da Sportello» (frammento salvato da catturaHash): le apre in Importa file
+    ModSportello.init();
 }
