@@ -103,6 +103,10 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   interne diventano savepoint (`MvPdo` in `Database.php`) e `Response::json` lancia `RispostaCatturata` invece
   di uscire. Il codice con effetti fuori dal DB (AI, email) controlla `Anteprima::attiva()`.
   Fatture XML/p7m entrano da `importa/fattura` (`ImportaController`: emessa o ricevuta da `AZIENDA_PARTITA_IVA`).
+  Fatture **PDF** (emesse o ricevute) da `importa/fattura_pdf`: `api/Shared/FatturaPdf.php` legge a regole il testo di pdf.js
+  (con gli a capo), capisce il verso dalla prima P.IVA dopo «Spett./Destinatario» e ricostruisce una FatturaPA minima che
+  passa agli stessi import degli XML (commessa e rate per le emesse, fornitore, costo di commessa e ritenuta per le ricevute).
+  Quello che ha letto finisce negli avvisi dell'anteprima. Prova: `php tests/fattura_pdf_cli.php`.
   Estratti CSV/Excel: `EstrattoTabellare` (colonne scelte dall'utente salvate in settings per intestazione).
   Le risposte AI sono in cache 7 giorni in `storage/cache/ai/`. Prova: `php tests/importa_cli.php`.
 - **Da FattureWeb** (dal 02/10/2026): pulsante da trascinare nei preferiti (`js/modules/fattureweb.js`, link nella

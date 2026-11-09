@@ -178,6 +178,7 @@ class ApiRouter {
                 $imp = new ImportaController();
                 match ($action) {
                     'fattura' => $imp->fattura($data),
+                    'fattura_pdf' => $imp->fatturaPdf($data),
                     'lista' => $imp->lista($data),
                     'cerca_piva' => $imp->cercaPiva($data),
                     default => Response::json(false, "Azione importa non supportata: $action"),
