@@ -123,6 +123,19 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   tra `ImportoTotaleDocumento` e riepilogo (bollo, arrotondamento) si segnala. Il pulsante aspetta che «Tutti» abbia
   ricaricato la lista (chiede se resta paginata), decodifica l'XML con l'encoding dichiarato e avvisa se oltre 500 fatture
   ne restano fuori. Prova: `php tests/fattura_righe_cli.php`.
+- **Da Sportello** (dal 09/11/2026): pulsante da trascinare nei preferiti (`js/modules/sportello.js`, link nella finestra
+  Importa file) per Sportello Cloud di Sistemi (`www.sportello.cloud`, quello del commercialista). Sportello non ha API né inoltro
+  automatico degli XML, e il login ha un reCAPTCHA: si lavora nella sessione dell'utente. Premuto su «Fatture di acquisto» (o «di
+  vendita») filtrate per date: griglia a 100 righe, clic vero sulla casella «seleziona tutto» (la selezione programmatica non
+  arriva al server), Scarica → Prosegui → Ok; il download parte da un iframe con `_dlk=` che il pulsante intercetta (setter di
+  `iframe.src`) e rilegge con fetch, poi decomprime lo ZIP con `DecompressionStream`. Sportello ha `Cross-Origin-Opener-Policy:
+  same-origin` (niente `postMessage` con la finestra aperta) e una CSP che blocca le chiamate verso l'ERP: le fatture viaggiano
+  come JSON gzip in base64url nel frammento `#sportello=…` di un link «Apri nell'ERP» (lotti da ~1,2 MB compressi, Chrome regge
+  indirizzi fino a 2 MB; gli XML con PDF allegato pesano). L'ERP lo sposta in sessionStorage prima del router
+  (`ModSportello.catturaHash`) e dopo il login apre Importa file con il verso della lista (`file.versoImport`): le fatture già
+  presenti si saltano. Nel pannello Scarica di Sportello restano «Documento principale» e «Originale», senza PDF. Il promemoria
+  giornaliero lo ricorda se l'ultimo file `sportello-…` in `import_file` è di più di 3 giorni fa (`Promemoria::sportelloFermo`).
+  Prova: `php tests/sportello_cli.php`.
 - **Elenchi di fatture Excel** (dal 28/09/2026): `importa/lista` (`ImportaController::lista`) legge Lista Fatture di
   Sistemi ed elenchi del portale; il verso lo dà l'intestazione (colonna Fornitore → ricevute in `fatture_passive`,
   Cliente → emesse). Clienti e fornitori mancanti si creano col solo nome (`piva_ricerca = 'da_cercare'`, v088–v089)

@@ -1,7 +1,8 @@
 <?php
 /**
  * Promemoria — email giornaliera con lo scadenzario: offerte da ricontattare,
- * rate da fatturare in Sistemi, clienti da sollecitare, partner da pagare.
+ * rate da fatturare in Sistemi, clienti da sollecitare, partner da pagare, fatture di acquisto da prendere
+ * da Sportello (pulsante «Da Sportello») se l'ultimo passaggio è di più di GIORNI_SPORTELLO giorni fa.
  *
  * Destinatario: PROMEMORIA_EMAIL nel .env (altrimenti gli admin attivi).
  * Si lancia da cron/promemoria_giornaliero.php (CLI) o dal router con X-Cron-Token.
@@ -12,6 +13,9 @@ require_once __DIR__ . '/Scadenzario.php';
 
 class Promemoria
 {
+    /** Oltre questi giorni senza fatture arrivate da Sportello, l'email lo ricorda */
+    const GIORNI_SPORTELLO = 3;
+
     private $pdo;
     private $p;
 
@@ -38,7 +42,8 @@ class Promemoria
         Documenti::pulisciOrfani($this->pdo, $this->p);
 
         $s = (new Scadenzario($this->pdo, $this->p))->calcola(7);
-        $voci = count($s['offerte_da_ricontattare']) + count($s['offerte_in_scadenza']) + count($s['rate_da_fatturare'])
+        $s['sportello'] = $this->sportelloFermo();
+        $voci = count($s['sportello']) + count($s['offerte_da_ricontattare']) + count($s['offerte_in_scadenza']) + count($s['rate_da_fatturare'])
             + count($s['incassi_scaduti']) + count($s['incassi_in_arrivo']) + count($s['pagamenti_partner']);
 
         $dest = $this->destinatari();
@@ -55,6 +60,19 @@ class Promemoria
         }
         // Solo il numero: gli indirizzi non escono dalla risposta del cron (log di GitHub Actions)
         return ['inviata' => $inviata, 'destinatari' => count($dest), 'voci' => $voci, 'fatture_scadute_marcate' => $marcate];
+    }
+
+    /**
+     * Ultimo file arrivato dal pulsante «Da Sportello» (nome `sportello-…` in import_file). Mai usato: nessun
+     * promemoria (il pulsante non è ancora in uso); fermo da più di GIORNI_SPORTELLO giorni: una voce.
+     * @return list<array{ultima: string, giorni: int}>
+     */
+    public function sportelloFermo(?string $oggi = null): array
+    {
+        $ultima = $this->pdo->query("SELECT MAX(ultima_importazione) FROM {$this->p}import_file WHERE nome_file LIKE 'sportello-%'")->fetchColumn();
+        if (!$ultima) return [];
+        $giorni = (int)floor((strtotime($oggi ?? date('Y-m-d')) - strtotime(substr((string)$ultima, 0, 10))) / 86400);
+        return $giorni > self::GIORNI_SPORTELLO ? [['ultima' => (string)$ultima, 'giorni' => $giorni]] : [];
     }
 
     private function destinatari(): array
@@ -75,6 +93,9 @@ class Promemoria
         $d = fn($v) => $v ? date('d/m/Y', strtotime((string)$v)) : '—';
 
         $sezioni = [
+            ['Fatture di acquisto da prendere da Sportello', $s['sportello'] ?? [], fn($r) =>
+                "Ultimo passaggio il {$d($r['ultima'])} ({$e($r['giorni'])} giorni fa): apri Sportello, Fatture di acquisto, "
+                . "filtra dall'ultimo passaggio a oggi e premi «Da Sportello»"],
             ['Rate da fatturare in Sistemi', $s['rate_da_fatturare'], fn($r) =>
                 "<b>{$e($r['cliente_nome'])}</b> — {$e($r['testo_fattura'])}<br>Imponibile {$eur($r['importo'])}, "
                 . ($r['data_prevista'] ? "da emettere il {$d($r['data_prevista'])}" : 'senza data: pianificala nella scheda commessa')],

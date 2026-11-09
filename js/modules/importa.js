@@ -56,8 +56,10 @@ const ModImporta = (() => {
             <input type="file" id="imp-input" multiple class="visually-hidden"
                 accept=".xml,.p7m,.csv,.xlsx,.pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp">
             ${window.ModFattureWeb ? ModFattureWeb.link() : ''}
+            ${window.ModSportello ? ModSportello.link() : ''}
             <div id="imp-lista" class="imp-lista" aria-live="polite"></div>`, azione, { wide: true });
         if (window.ModFattureWeb) ModFattureWeb.collega(document.getElementById('imp-drop').parentElement);
+        if (window.ModSportello) ModSportello.collega(document.getElementById('imp-drop').parentElement);
         const input = document.getElementById('imp-input');
         // Da tastiera: Invio o spazio sulla zona aprono la scelta dei file
         document.getElementById('imp-drop').addEventListener('keydown', e => {
@@ -76,7 +78,8 @@ const ModImporta = (() => {
         if (_fase === 'fatto') { _voci = []; _fase = 'scelta'; }
         for (const file of files) {
             const ext = (file.name.split('.').pop() || '').toLowerCase();
-            const v = { id: ++_seq, file, ext, tipo: null, stato: 'lettura', esito: null, mappa: null, verso: '' };
+            // verso già noto da chi passa il file (es. la lista «Fatture di acquisto» di Sportello)
+            const v = { id: ++_seq, file, ext, tipo: null, stato: 'lettura', esito: null, mappa: null, verso: file.versoImport || '' };
             _voci.push(v);
             aggiorna();
             try {
