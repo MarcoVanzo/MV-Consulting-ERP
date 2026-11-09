@@ -53,6 +53,28 @@ check('errore del DB non blocca: restituisce null', (function () use ($p) {
     return ArchivioImport::daRichiesta($rotto, $p, 'contabilita', 'import_xml', ['xml' => '<x/>']) === null;
 })());
 
+echo "Collegamento alla fattura\n";
+$pdo->exec("CREATE TABLE {$p}fatture (id INTEGER PRIMARY KEY, numero_fattura TEXT, import_file_id INT)");
+$pdo->exec("INSERT INTO {$p}fatture (id, numero_fattura) VALUES (1, '10'), (2, '11')");
+$xml = ArchivioImport::registra($pdo, $p, 'fattura', 'f10.xml', '<FatturaElettronica>10</FatturaElettronica>');
+$pdf = ArchivioImport::registra($pdo, $p, 'fattura_pdf', 'f10.pdf', '%PDF-1.4 fattura 10');
+$link = fn(int $id) => $pdo->query("SELECT import_file_id FROM {$p}fatture WHERE id = $id")->fetchColumn();
+ArchivioImport::$corrente = null;
+ArchivioImport::collega($pdo, $p, 'fatture', 1);
+check('senza file in corso non collega niente', $link(1) === null);
+ArchivioImport::$corrente = ['id' => $xml['id'], 'pdf' => false];
+ArchivioImport::collega($pdo, $p, 'fatture', 1);
+check('XML collegato alla fattura', (int)$link(1) === $xml['id']);
+ArchivioImport::$corrente = ['id' => $pdf['id'], 'pdf' => true];
+ArchivioImport::collega($pdo, $p, 'fatture', 1);
+check('il PDF prende il posto dell\'XML', (int)$link(1) === $pdf['id']);
+ArchivioImport::$corrente = ['id' => $xml['id'], 'pdf' => false];
+ArchivioImport::collega($pdo, $p, 'fatture', 1);
+check('un XML successivo non toglie il PDF', (int)$link(1) === $pdf['id']);
+ArchivioImport::collega($pdo, $p, 'clienti', 2);
+check('tabelle diverse dalle fatture ignorate', $link(2) === null);
+ArchivioImport::$corrente = null;
+
 array_map('unlink', glob($tmp . '*') ?: []);
 @rmdir($tmp);
 

@@ -29,6 +29,54 @@ class ArchivioImport
         'spese' => ['importa_scontrino' => 'scontrino'],
     ];
 
+    /** Tipi il cui file è la fattura stessa (non un elenco): si collega alla fattura che ne nasce. */
+    private const DOCUMENTI_FATTURA = ['fattura', 'fattura_pdf', 'fattura_xml', 'fattura_passiva'];
+
+    /** File della richiesta in corso, se è una fattura: gli import lo collegano con collega(). */
+    public static ?array $corrente = null;
+
+    /**
+     * Collega il file della richiesta in corso alla fattura (tabella fatture o fatture_passive).
+     * Un PDF prende il posto di un XML già collegato (si legge meglio); altrimenti resta il primo.
+     * Non blocca mai l'import (es. colonna non ancora migrata).
+     */
+    public static function collega(PDO $pdo, string $prefix, string $tabella, int $id): void
+    {
+        if (!self::$corrente || !in_array($tabella, ['fatture', 'fatture_passive'], true) || $id <= 0) return;
+        try {
+            $sostituisce = self::$corrente['pdf'] ? " OR import_file_id IN (SELECT x.id FROM {$prefix}import_file x WHERE x.estensione <> 'pdf')" : '';
+            $pdo->prepare("UPDATE {$prefix}{$tabella} SET import_file_id = ? WHERE id = ? AND (import_file_id IS NULL$sostituisce)")
+                ->execute([self::$corrente['id'], $id]);
+        } catch (Throwable $e) {
+            error_log('[ArchivioImport] collega: ' . $e->getMessage());
+        }
+    }
+
+    /** Apre (PDF) o scarica (XML, p7m) il file archiviato collegato a una fattura. */
+    public static function invia(PDO $pdo, string $prefix, string $tabella, int $id): void
+    {
+        if (!in_array($tabella, ['fatture', 'fatture_passive'], true)) Response::json(false, 'Documento non valido', null, 400);
+        $num = $tabella === 'fatture' ? 'numero_fattura' : 'numero';
+        $stmt = $pdo->prepare("SELECT x.sha256, x.estensione, t.$num AS numero FROM {$prefix}{$tabella} t
+            JOIN {$prefix}import_file x ON x.id = t.import_file_id WHERE t.id = ?");
+        $stmt->execute([$id]);
+        $f = $stmt->fetch(PDO::FETCH_ASSOC);
+        $path = $f ? self::file((string)$f['sha256']) : '';
+        if (!$f || !is_file($path)) Response::json(false, 'Documento non trovato', null, 404);
+        $ext = (string)$f['estensione'];
+        $mime = ['pdf' => 'application/pdf', 'xml' => 'application/xml', 'p7m' => 'application/pkcs7-mime'][$ext] ?? 'application/octet-stream';
+        $nome = 'fattura-' . preg_replace('/[^A-Za-z0-9._-]+/', '_', (string)$f['numero']) . '.' . $ext;
+        header_remove('Content-Type');
+        header('Content-Type: ' . $mime);
+        // Solo il PDF si apre nel browser; XML e p7m si scaricano e non vengono interpretati
+        header('Content-Disposition: ' . ($ext === 'pdf' ? 'inline' : 'attachment') . '; filename="' . $nome . '"');
+        header('X-Content-Type-Options: nosniff');
+        header('Content-Length: ' . filesize($path));
+        header('Cache-Control: private, no-store');
+        readfile($path);
+        exit;
+    }
+
     private const ESTENSIONI = ['xml', 'p7m', 'pdf', 'xlsx', 'csv', 'docx', 'doc', 'txt', 'md', 'jpg', 'jpeg', 'png', 'webp'];
 
     /** Archivia il file della richiesta se $module/$action è un'importazione. */
@@ -40,7 +88,11 @@ class ArchivioImport
             [$contenuto, $nome] = self::contenuto($data);
             if ($contenuto === null || $contenuto === '') return null;
             if ($tipo === 'estratto' && ($data['tipo'] ?? '') === 'carta') $tipo = 'estratto_carta';
-            return self::registra($pdo, $prefix, $tipo, $nome, $contenuto, (int)($GLOBALS['userContext']['id'] ?? 0) ?: null);
+            $r = self::registra($pdo, $prefix, $tipo, $nome, $contenuto, (int)($GLOBALS['userContext']['id'] ?? 0) ?: null);
+            if (in_array($tipo, self::DOCUMENTI_FATTURA, true)) {
+                self::$corrente = ['id' => $r['id'], 'pdf' => strtolower(pathinfo($nome, PATHINFO_EXTENSION)) === 'pdf'];
+            }
+            return $r;
         } catch (Throwable $e) {
             error_log('[ArchivioImport] ' . $e->getMessage());
             return null;
@@ -76,8 +128,7 @@ class ArchivioImport
         if (!is_dir($dir)) mkdir($dir, 0750, true);
         // Nome non ricavabile dal contenuto (HMAC con il segreto del server), estensione neutra:
         // anche se il web server servisse storage/, il file non sarebbe né indovinabile né interpretato
-        $segreto = (string)getenv('JWT_SECRET');
-        $file = $dir . ($segreto !== '' ? hash_hmac('sha256', $sha, $segreto) : $sha) . '.bin';
+        $file = self::file($sha);
         if (!is_file($file) && file_put_contents($file, $contenuto, LOCK_EX) === false) {
             throw new RuntimeException('Impossibile salvare il file importato');
         }
@@ -119,6 +170,15 @@ class ArchivioImport
             return [$data['xml'], $nome !== '' ? $nome : 'documento.xml'];
         }
         return [null, $nome];
+    }
+
+    /**
+     * Percorso del file: nome non ricavabile dal contenuto (HMAC con il segreto del server), estensione neutra.
+     */
+    private static function file(string $sha): string
+    {
+        $segreto = (string)getenv('JWT_SECRET');
+        return self::dir() . ($segreto !== '' ? hash_hmac('sha256', $sha, $segreto) : $sha) . '.bin';
     }
 
     /** Cartella dell'archivio; i test la spostano in una cartella temporanea. */

@@ -928,13 +928,16 @@ class CommessaService
         $inc = $stmt->fetch();
         if (!$inc) return null;
 
-        $stmt = $this->pdo->prepare("SELECT id, numero_fattura, data_emissione, imponibile, importo_totale, stato, data_scadenza, data_pagamento
-            FROM {$this->p}fatture WHERE incarico_id = ? ORDER BY data_emissione");
+        $stmt = $this->pdo->prepare("SELECT f.id, f.numero_fattura, f.data_emissione, f.imponibile, f.importo_totale, f.stato, f.data_scadenza, f.data_pagamento,
+                x.estensione AS documento_ext
+            FROM {$this->p}fatture f LEFT JOIN {$this->p}import_file x ON x.id = f.import_file_id
+            WHERE f.incarico_id = ? ORDER BY f.data_emissione");
         $stmt->execute([$incaricoId]);
         $fatture = $stmt->fetchAll();
 
-        $stmt = $this->pdo->prepare("SELECT fp.*, fo.ragione_sociale AS fornitore_nome
+        $stmt = $this->pdo->prepare("SELECT fp.*, fo.ragione_sociale AS fornitore_nome, x.estensione AS documento_ext
             FROM {$this->p}fatture_passive fp LEFT JOIN {$this->p}fornitori fo ON fo.id = fp.fornitore_id
+            LEFT JOIN {$this->p}import_file x ON x.id = fp.import_file_id
             WHERE fp.incarico_id = ? ORDER BY fp.data_emissione");
         $stmt->execute([$incaricoId]);
         $passive = $stmt->fetchAll();

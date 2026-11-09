@@ -49,7 +49,9 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   prova `php tests/indicatori_cli.php`). Endpoint per la dashboard: `indicatori/riepilogo`.
 - **File importati**: il router passa ogni import (azioni in `ArchivioImport::AZIONI`) ad
   `api/Shared/ArchivioImport.php`, che salva l'originale in `storage/import/<sha256>.<ext>` e lo
-  registra in `import_file` (v077). Un import nuovo va aggiunto a `AZIONI` e il frontend manda il file
+  registra in `import_file` (v077). Il file di una fattura (XML, p7m, PDF; non gli elenchi) si collega alla fattura che ne
+  nasce o che c'era già (`import_file_id` su `fatture` e `fatture_passive`, v110–v111, `ArchivioImport::collega`: un PDF prende
+  il posto di un XML) e si riapre da Fatture, Ricevute e scheda commessa (`contabilita/documento`, `passive/documento`). Un import nuovo va aggiunto a `AZIONI` e il frontend manda il file
   nel campo `originale` quando al server arriva solo il testo estratto con pdf.js.
 - **Viste** (dal 28/09/2026): sei voci di menu, ognuna con le sue schede e senza sovrapposizioni —
   Oggi (dashboard, `js/modules/oggi.js` su `indicatori/oggi`, sotto le scadenze nel dettaglio di `commerciale.js`),

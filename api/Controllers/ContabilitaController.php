@@ -3,6 +3,7 @@
  * Contabilità Controller — Fatture CRUD + Overview finanziaria
  */
 
+require_once __DIR__ . '/../Shared/ArchivioImport.php';
 require_once __DIR__ . '/../Shared/Indicatori.php';
 require_once __DIR__ . '/../Shared/CommessaService.php';
 
@@ -27,8 +28,10 @@ class ContabilitaController {
         $sql = "SELECT f.*, 
                 c.ragione_sociale as cliente_nome,
                 sc.nome as sottocliente_nome,
-                i.descrizione AS commessa_descrizione, i.tipo_commessa AS commessa_tipo, YEAR(i.data_incarico) AS commessa_anno
+                i.descrizione AS commessa_descrizione, i.tipo_commessa AS commessa_tipo, YEAR(i.data_incarico) AS commessa_anno,
+                x.estensione AS documento_ext
             FROM {$this->prefix}fatture f
+            LEFT JOIN {$this->prefix}import_file x ON x.id = f.import_file_id
             LEFT JOIN {$this->prefix}clienti c ON c.id = f.cliente_id
             LEFT JOIN {$this->prefix}sottoclienti sc ON sc.id = f.sottocliente_id
             LEFT JOIN {$this->prefix}incarichi i ON i.id = f.incarico_id
@@ -655,6 +658,8 @@ class ContabilitaController {
             $esistenti = $this->righeDocumento($numeroFattura, $dataEmissione, $clienteId ? (int)$clienteId : null, $segno, $tipoDocumento, $conTipoDoc);
             $soloElenco = $esistenti && !array_filter($esistenti, fn($r) => !self::daElenco((string)$r['descrizione']));
             if ($esistenti && !$soloElenco) {
+                // Già presente: si aggancia almeno il file (così si può riaprire il PDF di una fattura già registrata)
+                foreach ($esistenti as $r) ArchivioImport::collega($this->pdo, $this->prefix, 'fatture', (int)$r['id']);
                 $errors[] = "Fattura n. $numeroFattura già presente, caricamento ignorato.";
                 $raggruppamenti = [];
             }
@@ -732,6 +737,8 @@ class ContabilitaController {
                     $fatturaId = (int)$this->pdo->lastInsertId();
                     $imported++;
                 }
+
+                ArchivioImport::collega($this->pdo, $this->prefix, 'fatture', $fatturaId);
 
                 // Ricalcola l'incarico collegato (se trovato)
                 if ($incaricoId) {
