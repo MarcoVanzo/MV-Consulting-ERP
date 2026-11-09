@@ -54,10 +54,10 @@ const ModOfferte = (() => {
                 <button class="btn btn-primary" id="off-new"><i class="ph ph-plus"></i> Nuova offerta</button>
             </div>
             <div class="kpi-grid">
-                <div class="kpi-card kpi-blue"><div class="kpi-label">In trattativa</div><div class="kpi-value">${UI.formatCurrency(k.pipeline)}</div><div class="kpi-sub">${UI.plurale(k.num_inviate, 'offerta inviata', 'offerte inviate')}${k.num_bozze ? ` · ${k.num_bozze} in bozza` : ''}</div></div>
-                <div class="kpi-card kpi-green"><div class="kpi-label">Accettato</div><div class="kpi-value">${UI.formatCurrency(k.accettato)}</div><div class="kpi-sub">${UI.plurale(k.num_accettate, 'offerta', 'offerte')}</div></div>
-                <div class="kpi-card kpi-yellow"><div class="kpi-label">Conversione</div><div class="kpi-value">${k.tasso_conversione !== null && k.tasso_conversione !== undefined ? k.tasso_conversione + '%' : '—'}</div><div class="kpi-sub">accettate su chiuse · ${UI.plurale(k.num_perse, 'persa', 'perse')}</div></div>
-                <div class="kpi-card kpi-purple"><div class="kpi-label">Pipeline pesata</div><div class="kpi-value">${UI.formatCurrency(k.pipeline_pesata)}</div><div class="kpi-sub">${UI.plurale(k.num_lead, 'lead', 'lead')} · valore × probabilità</div></div>
+                <div class="kpi-card kpi-blue" data-chiave="inviata" role="button" tabindex="0" title="Filtra l'elenco"><div class="kpi-label">In trattativa</div><div class="kpi-value">${UI.formatCurrency(k.pipeline)}</div><div class="kpi-sub">${UI.plurale(k.num_inviate, 'offerta inviata', 'offerte inviate')}${k.num_bozze ? ` · ${k.num_bozze} in bozza` : ''}</div></div>
+                <div class="kpi-card kpi-green" data-chiave="accettata" role="button" tabindex="0" title="Filtra l'elenco"><div class="kpi-label">Accettato</div><div class="kpi-value">${UI.formatCurrency(k.accettato)}</div><div class="kpi-sub">${UI.plurale(k.num_accettate, 'offerta', 'offerte')}</div></div>
+                <div class="kpi-card kpi-yellow" data-chiave="rifiutata" role="button" tabindex="0" title="Filtra l'elenco"><div class="kpi-label">Conversione</div><div class="kpi-value">${k.tasso_conversione !== null && k.tasso_conversione !== undefined ? k.tasso_conversione + '%' : '—'}</div><div class="kpi-sub">accettate su chiuse · ${UI.plurale(k.num_perse, 'persa', 'perse')}</div></div>
+                <div class="kpi-card kpi-purple" data-chiave="lead" role="button" tabindex="0" title="Filtra l'elenco"><div class="kpi-label">Pipeline pesata</div><div class="kpi-value">${UI.formatCurrency(k.pipeline_pesata)}</div><div class="kpi-sub">${UI.plurale(k.num_lead, 'lead', 'lead')} · valore × probabilità</div></div>
             </div>
             <div class="table-container">
                 <div class="table-toolbar"><div class="filters-row" style="margin-bottom:0">${chips}</div>
@@ -69,6 +69,8 @@ const ModOfferte = (() => {
             </div>`;
 
         box.querySelectorAll('.filter-chip').forEach(c => c.addEventListener('click', () => { _filtro = c.dataset.f; load(); }));
+        // Clic su un KPI: l'elenco qui sotto filtrato sulle offerte che lo fanno
+        Grafici.alClic(box.querySelector('.kpi-grid'), f => { _filtro = f; load().then(() => box.querySelector('.table-container')?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })); });
         box.querySelector('#off-cerca').addEventListener('input', e => { _cerca = e.target.value; filtraCliente(box); });
         filtraCliente(box);
         document.getElementById('off-new').addEventListener('click', openNew);

@@ -180,7 +180,7 @@ class ContabilitaController {
 
         // Top clienti per fatturato
         $stmt3 = $this->pdo->prepare("SELECT 
-            c.ragione_sociale,
+            COALESCE(f.cliente_id, 0) AS cliente_id, c.ragione_sociale,
             COALESCE(SUM(f.imponibile), 0) as fatturato
             FROM {$p}fatture f
             LEFT JOIN {$p}clienti c ON c.id = f.cliente_id
@@ -203,6 +203,7 @@ class ContabilitaController {
             'mensile' => $monthly,
             'top_clienti' => $topClienti,
             'anzianita' => (new Indicatori($this->pdo, $p))->anzianitaCrediti((int)$year, $esclusi),
+            'anzianita_fatture' => (new Indicatori($this->pdo, $p))->fattureAperte((int)$year, $esclusi),
             'clienti' => $clientiAnno,
             'esclusi' => $esclusi,
             'anno' => $year

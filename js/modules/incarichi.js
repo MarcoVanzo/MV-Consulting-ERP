@@ -19,28 +19,51 @@ const ModIncarichi = (() => {
     function renderKpis(ov) {
         const k = _kpis;
         document.getElementById('incarichi-kpis').innerHTML = `
-            <div class="kpi-card kpi-blue"><div class="kpi-label">Valore commesse</div><div class="kpi-value">${UI.formatCurrency(k.valore)}</div><div class="kpi-sub">imponibile · ${UI.plurale(k.num_commesse,'commessa','commesse')}</div></div>
-            <div class="kpi-card kpi-green"><div class="kpi-label">Fatturato su commesse</div><div class="kpi-value">${UI.formatCurrency(k.fatturato)}</div><div class="kpi-sub">${UI.plurale(k.num_fatturati,'completamente fatturata','completamente fatturate')}</div></div>
-            <div class="kpi-card kpi-yellow"><div class="kpi-label">Da fatturare</div><div class="kpi-value">${UI.formatCurrency(k.da_fatturare)}</div><div class="kpi-sub">${UI.plurale(k.num_da_fatturare,'commessa','commesse')}</div></div>
+            <div class="kpi-card kpi-blue" data-chiave="valore" role="button" tabindex="0" title="Vedi le commesse"><div class="kpi-label">Valore commesse</div><div class="kpi-value">${UI.formatCurrency(k.valore)}</div><div class="kpi-sub">imponibile · ${UI.plurale(k.num_commesse,'commessa','commesse')}</div></div>
+            <div class="kpi-card kpi-green" data-chiave="fatturato" role="button" tabindex="0" title="Vedi le commesse"><div class="kpi-label">Fatturato su commesse</div><div class="kpi-value">${UI.formatCurrency(k.fatturato)}</div><div class="kpi-sub">${UI.plurale(k.num_fatturati,'completamente fatturata','completamente fatturate')}</div></div>
+            <div class="kpi-card kpi-yellow" data-chiave="da_fatturare" role="button" tabindex="0" title="Vedi le commesse"><div class="kpi-label">Da fatturare</div><div class="kpi-value">${UI.formatCurrency(k.da_fatturare)}</div><div class="kpi-sub">${UI.plurale(k.num_da_fatturare,'commessa','commesse')}</div></div>
             ${margineKpi(k)}`;
+        Grafici.alClic(document.getElementById('incarichi-kpis'), apriDettaglio);
     }
 
     // Grafici di Vendite (js/core/grafici.js): dove sta il valore, quanto resta da fatturare, numero contro valore
     function renderGrafici(ov) {
         const box = document.getElementById('incarichi-grafici');
         if (!box || !window.Grafici) return;
-        const tipi = (ov?.per_tipo || []).map(t => ({ etichetta: UI.tipoCommessa(t.tipo_commessa), valore: parseFloat(t.totale) || 0,
+        const tipi = (ov?.per_tipo || []).map(t => ({ chiave: 'tipo:' + (t.tipo_commessa || ''), etichetta: UI.tipoCommessa(t.tipo_commessa), valore: parseFloat(t.totale) || 0,
             n: parseInt(t.conteggio) || 0 })).filter(t => t.valore > 0 || t.n > 0);
         const k = _kpis, valore = parseFloat(k.valore) || 0, daFatt = parseFloat(k.da_fatturare) || 0;
         box.innerHTML = [
             Grafici.impilata('Quanto resta da fatturare', `Sui ${UI.formatCurrency(valore)} di valore delle commesse del ${UI.anno()}`, [
-                { etichetta: 'Coperto da fatture', valore: Math.max(0, valore - daFatt), colore: 'var(--accent-green)' },
-                { etichetta: 'Da fatturare', valore: daFatt, colore: 'var(--accent-purple)' },
+                { chiave: 'fatturato', etichetta: 'Coperto da fatture', valore: Math.max(0, valore - daFatt), colore: 'var(--accent-green)' },
+                { chiave: 'da_fatturare', etichetta: 'Da fatturare', valore: daFatt, colore: 'var(--accent-purple)' },
             ]),
             Grafici.barre('Dove sta il valore', 'Valore delle commesse per tipo', tipi.map(t => ({ ...t, nota: `${t.n} ${t.n === 1 ? 'commessa' : 'commesse'}` }))),
             Grafici.divergenti('Quante commesse e quanto valgono', 'Per tipo: quota sul numero delle commesse e sul valore', tipi,
                 { sinistra: 'commesse', destra: 'valore' }),
         ].join('');
+        Grafici.alClic(box, apriDettaglio);
+    }
+
+    // ── Dettaglio dietro KPI e grafici: le commesse che fanno quel numero; clic su una riga = la commessa ──
+    function apriDettaglio(chiave) {
+        const residuo = c => Math.max(0, (parseFloat(c.importo_totale) || 0) - (parseFloat(c.importo_fatturato) || 0));
+        const col = [
+            { titolo: 'Data', valore: c => UI.formatDate(c.data_incarico) },
+            { titolo: 'Cliente', valore: c => c.cliente_nome + (c.sottocliente_nome ? ' / ' + c.sottocliente_nome : '') },
+            { titolo: 'Commessa', valore: c => (c.descrizione || UI.tipoCommessa(c.tipo_commessa) || '').slice(0, 70) },
+            { titolo: 'Valore', destra: true, valore: c => UI.formatCurrency(c.importo_totale), somma: c => c.importo_totale },
+        ];
+        const colFatt = { titolo: 'Fatturato', destra: true, valore: c => UI.formatCurrency(c.importo_fatturato), somma: c => c.importo_fatturato };
+        const colRes = { titolo: 'Da fatturare', destra: true, valore: c => UI.formatCurrency(residuo(c)), somma: residuo };
+        const apri = { apri: c => { UI.closeModal(); ModCommessa.open(+c.id); } };
+        if (chiave === 'valore') Grafici.elenco(`Commesse ${UI.anno()}`, [...col, colFatt, colRes], _incarichi, apri);
+        else if (chiave === 'fatturato') Grafici.elenco('Commesse con fatture', [...col, colFatt], _incarichi.filter(c => (parseFloat(c.importo_fatturato) || 0) > 0), apri);
+        else if (chiave === 'da_fatturare') Grafici.elenco('Commesse da fatturare', [...col, colRes], _incarichi.filter(c => residuo(c) > 0.005), apri);
+        else if (chiave.startsWith('tipo:')) {
+            const t = chiave.slice(5);
+            Grafici.elenco(UI.tipoCommessa(t) || 'Senza tipo', [...col, colFatt], _incarichi.filter(c => (c.tipo_commessa || '') === t), apri);
+        }
     }
 
     // Il margine dice qualcosa solo sulle commesse con i costi registrati: sulle altre sarebbe il 100%

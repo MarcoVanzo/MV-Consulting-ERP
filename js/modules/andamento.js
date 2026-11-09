@@ -32,9 +32,9 @@ const ModAndamento = (() => {
         const t = _stat.totali;
         const nc = (_stat.entrate.categorie.concat(_stat.uscite.categorie)).filter(c => c.id === null).reduce((s, c) => s + c.numero, 0);
         box.innerHTML = `<div class="kpi-grid">
-                <div class="kpi-card kpi-green"><div class="kpi-label">Entrate</div><div class="kpi-value">${UI.esc(UI.formatCurrency(t.entrate))}</div></div>
-                <div class="kpi-card kpi-red"><div class="kpi-label">Uscite</div><div class="kpi-value">${UI.esc(UI.formatCurrency(t.uscite))}</div></div>
-                <div class="kpi-card kpi-blue"><div class="kpi-label">Saldo netto</div><div class="kpi-value">${UI.esc(UI.formatCurrency(t.netto))}</div></div>
+                <div class="kpi-card kpi-green" data-chiave="entrata" role="button" tabindex="0" title="Vedi i movimenti"><div class="kpi-label">Entrate</div><div class="kpi-value">${UI.esc(UI.formatCurrency(t.entrate))}</div></div>
+                <div class="kpi-card kpi-red" data-chiave="uscita" role="button" tabindex="0" title="Vedi i movimenti"><div class="kpi-label">Uscite</div><div class="kpi-value">${UI.esc(UI.formatCurrency(t.uscite))}</div></div>
+                <div class="kpi-card kpi-blue" data-chiave="tutti" role="button" tabindex="0" title="Vedi i movimenti"><div class="kpi-label">Saldo netto</div><div class="kpi-value">${UI.esc(UI.formatCurrency(t.netto))}</div></div>
                 <div class="kpi-card kpi-yellow" style="cursor:pointer" onclick="ModAndamento.vaiCoda()"><div class="kpi-label">Non classificati</div><div class="kpi-value">${UI.esc(nc)}</div><div class="kpi-sub">nel periodo · da classificare in tutto: ${UI.esc(_stat.da_classificare)}</div></div>
             </div>
             <div class="chart-card"><div class="chart-card-title">Entrate e uscite per mese</div>
@@ -49,6 +49,14 @@ const ModAndamento = (() => {
                 ${graficoCategorie('Entrate per categoria', 'entrata', _stat.entrate)}
                 ${graficoCategorie('Uscite per categoria', 'uscita', _stat.uscite)}
             </div>`;
+        // Clic su un totale o su un mese: i movimenti che lo compongono
+        Grafici.alClic(box, chiave => {
+            if (chiave.startsWith('mese:')) {
+                const [y, m] = chiave.slice(5).split('-').map(Number), p = periodo();
+                const dal = `${y}-${String(m).padStart(2, '0')}-01`, fine = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+                dettaglio('', '', { dal: dal < p.dal ? p.dal : dal, al: fine > p.al ? p.al : fine }, `${MESI[m - 1]} ${y}`);
+            } else dettaglio(chiave === 'tutti' ? '' : chiave, '', null, { entrata: 'Entrate', uscita: 'Uscite', tutti: 'Tutti i movimenti' }[chiave]);
+        });
     }
 
     /** Barre affiancate entrate/uscite per mese, con la linea del saldo netto. */
@@ -78,7 +86,7 @@ const ModAndamento = (() => {
             const cx = L + slot * i + slot / 2;
             const [anno, mm] = m.mese.split('-');
             const tip = `${MESI[+mm - 1]} ${anno} — entrate ${UI.formatCurrency(m.entrate)}, uscite ${UI.formatCurrency(m.uscite)}, netto ${UI.formatCurrency(m.netto)}`;
-            svg += `<g><title>${UI.esc(tip)}</title>
+            svg += `<g data-chiave="mese:${UI.esc(m.mese)}" role="button" tabindex="0" style="cursor:pointer"><title>${UI.esc(tip)}</title>
                 <rect x="${cx - bw - 1}" y="${y(m.entrate)}" width="${bw}" height="${Math.max(0, y(0) - y(m.entrate))}" rx="2" fill="#10B981"/>
                 <rect x="${cx + 1}" y="${y(m.uscite)}" width="${bw}" height="${Math.max(0, y(0) - y(m.uscite))}" rx="2" fill="#EF4444"/>
                 <rect x="${cx - slot / 2}" y="${T}" width="${slot}" height="${H - T - B}" fill="transparent"/></g>
@@ -112,13 +120,14 @@ const ModAndamento = (() => {
             ${righe || '<div style="color:var(--text-muted);padding:20px;text-align:center">Nessun movimento</div>'}</div>`;
     }
 
-    async function dettaglio(tipo, categoriaId) {
-        const p = periodo();
+    /** Movimenti del periodo (o di p) per tipo e categoria (vuoti = tutti); titolo se non è una categoria. */
+    async function dettaglio(tipo, categoriaId, p = null, titolo = '') {
+        p = p || periodo();
         let list;
         try { list = await Store.api('elenco', 'movimenti', { ...p, tipo, categoria_id: categoriaId }) || []; }
         catch (e) { UI.toast(e.message, 'error'); return; }
-        const nome = categoriaId === 'nessuna' ? 'Non classificato'
-            : ((_stat[tipo === 'entrata' ? 'entrate' : 'uscite'].categorie.find(c => c.id == categoriaId) || {}).nome || '');
+        const nome = titolo || (categoriaId === 'nessuna' ? 'Non classificato'
+            : ((_stat[tipo === 'entrata' ? 'entrate' : 'uscite'].categorie.find(c => c.id == categoriaId) || {}).nome || ''));
         _lista = list;
         const html = `<div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:8px">${UI.formatDate(p.dal)} – ${UI.formatDate(p.al)} · ${list.length} movimenti · clic su un movimento per cambiarne la categoria</div>
             <div style="max-height:460px;overflow-y:auto"><table class="data-table"><tbody>${list.map((m, i) => `<tr style="cursor:pointer" onclick="ModAndamento.cambia(${i})">
