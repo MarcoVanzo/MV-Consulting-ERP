@@ -536,6 +536,10 @@ class CommessaService
                 $this->aggiungiFattura($id, $f);
                 $esito['collegate']++;
                 $esito['commesse'][$id] = true;
+            } elseif (!$f['ricorrente'] && $this->commessaApertaRecente($f)) {
+                // Fattura una tantum e una commessa da offerta o lettera che può contenerla: si sceglie a mano, mai un doppione
+                // (un canone che si ripete non va sulla commessa di un progetto, come in proposta())
+                $esito['da_scegliere']++;
             } else {
                 $intestazione = self::intestazione((string)$f['descrizione']);
                 if (count($mia) >= 2) {
@@ -633,6 +637,29 @@ class CommessaService
             if ($canone || $stessa) $trovate[] = $id;
         }
         return count($trovate) === 1 ? $trovate[0] : null;
+    }
+
+    /**
+     * Commessa dello stesso cliente (e sottocliente, se entrambi indicati) nata da offerta o lettera d'incarico, non
+     * dalle fatture, con data da 180 giorni prima a 31 dopo la fattura e residuo che la contiene. Con le rate diverse
+     * dalla fattura (750 + 750 contro 1.500, acconto del 50% senza percentuale) proposta() non la trova: creare una
+     * commessa nuova farebbe un doppione (09/11/2026, Savino Del Bene).
+     */
+    private function commessaApertaRecente(array $f): bool
+    {
+        $stmt = $this->pdo->prepare("SELECT i.id, i.sottocliente_id, i.data_incarico, i.importo_totale,
+                (SELECT COALESCE(SUM(ff.imponibile), 0) FROM {$this->p}fatture ff WHERE ff.incarico_id = i.id) AS fatturato
+            FROM {$this->p}incarichi i
+            WHERE i.cliente_id = ? AND (i.note IS NULL OR (i.note <> ? AND i.note NOT LIKE ?))");
+        $stmt->execute([(int)$f['cliente_id'], self::NOTA_DA_FATTURE, 'Canone di %']);
+        $data = (string)$f['data_emissione'];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $c) {
+            if ($f['sottocliente_id'] && $c['sottocliente_id'] && (int)$c['sottocliente_id'] !== (int)$f['sottocliente_id']) continue;
+            $g = self::giorni((string)$c['data_incarico'], $data);
+            if ($g > 180 || $g < -31) continue;
+            if ((float)$c['importo_totale'] - (float)$c['fatturato'] >= (float)$f['imponibile'] - 1) return true;
+        }
+        return false;
     }
 
     /**

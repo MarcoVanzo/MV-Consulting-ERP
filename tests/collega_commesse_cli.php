@@ -323,5 +323,26 @@ $f->execute([141, '141/001', '2026-08-02', 12, 'Consulenza agosto', 70, 85.4]);
 $r = risposta(fn() => (new CommesseController())->creaMancanti(['fatture' => '[141]']));
 check('crea_mancanti con elenco valido: solo quella fattura', $r['success'] === true && array_sum(array_intersect_key($r['data'] ?? [], array_flip(['create', 'collegate', 'da_scegliere']))) === 1, $r);
 
+echo "Commesse da offerta con rate diverse dalla fattura: niente doppioni\n";
+// Caso del 09/11/2026: commesse dall'offerta (rate 750 + 750 e 2.400 in una), fatture da 1.500 e 1.200 tre giorni dopo
+$pdo->exec("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (90, 'Club Omega')");
+$pdo->exec("INSERT INTO {$p}incarichi (id, cliente_id, data_incarico, tipo_commessa, descrizione, importo_totale, note)
+    VALUES (190, 90, '2026-11-04', 'sviluppo_software', 'Diretta delle partite', 1500, 'Da offerta OFF-2026-126'),
+           (191, 90, '2026-11-04', 'assistenza', 'Manutenzione annuale del sito', 2400, NULL)");
+$pdo->exec("INSERT INTO {$p}incarichi_rate (incarico_id, ordine, importo, data_prevista) VALUES (190, 1, 750, '2026-11-04'), (190, 2, 750, NULL), (191, 1, 2400, '2026-11-04')");
+$f->execute([190, '80/001', '2026-11-07', 90, 'Sviluppo di un sistema per le dirette nel sito del club', 1500, 1830]);
+$f->execute([191, '81/001', '2026-11-07', 90, 'Servizio di manutenzione ed esercizio del sito per dodici mesi', 1200, 1464]);
+$prima = (int)$pdo->query("SELECT COUNT(*) FROM {$p}incarichi WHERE cliente_id = 90")->fetchColumn();
+$es = $svc->creaCommesseMancanti([190, 191]);
+check('nessuna commessa nuova accanto a quelle dall\'offerta', $es['create'] === 0
+    && (int)$pdo->query("SELECT COUNT(*) FROM {$p}incarichi WHERE cliente_id = 90")->fetchColumn() === $prima, $es);
+check('le due fatture restano da collegare a mano', $es['da_scegliere'] === 2, $es);
+$pdo->exec("INSERT INTO {$p}clienti (id, ragione_sociale) VALUES (91, 'Club Sigma')");
+$pdo->exec("INSERT INTO {$p}incarichi (id, cliente_id, data_incarico, tipo_commessa, descrizione, importo_totale)
+    VALUES (192, 91, '2025-01-10', 'altro', 'Progetto vecchio', 5000), (193, 91, '2025-02-10', 'altro', 'Altro progetto vecchio', 3000)");
+$f->execute([192, '82/001', '2026-11-07', 91, 'Lavoro nuovo senza offerta', 900, 1098]);
+$es = $svc->creaCommesseMancanti([192]);
+check('commesse aperte ma di quasi due anni prima: si crea la nuova', $es['create'] === 1, $es);
+
 echo "\n$ok ok, $ko falliti\n";
 exit($ko ? 1 : 0);
