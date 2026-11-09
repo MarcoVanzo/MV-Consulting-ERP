@@ -105,7 +105,8 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   interne diventano savepoint (`MvPdo` in `Database.php`) e `Response::json` lancia `RispostaCatturata` invece
   di uscire. Il codice con effetti fuori dal DB (AI, email) controlla `Anteprima::attiva()`.
   Uno **ZIP** (es. «Scarica» di Sportello) si apre nel browser (`ModImporta.apriZip`, `DecompressionStream`) e ogni file
-  dentro entra come se fosse stato trascinato da solo.
+  dentro entra come se fosse stato trascinato da solo. Le ricevute e notifiche SDI (`…_RC_001.xml`, `_MC_`, `_NS_`… o radice
+  `RicevutaConsegna`, `NotificaScarto`…) si saltano con un avviso (`ricevutaSdi`): gli export dei portali le mettono accanto alle fatture.
   Fatture XML/p7m entrano da `importa/fattura` (`ImportaController`: emessa o ricevuta da `AZIENDA_PARTITA_IVA`).
   Fatture **PDF** (emesse o ricevute) da `importa/fattura_pdf`: `api/Shared/FatturaPdf.php` legge a regole il testo di pdf.js
   (con gli a capo), capisce il verso dalla prima P.IVA dopo «Spett./Destinatario» e ricostruisce una FatturaPA minima che
