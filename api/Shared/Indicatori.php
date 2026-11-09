@@ -190,6 +190,40 @@ class Indicatori
     }
 
     /**
+     * Le fatture non pagate dell'anno dietro le fasce di anzianitaCrediti(), una per riga con la sua fascia e i giorni
+     * di ritardo (negativi o zero: non scaduta), dalla più in ritardo. Importi lordi: le note di credito aperte
+     * compaiono come righe negative nella fascia della loro scadenza, mentre le fasce le compensano per cliente.
+     */
+    public function fattureAperte(int $anno, ?array $esclusi = null): array
+    {
+        $esclusi = $esclusi ?? $this->clientiEsclusi();
+        [$where, $params] = $this->periodo('f.data_emissione', $anno);
+        if ($esclusi) $where .= ' AND COALESCE(f.cliente_id, 0) NOT IN (' . implode(',', array_map('intval', $esclusi)) . ')';
+        $stmt = $this->pdo->prepare("SELECT f.id, f.numero_fattura, f.data_emissione, f.data_scadenza, f.importo_totale,
+                COALESCE(c.ragione_sociale, 'Senza cliente') AS cliente_nome
+            FROM {$this->p}fatture f LEFT JOIN {$this->p}clienti c ON c.id = f.cliente_id
+            WHERE f.stato <> 'pagata' AND $where");
+        $stmt->execute($params);
+        $utc = new DateTimeZone('UTC');
+        $oggi = new DateTimeImmutable($this->oggi, $utc);
+        $righe = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $f) {
+            $g = -1;
+            if ($f['data_scadenza']) {
+                $diff = (new DateTimeImmutable(substr((string)$f['data_scadenza'], 0, 10), $utc))->diff($oggi);
+                $g = $diff->invert ? -$diff->days : $diff->days;
+            }
+            $f['giorni'] = $g;
+            $f['fascia'] = $g <= 0 ? 'a_scadere' : ($g <= 30 ? 'giorni_1_30' : ($g <= 60 ? 'giorni_31_60' : 'oltre_60'));
+            $f['id'] = (int)$f['id'];
+            $f['importo_totale'] = round((float)$f['importo_totale'], 2);
+            $righe[] = $f;
+        }
+        usort($righe, fn($a, $b) => [$b['giorni'], $a['data_emissione']] <=> [$a['giorni'], $b['data_emissione']]);
+        return $righe;
+    }
+
+    /**
      * Ponte fra Vendite e Fatture per un anno, imponibile, senza i clienti esclusi dai conteggi della vista Fatture
      * (stesso filtro di fatture(), così il totale è il suo «Fatturato»):
      * fatturato dell'anno = su_commesse (fatture di ogni data sulle commesse dell'anno) − fuori_anno (quelle emesse in

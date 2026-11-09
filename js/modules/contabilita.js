@@ -4,13 +4,13 @@
  * Le fatture non pagate si vedono col filtro «Scadute»/«Da incassare»: non c'è più una scheda a parte.
  */
 const ModContabilita = (() => {
-    let _fatture = [], _kpis = {}, _mensile = [], _clienti = [], _esclusi = [], _statoFilter = '';
+    let _fatture = [], _aperte = [], _tutte = null, _top = [], _kpis = {}, _mensile = [], _clienti = [], _esclusi = [], _statoFilter = '';
 
     async function load() {
         const year = UI.anno();
         try {
             const ov = await Store.api('overview','contabilita',{year});
-            _kpis = ov?.kpis||{}; _mensile = ov?.mensile||[]; _clienti = ov?.clienti||[]; _esclusi = (ov?.esclusi||[]).map(Number);
+            _kpis = ov?.kpis||{}; _tutte = null; _mensile = ov?.mensile||[]; _clienti = ov?.clienti||[]; _esclusi = (ov?.esclusi||[]).map(Number);
             renderKpis(); renderChart(); renderFiltroClienti(); renderGrafici(ov);
             const params = {year}; if (_statoFilter) params.stato = _statoFilter;
             const list = await Store.api('list','contabilita',params);
@@ -20,10 +20,11 @@ const ModContabilita = (() => {
 
     function renderKpis() {
         document.getElementById('contabilita-kpis').innerHTML = `
-            <div class="kpi-card kpi-blue"><div class="kpi-label">Fatturato</div><div class="kpi-value">${UI.formatCurrency(_kpis.totale)}</div><div class="kpi-sub">IVA inclusa · ${UI.plurale(_kpis.num_documenti,'fattura','fatture')} · imponibile ${UI.formatCurrency(_kpis.fatturato)}</div></div>
-            <div class="kpi-card kpi-green"><div class="kpi-label">Incassato</div><div class="kpi-value">${UI.formatCurrency(_kpis.incassato)}</div><div class="kpi-sub">IVA inclusa · ${UI.plurale(_kpis.num_incassati,'fattura saldata','fatture saldate')}</div></div>
-            <div class="kpi-card kpi-yellow"><div class="kpi-label">Da incassare</div><div class="kpi-value">${UI.formatCurrency(_kpis.da_incassare)}</div><div class="kpi-sub">IVA inclusa · ${UI.plurale(_kpis.num_da_incassare,'fattura','fatture')}</div></div>
-            <div class="kpi-card kpi-red"><div class="kpi-label">Scaduto</div><div class="kpi-value">${UI.formatCurrency(_kpis.scaduto)}</div><div class="kpi-sub">${UI.plurale(_kpis.num_scaduti,'fattura','fatture')} oltre la scadenza</div></div>`;
+            <div class="kpi-card kpi-blue" data-chiave="fatturato" role="button" tabindex="0" title="Vedi le fatture"><div class="kpi-label">Fatturato</div><div class="kpi-value">${UI.formatCurrency(_kpis.totale)}</div><div class="kpi-sub">IVA inclusa · ${UI.plurale(_kpis.num_documenti,'fattura','fatture')} · imponibile ${UI.formatCurrency(_kpis.fatturato)}</div></div>
+            <div class="kpi-card kpi-green" data-chiave="incassato" role="button" tabindex="0" title="Vedi le fatture"><div class="kpi-label">Incassato</div><div class="kpi-value">${UI.formatCurrency(_kpis.incassato)}</div><div class="kpi-sub">IVA inclusa · ${UI.plurale(_kpis.num_incassati,'fattura saldata','fatture saldate')}</div></div>
+            <div class="kpi-card kpi-yellow" data-chiave="da_incassare" role="button" tabindex="0" title="Vedi le fatture"><div class="kpi-label">Da incassare</div><div class="kpi-value">${UI.formatCurrency(_kpis.da_incassare)}</div><div class="kpi-sub">IVA inclusa · ${UI.plurale(_kpis.num_da_incassare,'fattura','fatture')}</div></div>
+            <div class="kpi-card kpi-red" data-chiave="scaduto" role="button" tabindex="0" title="Vedi le fatture"><div class="kpi-label">Scaduto</div><div class="kpi-value">${UI.formatCurrency(_kpis.scaduto)}</div><div class="kpi-sub">${UI.plurale(_kpis.num_scaduti,'fattura','fatture')} oltre la scadenza</div></div>`;
+        Grafici.alClic(document.getElementById('contabilita-kpis'), apriKpi);
     }
 
     // ── Clienti nel conteggio (KPI e grafico): la scelta è salvata sul server ──
@@ -66,21 +67,75 @@ const ModContabilita = (() => {
         const box = document.getElementById('contabilita-grafici');
         if (!box || !window.Grafici) return;
         const a = ov?.anzianita || {};
+        _aperte = ov?.anzianita_fatture || [];
         const tot = parseFloat(_kpis.fatturato) || 0;
-        const top = (ov?.top_clienti || []).map((c, i) => ({ etichetta: c.ragione_sociale || 'Senza cliente', valore: parseFloat(c.fatturato) || 0,
+        const top = (ov?.top_clienti || []).map((c, i) => ({ chiave: 'cliente:' + (c.cliente_id ?? 0), etichetta: c.ragione_sociale || 'Senza cliente', valore: parseFloat(c.fatturato) || 0,
             colore: Grafici.PALETTE[i] }));
+        _top = (ov?.top_clienti || []).map(c => Number(c.cliente_id ?? 0));
         const altri = tot - top.reduce((x, c) => x + c.valore, 0);
-        if (altri > 0.5) top.push({ etichetta: 'Tutti gli altri', valore: altri, colore: 'var(--text-muted)' });
+        if (altri > 0.5) top.push({ chiave: 'cliente:altri', etichetta: 'Tutti gli altri', valore: altri, colore: 'var(--text-muted)' });
         const primo = tot > 0 && top.length ? Math.round(top[0].valore / tot * 100) : 0;
         box.innerHTML = [
             Grafici.barre('Da quanto aspetti i soldi', 'Da incassare per giorni dalla scadenza · IVA inclusa', [
-                { etichetta: 'Non ancora scadute', valore: parseFloat(a.a_scadere) || 0, colore: 'var(--accent-green)' },
-                { etichetta: 'Scadute da 1–30 giorni', valore: parseFloat(a.giorni_1_30) || 0, colore: 'var(--accent-warm)' },
-                { etichetta: 'Scadute da 31–60 giorni', valore: parseFloat(a.giorni_31_60) || 0, colore: 'var(--accent-purple)' },
-                { etichetta: 'Scadute da oltre 60 giorni', valore: parseFloat(a.oltre_60) || 0, colore: 'var(--accent-red)', evidenzia: (parseFloat(a.oltre_60) || 0) > 0 },
+                { chiave: 'a_scadere', etichetta: 'Non ancora scadute', valore: parseFloat(a.a_scadere) || 0, colore: 'var(--accent-green)' },
+                { chiave: 'giorni_1_30', etichetta: 'Scadute da 1–30 giorni', valore: parseFloat(a.giorni_1_30) || 0, colore: 'var(--accent-warm)' },
+                { chiave: 'giorni_31_60', etichetta: 'Scadute da 31–60 giorni', valore: parseFloat(a.giorni_31_60) || 0, colore: 'var(--accent-purple)' },
+                { chiave: 'oltre_60', etichetta: 'Scadute da oltre 60 giorni', valore: parseFloat(a.oltre_60) || 0, colore: 'var(--accent-red)', evidenzia: (parseFloat(a.oltre_60) || 0) > 0 },
             ], { vuoto: 'Nessuna fattura da incassare' }),
             Grafici.ciambella('Quanto pesa ogni cliente', `Fatturato ${UI.anno()} · imponibile`, top, { testo: primo + '%', sotto: 'primo cliente' }),
         ].join('');
+        Grafici.alClic(box, (chiave, voce) => {
+            if (chiave.startsWith('cliente:')) apriCliente(chiave.slice(8), top.find(t => t.chiave === chiave)?.etichetta || '');
+            else apriFascia(chiave, voce.querySelector('.graf-etich')?.textContent || '');
+        });
+    }
+
+    // ── Dettaglio dietro KPI e grafici: le fatture che fanno quel numero ──
+    const COL_FATTURA = [
+        { titolo: 'N. fattura', valore: f => f.numero_fattura },
+        { titolo: 'Data', valore: f => UI.formatDate(f.data_emissione) },
+        { titolo: 'Cliente', valore: f => f.cliente_nome || '—' },
+    ];
+    const colScadenza = { titolo: 'Scadenza', valore: f => f.data_scadenza ? UI.formatDate(f.data_scadenza) : '—' };
+    const colImponibile = { titolo: 'Imponibile', destra: true, valore: f => UI.formatCurrency(f.imponibile), somma: f => f.imponibile };
+    const colTotale = { titolo: 'Totale', destra: true, valore: f => UI.formatCurrency(f.importo_totale), somma: f => f.importo_totale };
+
+    /** Tutte le fatture dell'anno senza i clienti esclusi dai conteggi (come KPI e grafici), lette una volta per load */
+    async function tutte() {
+        if (!_tutte) _tutte = (await Store.api('list', 'contabilita', { year: UI.anno() }) || []);
+        return _tutte.filter(f => !_esclusi.includes(Number(f.cliente_id || 0)));
+    }
+
+    async function apriKpi(chiave) {
+        const oggi = UI.todayLocal();
+        const fa = await tutte();
+        const aperte = fa.filter(f => f.stato !== 'pagata');
+        if (chiave === 'fatturato') Grafici.elenco(`Fatture ${UI.anno()}`, [...COL_FATTURA, colImponibile, colTotale], fa);
+        else if (chiave === 'incassato') Grafici.elenco('Fatture incassate', [...COL_FATTURA, { titolo: 'Pagata il', valore: f => f.data_pagamento ? UI.formatDate(f.data_pagamento) : '—' }, colTotale], fa.filter(f => f.stato === 'pagata'));
+        else if (chiave === 'da_incassare') Grafici.elenco('Fatture da incassare', [...COL_FATTURA, colScadenza, colTotale], aperte,
+            { nota: 'IVA inclusa. Le note di credito aperte sono righe negative.' });
+        else if (chiave === 'scaduto') Grafici.elenco('Fatture scadute', [...COL_FATTURA, colScadenza, colTotale], aperte.filter(f => f.data_scadenza && f.data_scadenza.slice(0, 10) < oggi));
+    }
+
+    async function apriCliente(id, nome) {
+        const fa = await tutte();
+        const righe = id === 'altri' ? fa.filter(f => !_top.includes(Number(f.cliente_id || 0))) : fa.filter(f => Number(f.cliente_id || 0) === Number(id));
+        Grafici.elenco(id === 'altri' ? 'Tutti gli altri clienti' : nome, [...COL_FATTURA, { titolo: 'Stato', html: f => UI.statoBadge(f.stato) }, colImponibile], righe);
+    }
+
+    async function apriMese(m) {
+        const mm = String(m).padStart(2, '0');
+        const righe = (await tutte()).filter(f => (f.data_emissione || '').slice(5, 7) === mm);
+        Grafici.elenco(`Fatture di ${['', 'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'][m]} ${UI.anno()}`,
+            [...COL_FATTURA, { titolo: 'Stato', html: f => UI.statoBadge(f.stato) }, colImponibile, colTotale], righe);
+    }
+
+    // Le fatture dietro una fascia di «Da quanto aspetti i soldi»
+    function apriFascia(chiave, titolo) {
+        const ritardo = g => g > 0 ? `${g} ${g === 1 ? 'giorno' : 'giorni'}` : g === 0 ? 'scade oggi' : '—';
+        Grafici.elenco(titolo, [...COL_FATTURA, colScadenza, { titolo: 'Ritardo', valore: f => ritardo(f.giorni) }, colTotale],
+            _aperte.filter(f => f.fascia === chiave),
+            { nota: 'IVA inclusa. Nel grafico le note di credito aperte si compensano per cliente: il totale può differire di poco.' });
     }
 
     function renderChart() {
@@ -92,11 +147,12 @@ const ModContabilita = (() => {
         for (let i=1;i<=12;i++) { const f=_mensile.find(m=>parseInt(m.mese)===i); fullData.push({mese:i,fatturato:f?parseFloat(f.fatturato):0,pagato:f?parseFloat(f.pagato):0,num_fatture:f?parseInt(f.num_fatture):0}); }
         container.innerHTML = fullData.map(m => {
             const hF=Math.max((m.fatturato/maxVal)*100,4), hP=Math.max((m.pagato/maxVal)*100,0);
-            return `<div class="chart-column-container" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative;height:100%">
+            return `<div class="chart-column-container" data-chiave="${m.mese}" role="button" tabindex="0" title="Vedi le fatture del mese" style="cursor:pointer;flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative;height:100%">
                 <div class="custom-tooltip"><span class="tooltip-title">${mesi[m.mese]}</span><div class="tooltip-row"><span>Fatturato:</span> <span class="tooltip-val">${UI.formatCurrency(m.fatturato)}</span></div><div class="tooltip-row"><span>Incassato:</span> <span class="tooltip-val" style="color:var(--accent-green)">${UI.formatCurrency(m.pagato)}</span></div></div>
                 <div style="flex:1;width:100%;display:flex;align-items:flex-end;gap:2px"><div class="chart-bar" style="height:${hF}%;opacity:0.4"></div><div class="chart-bar" style="height:${hP>0?hP+'%':'0%'};background:var(--accent-green)"></div></div>
                 <span style="font-size:0.6rem;color:var(--text-muted)">${mesi[m.mese]}</span></div>`;
         }).join('');
+        Grafici.alClic(container, m => apriMese(+m));
     }
 
     function renderTable() {

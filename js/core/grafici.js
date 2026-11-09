@@ -14,12 +14,14 @@ const Grafici = (() => {
     const colore = (c, i) => (typeof c === 'string' && COLORE_VALIDO.test(c.trim())) ? c.trim() : PALETTE[i % PALETTE.length];
     /** Percentuale della parte sul totale, per legende e descrizioni */
     const quota = (v, tot) => tot > 0 ? Math.round(Math.max(0, v) / tot * 100) : 0;
+    /** Attributi di una voce con chiave: cliccabile, raggiungibile da tastiera (vedi alClic) */
+    const clic = chiave => chiave === undefined || chiave === null ? '' : ` data-chiave="${esc(chiave)}" role="button" tabindex="0" title="Vedi il dettaglio"`;
 
     function scheda(titolo, sotto, corpo, extra = '') {
         return `<section class="graf ${extra}"><header><h3>${esc(titolo)}</h3>${sotto ? `<p>${esc(sotto)}</p>` : ''}</header>${corpo}</section>`;
     }
 
-    /** Barre orizzontali: righe [{etichetta, valore, nota?, colore?, evidenzia?}], valori in euro. */
+    /** Barre orizzontali: righe [{etichetta, valore, nota?, colore?, evidenzia?, chiave?}], valori in euro. */
     function barre(titolo, sotto, righe, { vuoto = 'Nessun dato' } = {}) {
         const max = Math.max(...righe.map(r => Math.abs(r.valore) || 0), 0);
         if (!righe.length || max <= 0) return scheda(titolo, sotto, `<div class="graf-vuoto">${esc(vuoto)}</div>`);
@@ -29,19 +31,20 @@ const Grafici = (() => {
             const q = r.valore > 0 ? quota(r.valore, tot) : 0;
             // Valore zero o negativo: niente barra (la traccia vuota dice già «niente»)
             const barra = r.valore > 0 ? `<div class="graf-barra" style="width:${pct.toFixed(1)}%;background:${colore(r.colore, i)}"></div>` : '';
-            return `<li class="${r.evidenzia ? 'evidenzia' : ''}">
+            // Riga con chiave: cliccabile (chi disegna il grafico ascolta il clic con alClic)
+            return `<li class="${r.evidenzia ? 'evidenzia' : ''}"${clic(r.chiave)}>
                 <div class="graf-riga"><span class="graf-etich">${esc(r.etichetta)}</span><span class="graf-val">${euro(r.valore)}${r.nota ? ` · ${esc(r.nota)}` : q ? ` · ${q}%` : ''}</span></div>
                 <div class="graf-traccia">${barra}</div></li>`;
         }).join('')}</ul>`);
     }
 
-    /** Una barra divisa in parti [{etichetta, valore, colore}] con legenda: quanto del totale è in ogni stato. */
+    /** Una barra divisa in parti [{etichetta, valore, colore, chiave?}] con legenda: quanto del totale è in ogni stato. */
     function impilata(titolo, sotto, parti) {
         const tot = parti.reduce((a, p) => a + Math.max(0, p.valore), 0);
         if (tot <= 0) return scheda(titolo, sotto, '<div class="graf-vuoto">Nessun dato</div>');
         return scheda(titolo, sotto, `<div class="graf-impilata" role="img" aria-label="${esc(parti.map(p => `${p.etichetta} ${euro(p.valore)}`).join(', '))}">
             ${parti.map((p, i) => p.valore > 0 ? `<div style="flex:${p.valore};background:${colore(p.colore, i)}" title="${esc(p.etichetta)}: ${esc(euro(p.valore))}"></div>` : '').join('')}</div>
-            <ul class="graf-legenda">${parti.map((p, i) => `<li><i style="background:${colore(p.colore, i)}"></i>${esc(p.etichetta)} <b>${euro(p.valore)}</b> <span>${quota(p.valore, tot)}%</span></li>`).join('')}</ul>`);
+            <ul class="graf-legenda">${parti.map((p, i) => `<li${clic(p.chiave)}><i style="background:${colore(p.colore, i)}"></i>${esc(p.etichetta)} <b>${euro(p.valore)}</b> <span>${quota(p.valore, tot)}%</span></li>`).join('')}</ul>`);
     }
 
     /**
@@ -75,7 +78,7 @@ const Grafici = (() => {
                 <text x="50" y="51" text-anchor="middle" class="graf-c1">${esc(centro.testo)}</text>
                 <text x="50" y="64" text-anchor="middle" class="graf-c2">${esc(centro.sotto)}</text>
             </svg>
-            <ul class="graf-legenda">${parti.map((p, i) => `<li><i style="background:${colore(p.colore, i)}"></i>${esc(p.etichetta)} <b>${euro(p.valore)}</b> <span>${quota(p.valore, tot)}%</span></li>`).join('')}</ul></div>`);
+            <ul class="graf-legenda">${parti.map((p, i) => `<li${clic(p.chiave)}><i style="background:${colore(p.colore, i)}"></i>${esc(p.etichetta)} <b>${euro(p.valore)}</b> <span>${quota(p.valore, tot)}%</span></li>`).join('')}</ul></div>`);
     }
 
     /** Barre divergenti: per ogni riga la quota sul numero (sinistra) e sul valore (destra). */
@@ -85,13 +88,50 @@ const Grafici = (() => {
         return scheda(titolo, sotto, `<div class="graf-div-testa"><span>% ${esc(sinistra)}</span><span>% ${esc(destra)}</span></div>
             <ul class="graf-div">${righe.map((r, i) => {
                 const pn = Math.max(0, r.n) / totN * 100, pv = Math.max(0, r.valore) / totV * 100;
-                return `<li><div class="graf-div-sx"><span>${Math.round(pn)}%</span>${pn > 0 ? `<div class="graf-barra" style="width:${pn.toFixed(1)}%;background:var(--text-muted)"></div>` : ''}</div>
+                return `<li${clic(r.chiave)}><div class="graf-div-sx"><span>${Math.round(pn)}%</span>${pn > 0 ? `<div class="graf-barra" style="width:${pn.toFixed(1)}%;background:var(--text-muted)"></div>` : ''}</div>
                     <span class="graf-div-etich" title="${esc(r.etichetta)}: ${r.n} · ${esc(euro(r.valore))}">${esc(r.etichetta)}</span>
                     <div class="graf-div-dx">${pv > 0 ? `<div class="graf-barra" style="width:${pv.toFixed(1)}%;background:${colore(r.colore, i)}"></div>` : ''}<span>${Math.round(pv)}%</span></div></li>`;
             }).join('')}</ul>`);
     }
 
-    return { barre, impilata, ciambella, divergenti, PALETTE };
+    /**
+     * Clic (o Invio/Spazio) su una voce [data-chiave] dentro box: fn(chiave, voce). Un solo ascoltatore per box,
+     * che chiama sempre l'ultima fn passata: si può richiamare a ogni ridisegno.
+     */
+    function alClic(box, fn) {
+        if (!box) return;
+        box._grafClic = fn;
+        if (box._grafAscolta) return;
+        box._grafAscolta = true;
+        const via = e => {
+            const v = e.target.closest('[data-chiave]');
+            if (!v || !box.contains(v) || e.target.closest('a, button:not([data-chiave]), input, select')) return;
+            if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            box._grafClic?.(v.dataset.chiave, v);
+        };
+        box.addEventListener('click', via);
+        box.addEventListener('keydown', via);
+    }
+
+    /**
+     * Finestra con l'elenco dietro una voce: colonne [{titolo, valore(r) → testo, html?(r) → HTML, destra?, somma?}].
+     * Le colonne con somma hanno il totale in fondo. o: { nota, apri(r) } — con apri ogni riga si apre al clic.
+     */
+    function elenco(titolo, colonne, righe, o = {}) {
+        if (!righe.length) { UI.toast('Nessun elemento da mostrare'); return; }
+        const cella = (c, r) => c.html ? c.html(r) : esc(c.valore(r) ?? '—');
+        const somme = colonne.some(c => c.somma);
+        const tot = c => righe.reduce((a, r) => a + (parseFloat(c.somma(r)) || 0), 0);
+        const html = `<div style="max-height:60vh;overflow:auto"><table class="data-table"><thead><tr>${colonne.map(c => `<th${c.destra ? ' class="text-right"' : ''}>${esc(c.titolo)}</th>`).join('')}</tr></thead>
+            <tbody>${righe.map((r, i) => `<tr${o.apri ? ` data-riga="${i}" style="cursor:pointer"` : ''}>${colonne.map(c => `<td${c.destra ? ' class="text-right" style="white-space:nowrap"' : ''}>${cella(c, r)}</td>`).join('')}</tr>`).join('')}</tbody>
+            ${somme ? `<tfoot><tr>${colonne.map((c, i) => `<td${c.destra ? ' class="text-right" style="white-space:nowrap"' : ''}><b>${c.somma ? esc(euro(tot(c))) : i === 0 ? esc(righe.length + (righe.length === 1 ? ' elemento' : ' elementi')) : ''}</b></td>`).join('')}</tr></tfoot>` : ''}</table></div>
+            ${o.nota ? `<div style="font-size:0.8rem;color:var(--text-muted);margin-top:10px">${esc(o.nota)}</div>` : ''}`;
+        UI.openModal(titolo, html, null, { readOnly: true, wide: true });
+        if (o.apri) document.querySelectorAll('#modal-body tr[data-riga]').forEach(tr => tr.addEventListener('click', () => o.apri(righe[+tr.dataset.riga])));
+    }
+
+    return { barre, impilata, ciambella, divergenti, alClic, elenco, PALETTE };
 })();
 
 window.Grafici = Grafici;

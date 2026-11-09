@@ -94,6 +94,16 @@ $fa = $ind->fatture(2026, []);
 check('anzianità crediti: fasce − credito residuo = da incassare', uguale($an['a_scadere'] + $an['giorni_1_30'] + $an['giorni_31_60'] + $an['oltre_60'] - $an['note_credito_residue'], $fa['da_incassare']), [$an, $fa]);
 check('anzianità crediti: le fasce scadute sono lo scaduto', uguale($an['giorni_1_30'] + $an['giorni_31_60'] + $an['oltre_60'], $fa['scaduto']), [$an, $fa]);
 check('anzianità crediti: nessuna fascia negativa', min($an['a_scadere'], $an['giorni_1_30'], $an['giorni_31_60'], $an['oltre_60']) >= 0 && uguale($an['note_credito_residue'], 244), $an);
+// Le fatture dietro le fasce: stesse fatture, una fascia ciascuna; per fascia la somma lorda arriva alla fascia compensata
+$pdo->exec("CREATE TABLE {$p}clienti (id INTEGER PRIMARY KEY, ragione_sociale TEXT)");
+$ap = $ind->fattureAperte(2026, []);
+$pdo->exec("DROP TABLE {$p}clienti");
+$perFascia = [];
+foreach ($ap as $r) $perFascia[$r['fascia']] = ($perFascia[$r['fascia']] ?? 0) + $r['importo_totale'];
+check('fatture aperte: ogni fascia nel grafico ha le sue fatture', !array_filter(['a_scadere', 'giorni_1_30', 'giorni_31_60', 'oltre_60'],
+    fn($k) => $an[$k] > 0.005 && empty($perFascia[$k])), [$an, $perFascia]);
+check('fatture aperte: somma lorda = da incassare', uguale(array_sum($perFascia), $fa['da_incassare']), [$perFascia, $fa]);
+check('fatture aperte: dalla più in ritardo', $ap && $ap[0]['giorni'] >= end($ap)['giorni'], $ap);
 $pt = $ind->ponteFatturato(2026, []);
 check('ponte Vendite → Fatture: i termini tornano', uguale($pt['su_commesse'] - $pt['fuori_anno'] + $pt['commesse_altri_anni'] + $pt['senza_commessa'], $pt['fatturato']), $pt);
 check('ponte: fatture dell\'anno di tutti i clienti', uguale($pt['fatturato'], (float)$pdo->query("SELECT SUM(imponibile) FROM {$p}fatture WHERE data_emissione LIKE '2026%'")->fetchColumn()), $pt);

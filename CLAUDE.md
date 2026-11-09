@@ -90,6 +90,9 @@ Segreti in `.env` / `.env.deploy` **non tracciati** — non committarli.
   ciambella, divergenti). Vendite › Commesse: da fatturare, valore per tipo, numero contro valore; sopra, il «ponte» con
   Fatture (`Indicatori::ponteFatturato`). Fatture: anzianità del da incassare (`Indicatori::anzianitaCrediti`) e peso dei
   clienti. Il margine previsto si mostra solo sulle commesse con costi partner registrati.
+  Dal 09/11/2026 ogni voce con `chiave` (righe, legende, KPI con `data-chiave`) è cliccabile: `Grafici.alClic(box, fn)`
+  ascolta il clic, `Grafici.elenco(titolo, colonne, righe)` apre la finestra con i record dietro il numero (fatture, commesse,
+  movimenti; le fasce da `Indicatori::fattureAperte`). Un KPI o un grafico nuovo ha il suo dettaglio. Offerte: il KPI filtra l'elenco.
 - **Note spese** (dal 28/09/2026): tutte le spese di trasferta stanno in `spese` (v082; vitto e alloggio delle
   trasferte migrati da v083, le colonne `trasferte.vitto/alloggio` non si usano più). `api/Shared/Spese.php`: spese
   per giorno messe sulle righe di trasferta (indennità), abbinamento alla carta (stesso importo, ±3 giorni, solo senza
