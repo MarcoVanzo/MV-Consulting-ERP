@@ -56,7 +56,7 @@ const ModOfferte = (() => {
             <div class="kpi-grid">
                 <div class="kpi-card kpi-blue" data-chiave="inviata" role="button" tabindex="0" title="Filtra l'elenco"><div class="kpi-label">In trattativa</div><div class="kpi-value">${UI.formatCurrency(k.pipeline)}</div><div class="kpi-sub">${UI.plurale(k.num_inviate, 'offerta inviata', 'offerte inviate')}${k.num_bozze ? ` · ${k.num_bozze} in bozza` : ''}</div></div>
                 <div class="kpi-card kpi-green" data-chiave="accettata" role="button" tabindex="0" title="Filtra l'elenco"><div class="kpi-label">Accettato</div><div class="kpi-value">${UI.formatCurrency(k.accettato)}</div><div class="kpi-sub">${UI.plurale(k.num_accettate, 'offerta', 'offerte')}</div></div>
-                <div class="kpi-card kpi-yellow" data-chiave="rifiutata" role="button" tabindex="0" title="Filtra l'elenco"><div class="kpi-label">Conversione</div><div class="kpi-value">${k.tasso_conversione !== null && k.tasso_conversione !== undefined ? k.tasso_conversione + '%' : '—'}</div><div class="kpi-sub">accettate su chiuse · ${UI.plurale(k.num_perse, 'persa', 'perse')}</div></div>
+                <div class="kpi-card kpi-yellow" data-chiave="rifiutata" role="button" tabindex="0" title="Vedi le offerte perse"><div class="kpi-label">Conversione</div><div class="kpi-value">${k.tasso_conversione !== null && k.tasso_conversione !== undefined ? k.tasso_conversione + '%' : '—'}</div><div class="kpi-sub">accettate su chiuse · ${UI.plurale(k.num_perse, 'persa', 'perse')}</div></div>
                 <div class="kpi-card kpi-purple" data-chiave="lead" role="button" tabindex="0" title="Filtra l'elenco"><div class="kpi-label">Pipeline pesata</div><div class="kpi-value">${UI.formatCurrency(k.pipeline_pesata)}</div><div class="kpi-sub">${UI.plurale(k.num_lead, 'lead', 'lead')} · valore × probabilità</div></div>
             </div>
             <div class="table-container">
@@ -81,7 +81,15 @@ const ModOfferte = (() => {
     /** Nasconde le righe il cui cliente (o sottocliente) non contiene il testo cercato. */
     function filtraCliente(box) {
         const q = _cerca.trim().toLowerCase();
-        box.querySelectorAll('tbody tr[data-cli]').forEach(tr => { tr.hidden = !!q && !tr.dataset.cli.includes(q); });
+        let visibili = 0;
+        box.querySelectorAll('tbody tr[data-cli]').forEach(tr => { tr.hidden = !!q && !tr.dataset.cli.includes(q); if (!tr.hidden) visibili++; });
+        // Nessuna riga per il testo cercato: lo si dice, invece di lasciare la tabella vuota
+        const tbody = box.querySelector('tbody');
+        let vuoto = tbody?.querySelector('tr.off-nessuna');
+        if (q && !visibili && tbody?.querySelector('tr[data-cli]')) {
+            if (!vuoto) { vuoto = document.createElement('tr'); vuoto.className = 'off-nessuna'; tbody.append(vuoto); }
+            vuoto.innerHTML = `<td colspan="8"><div class="empty-state"><i class="ph ph-magnifying-glass"></i><h3>Nessuna offerta per «${UI.esc(_cerca.trim())}»</h3><p>Controlla il nome o togli il filtro di stato</p></div></td>`;
+        } else vuoto?.remove();
     }
 
     function rows() {

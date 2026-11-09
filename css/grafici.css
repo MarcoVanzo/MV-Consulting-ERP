@@ -15,8 +15,14 @@
 /* Voci con dettaglio (data-chiave, vedi Grafici.alClic): grafici, legende e KPI */
 .graf [data-chiave], .kpi-card[data-chiave] { cursor: pointer; border-radius: 6px; }
 .graf-barre [data-chiave], .graf-div [data-chiave] { margin: -4px -6px; padding: 4px 6px; }
-.graf [data-chiave]:hover, .graf [data-chiave]:focus-visible { background: rgba(127,127,127,.08); outline: none; }
-.kpi-card[data-chiave]:hover, .kpi-card[data-chiave]:focus-visible { outline: 1px solid var(--border-subtle); outline-offset: 0; }
+.graf [data-chiave]:hover, .graf [data-chiave]:focus-visible { background: rgba(127,127,127,.08); }
+/* Da tastiera serve un anello che si veda (il bordo tenue del passaggio del mouse non basta) */
+.graf [data-chiave]:focus-visible, .kpi-card[data-chiave]:focus-visible, .chart-column-container[data-chiave]:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.kpi-card[data-chiave]:hover { outline: 1px solid var(--border-subtle); outline-offset: 0; }
+/* Righe apribili delle finestre di dettaglio (Grafici.elenco) */
+#modal-body tr[data-riga] { cursor: pointer; }
+#modal-body tr[data-riga]:hover { background: rgba(127,127,127,.06); }
+#modal-body tr[data-riga]:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
 .graf-barre .evidenzia .graf-etich, .graf-barre .evidenzia .graf-val { color: var(--accent-red); font-weight: 600; }
 
 .graf-impilata { display: flex; height: 22px; border-radius: 6px; overflow: hidden; gap: 2px; }
